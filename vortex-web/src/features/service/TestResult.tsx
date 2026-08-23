@@ -138,13 +138,13 @@ export function TestResult({ test, production }: { test: Test; production: Produ
           )}
         </div>
 
-        {/* The system under test's own CPU/memory — full width, below the metrics/objectives
+        {/* The service's own CPU/memory — full width, below the metrics/objectives
             pairing rather than a third column beside them, since it answers a different question
             ("did it run out of something?") than either. Absent entirely, not an empty state, when
             this run observed none: a test row with nothing to say about resources should look
             exactly like one that never asked, not like a placeholder waiting to fill in. */}
         {evidence && evidence.resources.service.length > 0 && (
-          <SystemUnderTest signals={evidence.resources.service} />
+          <ServiceResources signals={evidence.resources.service} />
         )}
       </div>
     </div>
@@ -158,33 +158,41 @@ export function TestResult({ test, production }: { test: Test; production: Produ
  * away, so this block can't be misread as "the load generator kept up" when it's actually silent
  * on that question.
  */
-function SystemUnderTest({ signals }: { signals: ResourceSignal[] }) {
+function ServiceResources({ signals }: { signals: ResourceSignal[] }) {
   return (
     <div className={classes.resources}>
       <Text size="xs" c="dimmed" tt="uppercase" fw={600} className={classes.resourcesHeading}>
-        System under test
+        Service resources
       </Text>
       <div className={classes.resourceRows}>
-        {signals.map((signal) => (
-          <div key={signal.id} className={classes.resourceRow}>
-            <div className={classes.resourceName}>
-              <Text size="sm">{signal.name}</Text>
-              <Text size="xs" c="dimmed">
-                {signal.kindLabel}
+        {signals.map((signal) => {
+          // CPU is reported as a fraction of one core (Docker's own convention — "0.5" means half
+          // a core), which reads as a bare, unitless number without this. Every other kind's
+          // display already carries its own unit (MB, etc.), so this is CPU-only, appended once
+          // rather than to both the value and the limit.
+          const unit = signal.kind === 'CPU' ? ' cores' : '';
+          return (
+            <div key={signal.id} className={classes.resourceRow}>
+              <div className={classes.resourceName}>
+                <Text size="sm">{signal.name}</Text>
+                <Text size="xs" c="dimmed">
+                  {signal.kindLabel}
+                </Text>
+              </div>
+              <Text size="sm" className={classes.resourceValue}>
+                {signal.display}
+                {signal.limitDisplay && <span className={classes.dim}> / {signal.limitDisplay}</span>}
+                {unit && <span className={classes.dim}>{unit}</span>}
+              </Text>
+              <UtilizationBar fraction={signal.utilisationFraction} atLimit={signal.atItsLimit} />
+              <Text size="xs" className={signal.atItsLimit ? classes.fail : classes.dim}>
+                {signal.utilisationDisplay
+                  ? `${signal.utilisationDisplay} of limit${signal.atItsLimit ? ' — at limit' : ''}`
+                  : 'no limit published'}
               </Text>
             </div>
-            <Text size="sm" className={classes.resourceValue}>
-              {signal.display}
-              {signal.limitDisplay && <span className={classes.dim}> / {signal.limitDisplay}</span>}
-            </Text>
-            <UtilizationBar fraction={signal.utilisationFraction} atLimit={signal.atItsLimit} />
-            <Text size="xs" className={signal.atItsLimit ? classes.fail : classes.dim}>
-              {signal.utilisationDisplay
-                ? `${signal.utilisationDisplay} of limit${signal.atItsLimit ? ' — at limit' : ''}`
-                : 'no limit published'}
-            </Text>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -450,7 +450,7 @@ describe('a test\'s inline result', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows the system under test\'s own CPU/memory once the run\'s evidence resolves', () => {
+  it('shows the service\'s own CPU/memory once the run\'s evidence resolves, with CPU stated in cores', () => {
     runQueryResult = aRunQueryResult({
       resources: {
         present: true,
@@ -462,7 +462,7 @@ describe('a test\'s inline result', () => {
             kindLabel: 'CPU',
             scope: 'SERVICE',
             scopeLabel: 'System under test',
-            display: '0.29 / 0.5',
+            display: '0.29',
             limitDisplay: '0.5',
             utilisationDisplay: '59%',
             atItsLimit: false,
@@ -476,7 +476,7 @@ describe('a test\'s inline result', () => {
             kindLabel: 'Memory',
             scope: 'SERVICE',
             scopeLabel: 'System under test',
-            display: '184.9 MB / 512.0 MB',
+            display: '184.9 MB',
             limitDisplay: '512.0 MB',
             utilisationDisplay: '36%',
             atItsLimit: false,
@@ -493,17 +493,25 @@ describe('a test\'s inline result', () => {
 
     renderWithProviders(<TestResult test={aTest()} production={null} />);
 
-    expect(screen.getByText('System under test')).toBeInTheDocument();
+    expect(screen.getByText('Service resources')).toBeInTheDocument();
     expect(screen.getByText('Container CPU')).toBeInTheDocument();
+    // CPU carries its unit (a fraction of one core) once, after the value/limit pair — never on
+    // Memory, whose display already carries its own unit (MB).
+    expect(
+      screen.getByText((_content, node) => node?.textContent === '0.29 / 0.5 cores'),
+    ).toBeInTheDocument();
     expect(screen.getByText('59% of limit')).toBeInTheDocument();
     expect(screen.getByText('Container memory')).toBeInTheDocument();
+    expect(
+      screen.getByText((_content, node) => node?.textContent === '184.9 MB / 512.0 MB'),
+    ).toBeInTheDocument();
     expect(screen.getByText('36% of limit')).toBeInTheDocument();
   });
 
-  it('omits the system-under-test block entirely when this run observed no service resources', () => {
+  it('omits the service-resources block entirely when this run observed no service resources', () => {
     renderWithProviders(<TestResult test={aTest()} production={null} />);
 
-    expect(screen.queryByText('System under test')).not.toBeInTheDocument();
+    expect(screen.queryByText('Service resources')).not.toBeInTheDocument();
   });
 
   it('does not repeat the evidence-conditions list — that belongs to the full report now', () => {
