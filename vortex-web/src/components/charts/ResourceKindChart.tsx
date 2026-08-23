@@ -73,6 +73,7 @@ export function ResourceKindChart({
   markers = [],
   origin: originOverride,
   syncId,
+  domainMax,
 }: {
   plot: ResourceKindPlot;
   height?: number;
@@ -85,6 +86,9 @@ export function ResourceKindChart({
   origin?: number;
   /** Recharts' own cross-chart hover sync id. Omitted (no sync) by default. */
   syncId?: string;
+  /** The x-axis span (seconds from `origin`) every chart in the figure should share — see
+   *  {@code TimelineChart}'s own doc on this. */
+  domainMax?: number;
 }) {
   const withPoints = plot.series.filter((series) => series.points.length > 0);
   if (withPoints.length === 0) return null;
@@ -107,7 +111,7 @@ export function ResourceKindChart({
   // the reader's eye.
   const scopeByName = new Map(withPoints.map((series) => [seriesKey(series.signalId, series.providerId), series.scope]));
 
-  const lastElapsedSeconds = data[data.length - 1].elapsedSeconds;
+  const lastElapsedSeconds = domainMax ?? data[data.length - 1].elapsedSeconds;
   const markerLines = verticalMarkerLines(markers, origin, lastElapsedSeconds);
 
   const scopesPresent = Array.from(new Set(withPoints.map((series) => series.scope)));
@@ -149,7 +153,7 @@ export function ResourceKindChart({
         valueFormatter={valueFormatter}
         xAxisProps={{
           type: 'number',
-          domain: ['dataMin', 'dataMax'],
+          domain: domainMax !== undefined ? [0, domainMax] : ['dataMin', 'dataMax'],
           tickFormatter: formatElapsed,
         }}
         tooltipProps={{ labelFormatter: (label) => formatElapsed(Number(label)) }}

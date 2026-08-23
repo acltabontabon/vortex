@@ -78,6 +78,7 @@ export function TimelineChart({
   markers,
   origin: originOverride,
   syncId,
+  domainMax,
 }: {
   plot: TimelinePlot;
   height?: number;
@@ -99,6 +100,11 @@ export function TimelineChart({
   /** Recharts' own cross-chart hover sync id — every chart sharing one value gets one moving cursor.
    *  Omitted (no sync) by default, so existing callers are unaffected. */
   syncId?: string;
+  /** The x-axis span (seconds from `origin`) every chart in the figure should share — without it,
+   *  each chart falls back to its own `dataMin`/`dataMax`, which draws the same marker instant at a
+   *  different x on each track whenever the tracks don't all start and end on the same sample. See
+   *  {@code RunTimeline}, which computes this once across every track and passes it to all of them. */
+  domainMax?: number;
 }) {
   if (!plot.hasData) return null;
 
@@ -111,7 +117,7 @@ export function TimelineChart({
   const hasReference = plot.referencePoints.some((p) => p.value !== null);
   const valueFormatter = formatValue(plot.unitSymbol);
 
-  const lastElapsedSeconds = data[data.length - 1].elapsedSeconds;
+  const lastElapsedSeconds = domainMax ?? data[data.length - 1].elapsedSeconds;
   const allMarkers: ChartMarker[] = [
     ...(markAtIso ? [{ atIso: markAtIso, label: markLabel }] : []),
     ...(markers ?? []),
@@ -136,7 +142,7 @@ export function TimelineChart({
       valueFormatter={valueFormatter}
       xAxisProps={{
         type: 'number',
-        domain: ['dataMin', 'dataMax'],
+        domain: domainMax !== undefined ? [0, domainMax] : ['dataMin', 'dataMax'],
         tickFormatter: formatElapsed,
       }}
       tooltipProps={{ labelFormatter: (label) => formatElapsed(Number(label)) }}

@@ -44,6 +44,7 @@ export function RunTimeline({
   if (!hasAnyTrack) return null;
 
   const origin = sharedOrigin(timeline, resourceTimeline);
+  const domainMax = origin !== null ? sharedDomainMax(origin, timeline, resourceTimeline) : null;
   const syncId = `run-timeline-${executionId}`;
 
   const markers: ChartMarker[] = [
@@ -64,7 +65,14 @@ export function RunTimeline({
             <Text size="sm" fw={650} mb={4}>
               Workload — offered vs achieved
             </Text>
-            <TimelineChart plot={throughputPlot} height={130} origin={origin ?? undefined} syncId={syncId} markers={markers} />
+            <TimelineChart
+              plot={throughputPlot}
+              height={130}
+              origin={origin ?? undefined}
+              domainMax={domainMax ?? undefined}
+              syncId={syncId}
+              markers={markers}
+            />
           </div>
         )}
         {latencyPlot && (
@@ -72,7 +80,14 @@ export function RunTimeline({
             <Text size="sm" fw={650} mb={4}>
               Latency — p95 vs objective
             </Text>
-            <TimelineChart plot={latencyPlot} height={130} origin={origin ?? undefined} syncId={syncId} markers={markers} />
+            <TimelineChart
+              plot={latencyPlot}
+              height={130}
+              origin={origin ?? undefined}
+              domainMax={domainMax ?? undefined}
+              syncId={syncId}
+              markers={markers}
+            />
           </div>
         )}
         {cpuPlot && (
@@ -80,7 +95,14 @@ export function RunTimeline({
             <Text size="sm" fw={650} mb={4}>
               CPU — system under test
             </Text>
-            <ResourceKindChart plot={cpuPlot} height={110} origin={origin ?? undefined} syncId={syncId} markers={markers} />
+            <ResourceKindChart
+              plot={cpuPlot}
+              height={110}
+              origin={origin ?? undefined}
+              domainMax={domainMax ?? undefined}
+              syncId={syncId}
+              markers={markers}
+            />
           </div>
         )}
         {memorySutPlot && (
@@ -88,7 +110,14 @@ export function RunTimeline({
             <Text size="sm" fw={650} mb={4}>
               Memory — system under test
             </Text>
-            <ResourceKindChart plot={memorySutPlot} height={110} origin={origin ?? undefined} syncId={syncId} markers={markers} />
+            <ResourceKindChart
+              plot={memorySutPlot}
+              height={110}
+              origin={origin ?? undefined}
+              domainMax={domainMax ?? undefined}
+              syncId={syncId}
+              markers={markers}
+            />
           </div>
         )}
       </Stack>
@@ -128,4 +157,33 @@ function sharedOrigin(timeline: TimelineEvidence, resourceTimeline: ResourceTime
   }
   if (isoCandidates.length === 0) return null;
   return toEpochSeconds(isoCandidates.reduce((earliest, iso) => (iso < earliest ? iso : earliest)));
+}
+
+/**
+ * The latest instant, in elapsed seconds from `origin`, across every track — the x-axis span every
+ * track's chart is told to render against explicitly, rather than each auto-scaling to its own
+ * `dataMin`/`dataMax`. Tracks sample at different rates and can start or end on different instants
+ * (CPU/memory sampling starting a few seconds after the first k6 point, say), so without a shared
+ * span the same marked instant lands at a different x on each track even though they share one
+ * origin — the "traffic jump" line stops lining up across a synced figure.
+ */
+function sharedDomainMax(origin: number, timeline: TimelineEvidence, resourceTimeline: ResourceTimelineEvidence): number | null {
+  let latest: number | null = null;
+  const consider = (atIso: string) => {
+    const elapsed = toEpochSeconds(atIso) - origin;
+    if (latest === null || elapsed > latest) latest = elapsed;
+  };
+  for (const plot of timeline.plots) {
+    for (const point of [...plot.points, ...plot.referencePoints]) {
+      if (point.atIso) consider(point.atIso);
+    }
+  }
+  for (const plot of resourceTimeline.plots) {
+    for (const series of plot.series) {
+      for (const point of series.points) {
+        consider(point.atIso);
+      }
+    }
+  }
+  return latest;
 }
