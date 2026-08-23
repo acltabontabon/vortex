@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Text } from '@mantine/core';
 import type { Production, Verdict, TestRow as Test } from '../../api/workspace';
-import type { RunEvidence } from '../../api/run';
+import type { ResourceSignal, RunEvidence } from '../../api/run';
 import { useRunQuery } from '../../api/run';
 import { UnknownInline } from '../../components/Unknown';
 import { InfoPopover } from '../../components/InfoPopover';
@@ -11,6 +11,7 @@ import { CapacityRangeFigure } from '../../components/charts/CapacityRangeFigure
 import { TimeSeriesFigure } from '../../components/charts/TimeSeriesFigure';
 import { StageLadder } from '../../components/charts/StageLadder';
 import { LoadSummary } from '../../components/charts/LoadSummary';
+import { UtilizationBar } from '../../components/charts/UtilizationBar';
 import { chooseVisualization, rangeReferenceCaption, type VisualizationPlan } from '../../lib/testVisualization';
 import { shortRelativeTime } from '../../lib/testState';
 import classes from './TestResult.module.css';
@@ -136,6 +137,54 @@ export function TestResult({ test, production }: { test: Test; production: Produ
             </div>
           )}
         </div>
+
+        {/* The system under test's own CPU/memory — full width, below the metrics/objectives
+            pairing rather than a third column beside them, since it answers a different question
+            ("did it run out of something?") than either. Absent entirely, not an empty state, when
+            this run observed none: a test row with nothing to say about resources should look
+            exactly like one that never asked, not like a placeholder waiting to fill in. */}
+        {evidence && evidence.resources.service.length > 0 && (
+          <SystemUnderTest signals={evidence.resources.service} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The service's own CPU/memory for this run — never the load generator's. `evidence.resources`
+ * carries three scopes (service, generator, generatorHost); this draws only `service`, the one
+ * scope this row's test can be judged against. The other two stay on the full report, one click
+ * away, so this block can't be misread as "the load generator kept up" when it's actually silent
+ * on that question.
+ */
+function SystemUnderTest({ signals }: { signals: ResourceSignal[] }) {
+  return (
+    <div className={classes.resources}>
+      <Text size="xs" c="dimmed" tt="uppercase" fw={600} className={classes.resourcesHeading}>
+        System under test
+      </Text>
+      <div className={classes.resourceRows}>
+        {signals.map((signal) => (
+          <div key={signal.id} className={classes.resourceRow}>
+            <div className={classes.resourceName}>
+              <Text size="sm">{signal.name}</Text>
+              <Text size="xs" c="dimmed">
+                {signal.kindLabel}
+              </Text>
+            </div>
+            <Text size="sm" className={classes.resourceValue}>
+              {signal.display}
+              {signal.limitDisplay && <span className={classes.dim}> / {signal.limitDisplay}</span>}
+            </Text>
+            <UtilizationBar fraction={signal.utilisationFraction} atLimit={signal.atItsLimit} />
+            <Text size="xs" className={signal.atItsLimit ? classes.fail : classes.dim}>
+              {signal.utilisationDisplay
+                ? `${signal.utilisationDisplay} of limit${signal.atItsLimit ? ' — at limit' : ''}`
+                : 'no limit published'}
+            </Text>
+          </div>
+        ))}
       </div>
     </div>
   );

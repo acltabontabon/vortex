@@ -450,6 +450,62 @@ describe('a test\'s inline result', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows the system under test\'s own CPU/memory once the run\'s evidence resolves', () => {
+    runQueryResult = aRunQueryResult({
+      resources: {
+        present: true,
+        service: [
+          {
+            id: 'container-cpu',
+            name: 'Container CPU',
+            kind: 'CPU',
+            kindLabel: 'CPU',
+            scope: 'SERVICE',
+            scopeLabel: 'System under test',
+            display: '0.29 / 0.5',
+            limitDisplay: '0.5',
+            utilisationDisplay: '59%',
+            atItsLimit: false,
+            describe: 'Container CPU at 59% of limit',
+            utilisationFraction: 0.59,
+          },
+          {
+            id: 'container-memory',
+            name: 'Container memory',
+            kind: 'MEMORY',
+            kindLabel: 'Memory',
+            scope: 'SERVICE',
+            scopeLabel: 'System under test',
+            display: '184.9 MB / 512.0 MB',
+            limitDisplay: '512.0 MB',
+            utilisationDisplay: '36%',
+            atItsLimit: false,
+            describe: 'Container memory at 36% of limit',
+            utilisationFraction: 0.36,
+          },
+        ],
+        generator: [],
+        generatorHost: [],
+        generatorObserved: false,
+        gaps: [],
+      },
+    });
+
+    renderWithProviders(<TestResult test={aTest()} production={null} />);
+
+    expect(screen.getByText('System under test')).toBeInTheDocument();
+    expect(screen.getByText('Container CPU')).toBeInTheDocument();
+    expect(screen.getByText('59% of limit')).toBeInTheDocument();
+    expect(screen.getByText('Container memory')).toBeInTheDocument();
+    expect(screen.getByText('36% of limit')).toBeInTheDocument();
+  });
+
+  it('omits the system-under-test block entirely when this run observed no service resources', () => {
+    renderWithProviders(<TestResult test={aTest()} production={null} />);
+
+    expect(screen.queryByText('System under test')).not.toBeInTheDocument();
+  });
+
   it('does not repeat the evidence-conditions list — that belongs to the full report now', () => {
     renderWithProviders(<TestResult test={aTest()} production={null} />);
 

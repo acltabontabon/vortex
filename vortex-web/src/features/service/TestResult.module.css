@@ -235,3 +235,55 @@
     border-left: 1px solid var(--border-subtle);
   }
 }
+
+/* The service's own CPU/memory for this run — a full-width block below the metrics/objectives
+   pairing rather than a third column beside them, since it answers a different question ("did it
+   run out of something?") than either one does. */
+.resources {
+  margin-top: 1.1rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.resourcesHeading {
+  margin-bottom: 0.5rem;
+}
+
+.resourceRows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* One row per signal: name and kind, then value/limit, then the fill bar, then the percentage —
+   the same four-column rhythm the full report's own resource table uses, so this reads as the
+   same instrument rather than a different, competing one. */
+.resourceRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(70px, 130px) auto;
+  gap: 0.9rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.resourceRow:last-child {
+  border-bottom: none;
+}
+
+.resourceName {
+  min-width: 0;
+}
+
+.resourceValue {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.dim {
+  color: var(--mantine-color-dimmed);
+}
+
+.fail {
+  color: var(--mantine-color-fail-6);
+}
