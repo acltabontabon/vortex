@@ -436,7 +436,15 @@ describe('a test\'s inline result', () => {
       },
     });
 
-    renderWithProviders(<TestResult test={aTest()} production={null} />);
+    // Not Average load — its own LoadSummary instrument already states each objective inline (see
+    // the test below), so this table would just repeat it. Breakpoint has no such instrument, which
+    // is exactly why this table exists at all.
+    renderWithProviders(
+      <TestResult
+        test={aTest({ testType: 'BREAKPOINT', testTypeLabel: 'Breakpoint' })}
+        production={null}
+      />,
+    );
 
     expect(screen.getByText('p95 latency below 200 ms')).toBeInTheDocument();
     expect(screen.getByText('48 ms')).toBeInTheDocument();
@@ -448,6 +456,39 @@ describe('a test\'s inline result', () => {
         (_content, node) => node?.textContent === '12% — exceeded during the ramp',
       ),
     ).toBeInTheDocument();
+  });
+
+  it('states each objective once for Average load, inline in the summary — never a second table repeating it', () => {
+    runQueryResult = aRunQueryResult({
+      acceptance: {
+        hasObjectives: true,
+        results: [
+          {
+            describe: 'p95 latency below 200 ms',
+            verdict: 'PASS',
+            verdictLabel: 'Pass',
+            observed: '48 ms',
+            note: null,
+            kind: 'LATENCY',
+            observedPosition: 0.24,
+          },
+        ],
+        absenceExplanation: null,
+      },
+    });
+
+    // Default fixture is Average load — the one kind whose own instrument (LoadSummary) already
+    // states this.
+    renderWithProviders(<TestResult test={aTest()} production={null} />);
+
+    // LoadSummary's own line: describe and observed joined in one sentence, not split across a
+    // table's cells.
+    expect(
+      screen.getByText((_content, node) => node?.textContent === 'p95 latency below 200 ms — 48 ms'),
+    ).toBeInTheDocument();
+    // The table's own separate-cell rendering of the same fact must not also be on the page.
+    expect(screen.queryByText('p95 latency below 200 ms', { selector: 'td' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Objective' })).not.toBeInTheDocument();
   });
 
   it('shows the service\'s own CPU/memory once the run\'s evidence resolves, with CPU stated in cores', () => {

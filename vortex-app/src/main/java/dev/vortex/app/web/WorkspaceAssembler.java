@@ -16,6 +16,7 @@ import dev.vortex.app.web.WorkspaceDtos.SourceDto;
 import dev.vortex.app.web.WorkspaceDtos.TargetDto;
 import dev.vortex.app.web.WorkspaceDtos.TestRowDto;
 import dev.vortex.app.web.WorkspaceDtos.TestTypeDto;
+import dev.vortex.app.web.WorkspaceDtos.TestTypeEvidenceDto;
 import dev.vortex.core.analysis.DeterministicSummary;
 import dev.vortex.core.application.CapacityService;
 import dev.vortex.core.application.PlanResolutionException;
@@ -50,6 +51,7 @@ import dev.vortex.core.workload.Workload;
 import dev.vortex.core.workload.WorkloadSource;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -388,6 +390,88 @@ public class WorkspaceAssembler {
                         (int) configuration.workloads().stream()
                                 .filter(workload -> workload.type() == type).count()))
                 .toList();
+    }
+
+    // ---------------------------------------------------------------- evidence by test type
+
+    /**
+     * Every test type's own most recent evidence, in the same order {@link #testTypes} teaches them —
+     * one entry per {@code TestType}, always, so a freshly configured service says it has not tested
+     * the other five yet rather than omitting them.
+     *
+     * <p>Built entirely from {@code tests} — already assembled by {@link #tests} for the same request,
+     * each carrying its own {@code testType}, {@code latestRun} and {@code capacity} — so this is a
+     * rollup over numbers the domain already produced, never a second read of execution history and
+     * never a capacity or headroom figure computed here.
+     *
+     * @param running the execution currently in flight for this service, or null. Kept independent of
+     *                whichever test type's evidence is shown, so a first-ever run in progress is never
+     *                confused with — or allowed to overwrite — prior completed evidence
+     */
+    public List<TestTypeEvidenceDto> evidenceByTestType(List<TestRowDto> tests, TestExecution running) {
+        return Arrays.stream(TestType.values())
+                .map(type -> evidenceForType(type, tests, running))
+                .toList();
+    }
+
+    private TestTypeEvidenceDto evidenceForType(TestType type, List<TestRowDto> tests,
+            TestExecution running) {
+
+        TestRowDto latest = tests.stream()
+                .filter(test -> test.testType().equals(type.name()) && test.latestRun() != null)
+                .max(Comparator.comparing(test -> Instant.parse(test.latestRun().isoTimestamp())))
+                .orElse(null);
+
+        boolean isRunning = running != null && running.plan().testType() == type;
+        String runningWorkloadName = isRunning ? running.plan().workloadName() : null;
+
+        if (latest == null) {
+            return new TestTypeEvidenceDto(type.name(), type.label(), false,
+                    null, null, null, null,
+                    null, null, null, null,
+                    null, null, null, null,
+                    isRunning, runningWorkloadName);
+        }
+
+        RunSummaryDto run = latest.latestRun();
+        CapacityDto testCapacity = latest.capacity();
+        Primary primary = primaryFor(type, run, testCapacity);
+
+        return new TestTypeEvidenceDto(type.name(), type.label(), true,
+                run.verdict(), run.verdictLabel(), primary.kind(), primary.value(),
+                testCapacity == null ? null : testCapacity.headroom(),
+                latest.name(), run.environmentName(), run.release(),
+                run.id(), display.freshness(Instant.parse(run.isoTimestamp())), run.isoTimestamp(),
+                run.answer(), isRunning, runningWorkloadName);
+    }
+
+    private record Primary(String kind, String value) {
+    }
+
+    /**
+     * What a test type's evidence is actually about, decided once here from figures the domain already
+     * computed — never re-guessed by a renderer switching on the test type's name.
+     *
+     * <p>Smoke has no meaningful throughput of its own — a pass/fail is the whole story. Average load
+     * and Spike are read from the run itself: the level that run actually used, not today's configured
+     * level, since evidence describes what was measured. Stress and Breakpoint are read from the same
+     * tested-capacity conclusion ({@code CapacityDto}) shown elsewhere on Overview — the highest
+     * sustained level when it is quotable, the domain's own boundary sentence otherwise. Soak is its
+     * measured duration, since "how long did it hold" is the question a soak test answers.
+     */
+    private Primary primaryFor(TestType type, RunSummaryDto run, CapacityDto capacity) {
+        return switch (type) {
+            case SMOKE -> new Primary("OUTCOME", run.verdictLabel());
+            case AVERAGE_LOAD, SPIKE -> new Primary("RATE", run.levelDisplay());
+            case STRESS, BREAKPOINT -> {
+                if (capacity != null && capacity.quotable()) {
+                    yield new Primary("RATE", capacity.compliantLevel());
+                }
+                yield new Primary("OUTCOME",
+                        capacity != null ? capacity.boundaryStatusLabel() : run.verdictLabel());
+            }
+            case SOAK -> new Primary("DURATION", run.durationDisplay());
+        };
     }
 
     // ---------------------------------------------------------------- runs

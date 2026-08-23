@@ -104,7 +104,13 @@ export function TestResult({ test, production }: { test: Test; production: Produ
             hideHeadroom={plan.primitive === 'load-summary'}
           />
 
-          {evidence && evidence.acceptance.hasObjectives && evidence.acceptance.results.length > 0 && (
+          {/* Not for `load-summary` — `LoadSummary` above already renders this exact same list (the
+              same verdict, describe and observed value per objective) as its own "Latency
+              objective"/"Error rate objective" facts. A second table repeating it here said nothing
+              new, just louder. Every other instrument stays silent on per-objective results, so this
+              table remains their only place to see it. */}
+          {plan.primitive !== 'load-summary'
+            && evidence && evidence.acceptance.hasObjectives && evidence.acceptance.results.length > 0 && (
             <div className={classes.objectivesCol}>
               <table className={classes.objectives}>
                 <colgroup>

@@ -176,6 +176,32 @@ public final class WorkspaceDtos {
             boolean saturating, int configuredTestCount) {
     }
 
+    /**
+     * One test type's own most recent evidence, or the honest absence of any — one entry per
+     * {@code TestType}, always, so a service that has never run a kind of test still says so rather
+     * than omitting it.
+     *
+     * @param primaryValueKind {@code RATE}, {@code DURATION} or {@code OUTCOME} — which of
+     *                         {@code primaryValue} and {@code outcomeLabel} is the number this test
+     *                         type is actually about, decided once here rather than re-guessed by
+     *                         every renderer from the test type's identity
+     * @param primaryValue     the domain's own already-phrased figure for what this test type
+     *                         measures — a tested level, a sustained/detected level, or a run's
+     *                         duration. Null when {@code hasEvidence} is false
+     * @param secondaryValue   tested capacity over observed production peak (e.g. {@code "1.76×"}),
+     *                         exactly where {@code CapacityDto.headroom} already supplied one — never
+     *                         computed here. Null wherever the domain did not produce one
+     * @param running          whether a run of this test type is in flight right now — independent of
+     *                         {@code hasEvidence}, so a first-ever run in progress and prior
+     *                         completed evidence are never confused with one another
+     */
+    public record TestTypeEvidenceDto(String testType, String testTypeLabel, boolean hasEvidence,
+            String outcome, String outcomeLabel, String primaryValueKind, String primaryValue,
+            String secondaryValue, String workloadName, String environmentName, String release,
+            String executionId, String relativeTime, String isoTimestamp, String answer,
+            boolean running, String runningWorkloadName) {
+    }
+
     // ---------------------------------------------------------------- runs
 
     /** A run in flight, named just enough for the chrome to link to it. */
@@ -281,7 +307,8 @@ public final class WorkspaceDtos {
             List<String> objectives, CapacityDto capacity, CapacityRangeDto range,
             RunSummaryDto latestRun, List<TestRowDto> tests,
             List<RunSummaryDto> recentRuns, boolean suggestSmokeTest,
-            boolean evidencePredatesRelease, String releaseGapText) {
+            boolean evidencePredatesRelease, String releaseGapText,
+            List<TestTypeEvidenceDto> evidenceByTestType) {
     }
 
     /** The Tests payload. */

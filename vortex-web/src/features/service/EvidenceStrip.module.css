@@ -1,0 +1,132 @@
+/*
+ * A horizontal instrument rail, not six KPI cards: no borders, no backgrounds, only hairline
+ * separators between cells and enough gap that the eye reads distinct readings. Scrolls internally
+ * once it runs out of room rather than shrinking text below a readable size — see `.strip`'s
+ * overflow rule.
+ */
+.strip {
+  display: flex;
+  align-items: stretch;
+  gap: 1.75rem;
+  width: 100%;
+  overflow-x: auto;
+  /* A little breathing room so the last cell's focus ring/hover state isn't clipped by the
+     scroll container's edge. */
+  padding-bottom: 2px;
+}
+
+.cell {
+  /* Grows to share the rail's full width evenly — six cells with dead space at the end read as
+     unfinished, not restrained. `min-width` is the floor that stops a cell shrinking past
+     legibility once there isn't room to grow anyone further; the rail scrolls past that point
+     instead (see `.strip`'s overflow rule). */
+  flex: 1 1 0;
+  min-width: 84px;
+  padding-left: 1.75rem;
+  border-left: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.cell:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+
+/* Evidence old enough that a fresher reading would supersede it in confidence, not in fact — dimmed
+   rather than labelled, since nothing here knows whether the age actually matters. */
+.quiet {
+  opacity: 0.55;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.liveDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mantine-color-live-6);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.running {
+  font-size: 0.9rem;
+  font-style: italic;
+  color: var(--mantine-color-dimmed);
+  margin-top: 3px;
+}
+
+.valueButton {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+}
+
+.valueButton:focus-visible {
+  outline: 2px solid var(--mantine-color-brand-6);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.valueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  /* Sits on the baseline with the value's numerals rather than the text's cap-height. */
+  transform: translateY(-3px);
+}
+
+.value {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Smoke, and Stress/Breakpoint without a quotable boundary: the fact itself is a word, not a
+   number, so it takes the verdict's own colour rather than the neutral numeral treatment above. */
+.outcomeValue {
+  font-size: 1rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.secondary {
+  font-size: 0.72rem;
+  color: var(--mantine-color-dimmed);
+  margin-top: 2px;
+  min-height: 1em;
+}

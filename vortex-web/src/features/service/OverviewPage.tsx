@@ -15,6 +15,7 @@ import { TestRow } from './TestRow';
 import { TestComposer } from './TestComposer';
 import { WorkloadPreviewPanel, type ComposerPreviewSnapshot } from './WorkloadPreviewPanel';
 import { RecentRunsRail } from './RecentRunsRail';
+import { EvidenceStrip } from './EvidenceStrip';
 import { ServiceVortex } from './ServiceVortex';
 import classes from './OverviewPage.module.css';
 
@@ -180,7 +181,7 @@ export function OverviewPage() {
 
   return (
     <div className={classes.page}>
-      <FactGrid overview={data} serviceId={id} />
+      <FactGrid overview={data} serviceId={id} onSelectTest={selectTest} />
 
       <Attention overview={data} serviceId={id} />
 
@@ -279,25 +280,57 @@ function Attention({ overview, serviceId }: { overview: Overview; serviceId: str
 // ---------------------------------------------------------------- fact grid
 
 /**
- * What Vortex knows, as instrumentation rather than a KPI band — and the one canonical place these
- * three figures are stated plainly. Classification ("Isolated") already lives in the service header;
- * source ("Manual") and boundary confidence are real elaboration, not a repeat, so they stay behind
- * the ⓘ rather than on the surface. Nothing here is written a second time anywhere else on Overview
- * except where a later section is visibly labelling its own visualization with it.
+ * What Vortex knows, as instrumentation rather than a KPI band. Production stays the one figure
+ * everything else is read against; beside it sits the evidence rail — this service's own most
+ * recent reading for every test type Vortex supports, not just whichever test happened to run last.
+ * Classification ("Isolated") already lives in the service header, so it is not repeated here.
  *
  * <p>Styled as the header's own continuation, not a section of its own: `.band` matches the header's
  * surface and horizontal inset, closes off the rounded corners the header opened, and cancels
  * `ServiceLayout`'s normal inter-section gap so the two sit flush — one quiet "service context" band
  * rather than a header followed by a second, identically-important-looking block.
  */
-function FactGrid({ overview, serviceId }: { overview: Overview; serviceId: string }) {
+function FactGrid({
+  overview,
+  serviceId,
+  onSelectTest,
+}: {
+  overview: Overview;
+  serviceId: string;
+  onSelectTest: (name: string) => void;
+}) {
   return (
     <div className={classes.band}>
       <div className={classes.factGrid}>
         <ProductionItem overview={overview} serviceId={serviceId} />
-        <CapacityItem overview={overview} />
-        <ObjectivesItem overview={overview} serviceId={serviceId} />
+        <div className={classes.evidenceRailWrap}>
+          <EvidenceStrip evidence={overview.evidenceByTestType} onSelect={onSelectTest} />
+        </div>
       </div>
+      {/* Objectives shrink to a hint rather than a tile of their own once evidence is read per test
+          type — each cell already shows what its own run made of them. The one thing still worth
+          surfacing at band level is the case nothing has: a service with no objectives configured at
+          all, where the domain's own call to action still deserves a place. */}
+      {overview.objectives.length === 0 && <NoObjectivesHint serviceId={serviceId} />}
+    </div>
+  );
+}
+
+function NoObjectivesHint({ serviceId }: { serviceId: string }) {
+  return (
+    <div className={classes.objectivesHint}>
+      <Text size="xs" c="dimmed">
+        No objectives configured — a test still runs, but its result is{' '}
+        <UnknownInline>Not evaluated</UnknownInline>, never a pass.
+      </Text>
+      <Button
+        component="a"
+        href={`/services/${serviceId}/configuration#objectives`}
+        size="xs"
+        variant="default"
+      >
+        Set them
+      </Button>
     </div>
   );
 }
@@ -375,108 +408,6 @@ function ProductionItem({ overview, serviceId }: { overview: Overview; serviceId
                 : 'Entered by hand'}
             {production.observedWindow && ` · ${production.observedWindow}`}
           </Text>
-        </InfoPopover>
-      }
-    />
-  );
-}
-
-function CapacityItem({ overview }: { overview: Overview }) {
-  const { capacity } = overview;
-
-  if (!capacity) {
-    return (
-      <FactItem
-        label="Tested capacity"
-        value={<UnknownInline>Not established</UnknownInline>}
-        info={
-          <InfoPopover icon ariaLabel="What tested capacity means" width={280}>
-            <Text size="xs">
-              A capacity is something a run establishes, not something a service has.
-            </Text>
-          </InfoPopover>
-        }
-      />
-    );
-  }
-
-  return (
-    <FactItem
-      label="Tested capacity"
-      value={
-        capacity.quotable ? (
-          shortRate(capacity.compliantLevel)
-        ) : (
-          // `boundary` is a full sentence (the Attention banner above already states it
-          // verbatim) — the fact tile needs the domain's own short status phrase instead, not a
-          // paragraph rendered as a headline number.
-          <UnknownInline>{capacity.boundaryStatusLabel}</UnknownInline>
-        )
-      }
-      // Which test produced this reading — quiet, but never gated behind a click. Ownership of a
-      // number is not elaboration; it's the fact that made this figure legible in the first place,
-      // so it sits right under the label rather than waiting in the ⓘ for someone to go looking.
-      source={capacity.workloadName}
-      info={
-        <InfoPopover icon ariaLabel="Tested capacity detail" width={280}>
-          <Text size="xs" fw={600} mb={2}>
-            {capacity.quotable ? capacity.label : capacity.boundaryLabel}
-          </Text>
-          <Text size="xs">{capacity.boundaryStatusLabel}</Text>
-          <Text size="xs" c="dimmed">Boundary confidence {capacity.boundaryStrength}</Text>
-          <Text size="xs" c="dimmed" mt={4}>
-            {capacity.workloadName} · Measured {capacity.measuredAt}
-          </Text>
-        </InfoPopover>
-      }
-    />
-  );
-}
-
-function ObjectivesItem({ overview, serviceId }: { overview: Overview; serviceId: string }) {
-  if (overview.objectives.length === 0) {
-    return (
-      <FactItem
-        label="Objectives"
-        value={<UnknownInline>None configured</UnknownInline>}
-        info={
-          <InfoPopover icon ariaLabel="What objectives change" width={280}>
-            <Text size="xs">
-              A test still runs without them. What changes is that its result is Not evaluated,
-              which is not a pass.
-            </Text>
-            <Button
-              component="a"
-              href={`/services/${serviceId}/configuration#objectives`}
-              size="xs"
-              variant="default"
-              mt="xs"
-            >
-              Set them
-            </Button>
-          </InfoPopover>
-        }
-      />
-    );
-  }
-
-  const count = overview.objectives.length;
-  // "N / N" is only ever honest when the most recent run passed — that verdict means every evaluated
-  // objective was met. A fail or an unevaluated run doesn't tell this page how many of the N failed,
-  // and inventing that count is exactly the kind of number Vortex should compute, not guess.
-  const allMet = overview.latestRun?.verdict === 'PASS';
-
-  return (
-    <FactItem
-      label={allMet ? 'Objectives met' : 'Objectives'}
-      value={allMet ? `${count} / ${count}` : `${count} defined`}
-      info={
-        <InfoPopover icon ariaLabel="Configured objectives" width={320}>
-          <ul className={classes.conditionsList}>
-            {overview.objectives.map((objective) => (
-              <li key={objective}>{objective}</li>
-            ))}
-          </ul>
         </InfoPopover>
       }
     />

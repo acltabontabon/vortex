@@ -350,12 +350,10 @@ describe('resource telemetry', () => {
     });
 
     expect(screen.getByText('Run timeline')).toBeInTheDocument();
-    expect(
-      screen.getByText('CPU — system under test vs load generator vs load generator host'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('CPU — system under test')).toBeInTheDocument();
   });
 
-  it('splits memory into three charts — service, generator process/container, and generator host — never overlaid', () => {
+  it('draws only the system under test on the main timeline — the load generator has its own place, one click away', () => {
     const evidence = baseEvidence();
     render({
       ...evidence,
@@ -418,8 +416,12 @@ describe('resource telemetry', () => {
     });
 
     expect(screen.getByText('Memory — system under test')).toBeInTheDocument();
-    expect(screen.getByText('Memory — load generator')).toBeInTheDocument();
-    expect(screen.getByText('Memory — load generator host')).toBeInTheDocument();
+    // The generator's own process/container and its host answer "can this run's evidence be
+    // trusted", not "how did the system under test behave" — that question already has its own
+    // place (the collapsed "Load generator" disclosure), not a second chart competing with the
+    // system under test's own for the same attention on the main path.
+    expect(screen.queryByText('Memory — load generator')).not.toBeInTheDocument();
+    expect(screen.queryByText('Memory — load generator host')).not.toBeInTheDocument();
   });
 
   it('separates the resources table into service, generator process/container, and generator host groups', () => {

@@ -162,6 +162,26 @@
   margin-top: 2px;
 }
 
+/* The evidence rail sits beside Production in the same flex row `.factGrid` lays out, but it owns
+   the space that's left rather than wrapping onto its own line early — the rail's own internal
+   scroll (see EvidenceStrip.module.css) is what handles running out of room, not `.factGrid`'s wrap. */
+.evidenceRailWrap {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.objectivesHint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
 .tests {
   display: flex;
   flex-direction: column;
@@ -172,12 +192,4 @@
   padding: var(--mantine-spacing-md) 0;
 }
 
-.conditionsList {
-  margin: 0;
-  padding-left: 1.05rem;
-  font-size: 0.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 

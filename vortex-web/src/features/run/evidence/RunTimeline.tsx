@@ -27,28 +27,20 @@ export function RunTimeline({
 }) {
   const throughputPlot = timeline.plots.find((p) => p.hasData && /throughput/i.test(p.label));
   const latencyPlot = timeline.plots.find((p) => p.hasData && /latency/i.test(p.label));
-  const cpuPlot = resourceTimeline.plots.find((p) => p.kind === 'CPU');
+  const rawCpuPlot = resourceTimeline.plots.find((p) => p.kind === 'CPU');
   const memoryPlot = resourceTimeline.plots.find((p) => p.kind === 'MEMORY');
 
-  // Memory, unlike CPU, is never drawn as one overlaid chart: a container's own limit and the load
-  // generator's machine are different quantities by orders of magnitude (hundreds of MiB versus tens
-  // of GiB), so one shared axis would flatten the container's own line to invisible. Split by scope,
-  // each on the axis its own numbers actually need — the same "never let generator limits look like
-  // service limits" rule that already keeps their tables apart. The generator's own process/container
-  // memory gets its own chart, separate again from its host's — a shared machine's memory is broader
-  // than either and would flatten both onto an axis built for a much bigger number.
+  // The main timeline is the system under test's own story — how it behaved, not what produced the
+  // load against it. The load generator and its host are a different question ("can this run's
+  // evidence be trusted at all"), and it has its own answer already: the collapsed "Load generator"
+  // disclosure in Evidence & provenance, with its own saturation warnings. Scoping every track here
+  // to `SYSTEM_UNDER_TEST` — rather than overlaying or stacking the generator's own numbers beside
+  // it — keeps the two questions from competing for the same attention on the one path most readers
+  // never leave.
+  const cpuPlot = rawCpuPlot ? scopedPlot(rawCpuPlot, 'SYSTEM_UNDER_TEST') : null;
   const memorySutPlot = memoryPlot ? scopedPlot(memoryPlot, 'SYSTEM_UNDER_TEST') : null;
-  const memoryGeneratorPlot = memoryPlot ? scopedPlot(memoryPlot, 'LOAD_GENERATOR') : null;
-  const memoryGeneratorHostPlot = memoryPlot ? scopedPlot(memoryPlot, 'LOAD_GENERATOR_HOST') : null;
 
-  const hasAnyTrack = Boolean(
-    throughputPlot
-      || latencyPlot
-      || cpuPlot
-      || memorySutPlot
-      || memoryGeneratorPlot
-      || memoryGeneratorHostPlot,
-  );
+  const hasAnyTrack = Boolean(throughputPlot || latencyPlot || cpuPlot || memorySutPlot);
   if (!hasAnyTrack) return null;
 
   const origin = sharedOrigin(timeline, resourceTimeline);
@@ -86,7 +78,7 @@ export function RunTimeline({
         {cpuPlot && (
           <div>
             <Text size="sm" fw={650} mb={4}>
-              CPU — system under test vs load generator vs load generator host
+              CPU — system under test
             </Text>
             <ResourceKindChart plot={cpuPlot} height={110} origin={origin ?? undefined} syncId={syncId} markers={markers} />
           </div>
@@ -97,22 +89,6 @@ export function RunTimeline({
               Memory — system under test
             </Text>
             <ResourceKindChart plot={memorySutPlot} height={110} origin={origin ?? undefined} syncId={syncId} markers={markers} />
-          </div>
-        )}
-        {memoryGeneratorPlot && (
-          <div>
-            <Text size="sm" fw={650} mb={4}>
-              Memory — load generator
-            </Text>
-            <ResourceKindChart plot={memoryGeneratorPlot} height={110} origin={origin ?? undefined} syncId={syncId} markers={markers} />
-          </div>
-        )}
-        {memoryGeneratorHostPlot && (
-          <div>
-            <Text size="sm" fw={650} mb={4}>
-              Memory — load generator host
-            </Text>
-            <ResourceKindChart plot={memoryGeneratorHostPlot} height={110} origin={origin ?? undefined} syncId={syncId} markers={markers} />
           </div>
         )}
       </Stack>

@@ -308,6 +308,8 @@ export interface Overview {
   suggestSmokeTest: boolean;
   evidencePredatesRelease: boolean;
   releaseGapText: string | null;
+  /** Every test type's own most recent evidence, in `TestType` order — always six entries. */
+  evidenceByTestType: TestTypeEvidence[];
 }
 
 export interface Tests {
@@ -315,6 +317,38 @@ export interface Tests {
   tests: TestRow[];
   testTypes: TestTypeInfo[];
   environmentNames: string[];
+}
+
+/**
+ * One test type's own most recent evidence, or the honest absence of any — one entry per
+ * `TestType`, always, so a service that has never run a kind of test still says so.
+ *
+ * `primaryValueKind` says which of `primaryValue`/`outcomeLabel` is the number this test type is
+ * actually about — decided server-side, from figures the domain already computed, never re-derived
+ * here.
+ */
+export interface TestTypeEvidence {
+  testType: string;
+  testTypeLabel: string;
+  hasEvidence: boolean;
+  outcome: Verdict | null;
+  outcomeLabel: string | null;
+  primaryValueKind: 'RATE' | 'DURATION' | 'OUTCOME' | null;
+  primaryValue: string | null;
+  /** Tested capacity over observed production peak (e.g. `"1.76×"`). Null wherever the domain did
+   *  not produce one — never computed on the client. */
+  secondaryValue: string | null;
+  workloadName: string | null;
+  environmentName: string | null;
+  release: string | null;
+  executionId: string | null;
+  relativeTime: string | null;
+  isoTimestamp: string | null;
+  answer: string | null;
+  /** Whether a run of this test type is in flight right now — independent of `hasEvidence`, so a
+   *  first-ever run in progress is never confused with prior completed evidence. */
+  running: boolean;
+  runningWorkloadName: string | null;
 }
 
 // ---------------------------------------------------------------- hooks

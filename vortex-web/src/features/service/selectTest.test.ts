@@ -100,6 +100,7 @@ function anOverview(overrides: Partial<Overview> = {}): Overview {
     suggestSmokeTest: false,
     evidencePredatesRelease: false,
     releaseGapText: null,
+    evidenceByTestType: [],
     ...overrides,
   };
 }

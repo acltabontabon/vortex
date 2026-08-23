@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
-import type { Capacity, Overview, Readiness, RunSummary, TestRow } from '../../api/workspace';
+import type {
+  Capacity,
+  Overview,
+  Readiness,
+  RunSummary,
+  TestRow,
+  TestTypeEvidence,
+} from '../../api/workspace';
 import { OverviewPage } from './OverviewPage';
 
 // TestComposer's own fields/behavior are that component's own test file's job — Overview only
@@ -120,6 +127,29 @@ function aRun(overrides: Partial<RunSummary> = {}): RunSummary {
   };
 }
 
+function anEvidence(overrides: Partial<TestTypeEvidence> = {}): TestTypeEvidence {
+  return {
+    testType: 'BREAKPOINT',
+    testTypeLabel: 'Breakpoint',
+    hasEvidence: false,
+    outcome: null,
+    outcomeLabel: null,
+    primaryValueKind: null,
+    primaryValue: null,
+    secondaryValue: null,
+    workloadName: null,
+    environmentName: null,
+    release: null,
+    executionId: null,
+    relativeTime: null,
+    isoTimestamp: null,
+    answer: null,
+    running: false,
+    runningWorkloadName: null,
+    ...overrides,
+  };
+}
+
 function aTest(overrides: Partial<TestRow> = {}): TestRow {
   return {
     name: 'capacity-check',
@@ -206,12 +236,13 @@ function anOverview(overrides: Partial<Overview> = {}): Overview {
     suggestSmokeTest: false,
     evidencePredatesRelease: false,
     releaseGapText: null,
+    evidenceByTestType: [],
     ...overrides,
   };
 }
 
 describe('the overview page', () => {
-  it('shows production, tested capacity and objectives at a glance', () => {
+  it('shows production peak beside this service\'s own evidence for every test type', () => {
     queryResult = {
       data: anOverview({
         production: {
@@ -228,15 +259,26 @@ describe('the overview page', () => {
           mixCoverage: null,
         },
         objectives: ['p95 < 500 ms'],
-        capacity: aCapacity(),
+        evidenceByTestType: [
+          anEvidence({
+            testType: 'BREAKPOINT',
+            testTypeLabel: 'Breakpoint',
+            hasEvidence: true,
+            outcome: 'PASS',
+            outcomeLabel: 'Pass',
+            primaryValueKind: 'RATE',
+            primaryValue: '50 requests/sec',
+            relativeTime: '44 minutes ago',
+          }),
+        ],
       }),
       isError: false,
     };
     renderWithProviders(<OverviewPage />);
 
     expect(screen.getAllByText('35 req/s').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('50 req/s').length).toBeGreaterThan(0);
-    expect(screen.getByText('1 defined')).toBeInTheDocument();
+    expect(screen.getByText('50 req/s')).toBeInTheDocument();
+    expect(screen.getByText('Breakpoint')).toBeInTheDocument();
   });
 
   it('keeps elaboration behind the ⓘ trigger rather than permanently under the value', async () => {
@@ -312,34 +354,25 @@ describe('the overview page', () => {
     expect(screen.queryByText('Dynatrace')).not.toBeInTheDocument();
   });
 
-  it('states objectives as a ratio once every evaluated objective passed', () => {
+  it('offers to set objectives when none are configured, once — never as a tile of its own', () => {
     queryResult = {
-      data: anOverview({
-        objectives: ['p95 < 500 ms', 'error rate < 1%'],
-        latestRun: aRun({ verdict: 'PASS' }),
-      }),
+      data: anOverview({ objectives: [] }),
       isError: false,
     };
     renderWithProviders(<OverviewPage />);
 
-    expect(screen.getByText('2 / 2')).toBeInTheDocument();
-    expect(screen.getByText('Objectives met')).toBeInTheDocument();
-    // Not restated as a separate word — the ratio already carries the state.
-    expect(screen.queryByText('Pass')).not.toBeInTheDocument();
+    expect(screen.getByText(/No objectives configured/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Set them' })).toBeInTheDocument();
   });
 
-  it('falls back to a plain count when the latest run did not pass — it cannot know the fraction', () => {
+  it('drops the objectives hint once at least one objective is configured', () => {
     queryResult = {
-      data: anOverview({
-        objectives: ['p95 < 500 ms', 'error rate < 1%'],
-        latestRun: aRun({ verdict: 'FAIL' }),
-      }),
+      data: anOverview({ objectives: ['p95 < 500 ms'] }),
       isError: false,
     };
     renderWithProviders(<OverviewPage />);
 
-    expect(screen.getByText('2 defined')).toBeInTheDocument();
-    expect(screen.queryByText(/\d \/ \d/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No objectives configured/)).not.toBeInTheDocument();
   });
 
   it('no longer carries "Last established" or "Evidence limit" in the rail — Evidence already owns both', () => {
@@ -445,17 +478,22 @@ describe('the overview page', () => {
     expect(screen.getByText('The evidence establishes no capacity boundary')).toBeInTheDocument();
   });
 
-  it('shows the domain\'s short boundary status as the fact value, never the full refusal sentence', () => {
+  it('shows the domain\'s short boundary status as a breakpoint cell\'s value, never the full refusal sentence', () => {
     const longSentence =
       'A stable tested capacity boundary was not established by this run: compliance did not '
       + 'move consistently with load.';
     queryResult = {
       data: anOverview({
-        capacity: aCapacity({
-          quotable: false,
-          boundary: longSentence,
-          boundaryStatusLabel: 'not established: results were not monotonic',
-        }),
+        capacity: aCapacity({ quotable: false, boundary: longSentence }),
+        evidenceByTestType: [
+          anEvidence({
+            hasEvidence: true,
+            outcome: 'FAIL',
+            outcomeLabel: 'Fail',
+            primaryValueKind: 'OUTCOME',
+            primaryValue: 'not established: results were not monotonic',
+          }),
+        ],
       }),
       isError: false,
     };
@@ -464,8 +502,8 @@ describe('the overview page', () => {
     expect(
       screen.getByText('not established: results were not monotonic'),
     ).toBeInTheDocument();
-    // The sentence still appears once, in the Attention banner above — never as the fact tile's
-    // own headline value, where a paragraph would break the page's short-value convention.
+    // The sentence still appears once, in the Attention banner above — never repeated as a cell's
+    // own headline value, where a paragraph would break the rail's short-value convention.
     expect(screen.getAllByText(longSentence)).toHaveLength(1);
   });
 

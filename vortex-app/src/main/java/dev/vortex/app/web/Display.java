@@ -10,6 +10,7 @@ import dev.vortex.core.threshold.Verdict;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import org.springframework.stereotype.Component;
@@ -30,6 +31,9 @@ public class Display {
     private static final DateTimeFormatter TIMESTAMP =
             DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm");
     private static final DateTimeFormatter TIME_ONLY = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final DateTimeFormatter COMPACT_DATE = DateTimeFormatter.ofPattern("MMM d");
+    private static final DateTimeFormatter COMPACT_DATE_WITH_YEAR =
+            DateTimeFormatter.ofPattern("MMM d, yyyy");
 
     /**
      * Where a readiness item is satisfied, relative to the service.
@@ -85,6 +89,28 @@ public class Display {
             return days + (days == 1 ? " day ago" : " days ago");
         }
         return timestamp(instant);
+    }
+
+    /**
+     * Relative phrasing for recent evidence, a compact date once it is old enough that "N days ago"
+     * stops being a useful reading — {@code "19 Aug"}, or {@code "19 Aug 2025"} once the year itself
+     * is no longer obvious.
+     *
+     * <p>Never a claim about staleness — nothing here knows whether the age of a reading matters, only
+     * that a dense header cell needs a shorter way to write an old date than {@link #relative} falls
+     * back to. A separate method rather than changing {@link #relative} itself, since every existing
+     * screen using it depends on the full-timestamp fallback it already has.
+     */
+    public String freshness(Instant instant) {
+        if (instant == null) {
+            return "—";
+        }
+        if (Duration.between(instant, Instant.now()).toDays() < 30) {
+            return relative(instant);
+        }
+        ZonedDateTime zoned = instant.atZone(ZoneId.systemDefault());
+        boolean sameYear = zoned.getYear() == Instant.now().atZone(ZoneId.systemDefault()).getYear();
+        return (sameYear ? COMPACT_DATE : COMPACT_DATE_WITH_YEAR).format(zoned);
     }
 
     public String duration(Duration duration) {

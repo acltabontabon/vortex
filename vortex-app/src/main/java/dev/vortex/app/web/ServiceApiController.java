@@ -84,6 +84,9 @@ public class ServiceApiController {
         Map<String, CapacityObservation> capacityByWorkload =
                 capacity.latestPerWorkload(ProjectId.of(id));
 
+        List<TestRowDto> tests = assembler.tests(context.project(), configuration, context.catalog(),
+                context.history(), capacityByWorkload, context.production());
+
         return new OverviewDto(
                 header(context),
                 assembler.production(context.production(), context.catalog()),
@@ -91,8 +94,7 @@ public class ServiceApiController {
                 assembler.capacity(context.observation(), context.headroom()),
                 assembler.range(context.range()),
                 latest == null ? null : assembler.runSummary(latest, null),
-                assembler.tests(context.project(), configuration, context.catalog(),
-                        context.history(), capacityByWorkload, context.production()),
+                tests,
                 recentRuns,
                 // The domain's own next step, not an invented one: a service that has never run
                 // anything is the one case where Vortex has a specific first test to suggest.
@@ -101,7 +103,8 @@ public class ServiceApiController {
                 context.evidencePredatesRelease()
                         ? Display.releaseGapText(context.observation().serviceVersion(),
                                 configuration.serviceVersion())
-                        : null);
+                        : null,
+                assembler.evidenceByTestType(tests, context.running()));
     }
 
     /** Recent runs shown on Overview are capped tighter than a page dedicated to history. */
