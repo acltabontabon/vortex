@@ -26,5 +26,13 @@ export function RunReportPage() {
     );
   }
 
-  return <RunEvidenceView evidence={data.evidence} serviceId={data.plan.projectId} />;
+  return (
+    <RunEvidenceView
+      evidence={data.evidence}
+      serviceId={data.plan.projectId}
+      executionId={id}
+      runAgainHref={null}
+      variant="report"
+    />
+  );
 }

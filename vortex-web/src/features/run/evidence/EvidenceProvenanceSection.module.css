@@ -1,0 +1,42 @@
+.chart {
+  margin: var(--mantine-spacing-sm) 0;
+  overflow-x: auto;
+}
+
+.chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.signalTable {
+  display: flex;
+  flex-direction: column;
+}
+
+.signalRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.signalRow:last-child {
+  border-bottom: none;
+}
+
+.sampleTable {
+  display: flex;
+  flex-direction: column;
+}
+
+.sampleRow {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr 1fr 1fr;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border-default);
+}

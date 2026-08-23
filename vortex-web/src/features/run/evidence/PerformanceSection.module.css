@@ -1,0 +1,28 @@
+.latencyRow {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin: 0.85rem 0;
+}
+
+.latencyTile {
+  min-width: 3.5rem;
+}
+
+.outcomeTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.outcomeTable th,
+.outcomeTable td {
+  text-align: left;
+  padding: 3px 0.75rem 3px 0;
+}
+
+.outcomeTable th {
+  color: var(--mantine-color-dimmed);
+  font-weight: 600;
+}

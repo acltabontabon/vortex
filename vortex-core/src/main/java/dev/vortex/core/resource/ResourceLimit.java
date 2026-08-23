@@ -1,5 +1,6 @@
 package dev.vortex.core.resource;
 
+import dev.vortex.core.metrics.Bytes;
 import dev.vortex.core.metrics.MetricUnit;
 import java.util.Objects;
 
@@ -77,6 +78,9 @@ public record ResourceLimit(double value, MetricUnit unit, LimitBasis basis, Str
     }
 
     public String display() {
+        if (unit == MetricUnit.BYTES) {
+            return Bytes.display(value);
+        }
         return unit.symbol().isBlank()
                 ? trim(value)
                 : trim(value) + unit.symbol();

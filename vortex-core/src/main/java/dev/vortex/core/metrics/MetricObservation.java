@@ -108,33 +108,11 @@ public record MetricObservation(
     /** Display form of an arbitrary value in this observation's unit, for start and end readings. */
     public String display(double reading) {
         if (unit == MetricUnit.BYTES) {
-            return bytes(reading);
+            return Bytes.display(reading);
         }
         String number = reading == Math.rint(reading) && Math.abs(reading) < 1e15
                 ? String.valueOf((long) reading)
                 : String.format(java.util.Locale.ROOT, "%.2f", reading);
         return unit.symbol().isEmpty() ? number : number + " " + unit.symbol();
-    }
-
-    /**
-     * Bytes at a scale a person can read.
-     *
-     * <p>{@code 5419040765 bytes} is technically the measurement and practically unreadable; nobody
-     * comparing a heap against its limit counts digits. Powers of 1024, because that is what a JVM
-     * and an operating system mean by a megabyte.
-     */
-    private static String bytes(double value) {
-        String[] units = {"bytes", "KB", "MB", "GB", "TB"};
-        double scaled = Math.abs(value);
-        int unitIndex = 0;
-        while (scaled >= 1024 && unitIndex < units.length - 1) {
-            scaled /= 1024;
-            unitIndex++;
-        }
-        double signed = value < 0 ? -scaled : scaled;
-        String number = unitIndex == 0
-                ? String.valueOf((long) signed)
-                : String.format(java.util.Locale.ROOT, "%.1f", signed);
-        return number + " " + units[unitIndex];
     }
 }

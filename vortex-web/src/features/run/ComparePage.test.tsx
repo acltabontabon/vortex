@@ -49,7 +49,10 @@ function aComparison(overrides: Partial<CompareResult> = {}): CompareResult {
     supportsRegressionVerdict: true,
     notComparableExplanation: '',
     differences: [],
-    deltas: [{ metric: 'p95 latency', display: '48 ms → 49 ms', percentChangeDisplay: '+2.1%' }],
+    deltas: [{
+      metric: 'p95 latency', display: '48 ms → 49 ms', percentChangeDisplay: '+2.1%',
+      isDegradation: false, percentChange: 2.1,
+    }],
     verdictLabel: 'Unchanged',
     verdictDescription: 'No change large enough to distinguish from run-to-run variance.',
     ...overrides,

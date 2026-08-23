@@ -1,0 +1,51 @@
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--mantine-radius-md);
+  overflow: hidden;
+}
+
+.tile {
+  flex: 1 1 8rem;
+  min-width: 8rem;
+  padding: 0.65rem 0.85rem;
+  border-right: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.tile:last-child {
+  border-right: none;
+}
+
+@media (max-width: 48em) {
+  .tile {
+    flex: 1 1 45%;
+    border-right: none;
+  }
+
+  .tile:nth-child(even) {
+    border-right: none;
+  }
+}
+
+.value {
+  margin-top: 0.25rem;
+}
+
+.tone_pass {
+  color: var(--mantine-color-pass-6);
+}
+
+.tone_fail {
+  color: var(--mantine-color-fail-6);
+}
+
+.tone_warn {
+  color: var(--mantine-color-warn-6);
+}
+
+.tone_neutral {
+  color: var(--mantine-color-neutral-6);
+}

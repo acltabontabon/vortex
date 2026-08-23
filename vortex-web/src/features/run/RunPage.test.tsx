@@ -200,6 +200,7 @@ describe('the run page', () => {
             requestedAtIso: '2026-08-22T09:00:00Z',
             finishedAtDisplay: '22 Aug 2026, 09:10',
             durationDisplay: '10m',
+            testType: 'AVERAGE_LOAD',
           },
           verdict: {
             question: 'Can the service sustain the traffic it typically receives?',
@@ -281,7 +282,7 @@ describe('the run page', () => {
     renderWithProviders(<RunPage />);
 
     expect(screen.getByText('Yes. The service met every objective.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Shareable report' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Share report' })).toHaveAttribute(
       'href',
       '/runs/exec-1/report',
     );

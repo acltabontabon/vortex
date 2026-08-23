@@ -29,6 +29,7 @@ function baseEvidence(): RunEvidence {
     requestedAtIso: '2026-08-22T09:00:00Z',
     finishedAtDisplay: '22 Aug 2026, 09:10',
     durationDisplay: '10m',
+    testType: 'AVERAGE_LOAD',
   },
   verdict: {
     question: 'Can the service sustain the traffic it typically receives?',
@@ -106,7 +107,14 @@ function baseEvidence(): RunEvidence {
 }
 
 function render(evidence: RunEvidence) {
-  renderWithProviders(<RunEvidenceView evidence={evidence} serviceId="checkout" />);
+  renderWithProviders(
+    <RunEvidenceView
+      evidence={evidence}
+      serviceId="checkout"
+      executionId="exec-1"
+      runAgainHref="/services/checkout/run"
+    />,
+  );
 }
 
 /**
@@ -114,18 +122,25 @@ function render(evidence: RunEvidence) {
  *
  * <p>These assert the properties that would be quietly lost, not the layout. Most importantly: an
  * invalid run still renders every measurement a valid one does. What changes is the capacity
- * headline and the Experiment block explaining why - Vortex does not go quiet where a number was
- * expected, it replaces the number with the sentence saying why there is not one.
+ * headline and the evidence-quality block explaining why - Vortex does not go quiet where a number
+ * was expected, it replaces the number with the sentence saying why there is not one.
  */
-describe('the five blocks', () => {
-  it('renders all five, in the order conclusions are read', () => {
+describe('the evidence sections', () => {
+  it('renders in the order conclusions are read', () => {
     render(baseEvidence());
 
     const headings = screen
-      .getAllByRole('heading', { level: 3 })
+      .getAllByRole('heading', { level: 2 })
       .map((heading) => heading.textContent);
 
-    expect(headings).toEqual(['Load', 'Service', 'Resources', 'Capacity', 'Experiment']);
+    expect(headings).toEqual([
+      'What Vortex learned',
+      'Performance',
+      'Objectives',
+      'Resources',
+      'Capacity',
+      'Evidence & provenance',
+    ]);
   });
 
   it('shows dropped work as unmeasured rather than as zero when the engine reported none', () => {
@@ -147,6 +162,12 @@ describe('the five blocks', () => {
     render(baseEvidence());
 
     expect(screen.getByText('How requests failed was not classified')).toBeInTheDocument();
+  });
+
+  it('states the verdict answer once, in the Result block', () => {
+    render(baseEvidence());
+
+    expect(screen.getByText('Yes. The service met every objective.')).toBeInTheDocument();
   });
 });
 
@@ -186,7 +207,7 @@ describe('the run identity\'s target facts', () => {
   it('leaves the engine\'s own Docker-image provenance fact completely unaffected by the target facts', () => {
     // A direct regression assertion: EvidenceProvenance.dockerImage is a distinct concept (the k6
     // engine's own container) from the identity facts above (the run's *target*), and the two must
-    // never be conflated — see the module's own note on ProvenanceSection.
+    // never be conflated.
     const evidence = baseEvidence();
     evidence.identity = {
       ...evidence.identity,
@@ -239,10 +260,13 @@ describe('a run that did not measure what it claims to', () => {
   it('states the grade and the finding that produced it', () => {
     render(invalid());
 
-    expect(screen.getByText('Run quality: Not valid')).toBeInTheDocument();
-    // Twice, deliberately: the Load block warns inline where the traffic is described, and
-    // Experiment explains what the run therefore cannot support. A reader who scrolls to one
-    // without the other should still be told.
+    expect(screen.getByText('Not valid')).toBeInTheDocument();
+    expect(
+      screen.getAllByText('The experiment did not measure what it claims to. Conclusions are withheld.').length
+    ).toBeGreaterThan(0);
+    // Twice, deliberately: Performance warns inline where the traffic is described, and Evidence
+    // quality explains what the run therefore cannot support. A reader who scrolls to one without
+    // the other should still be told.
     expect(
       screen.getAllByText(/could not start 4812 units of work it was asked to start/)
     ).toHaveLength(2);
@@ -251,7 +275,8 @@ describe('a run that did not measure what it claims to', () => {
   it('replaces the capacity headline with the reason there is not one', () => {
     render(invalid());
 
-    expect(screen.getByText('No sustainable capacity was established')).toBeInTheDocument();
+    // Shown both as the capacity section's own headline and as the key-metrics tile's value.
+    expect(screen.getAllByText('Not established').length).toBeGreaterThan(0);
   });
 
   it('still renders every measurement a valid run would', () => {
@@ -259,8 +284,8 @@ describe('a run that did not measure what it claims to', () => {
 
     // Invalidity changes what Vortex states, never what it shows. A page that hid its measurements
     // would make an invalid run look like a failed one.
-    expect(screen.getByRole('heading', { level: 3, name: 'Load' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: 'Service' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Performance' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Resources' })).toBeInTheDocument();
     expect(screen.getAllByText(/4812/).length).toBeGreaterThan(0);
   });
 });
@@ -278,16 +303,17 @@ describe('a run recorded before validity existed', () => {
 });
 
 describe('resource telemetry', () => {
-  it('a run with no resource telemetry artifact renders no chart section at all', () => {
+  it('a run with no resource telemetry artifact renders no timeline track for it', () => {
     render(baseEvidence());
 
-    expect(screen.queryByText('Over the run')).not.toBeInTheDocument();
+    expect(screen.queryByText('Run timeline')).not.toBeInTheDocument();
   });
 
-  it('groups a run with resource telemetry by kind, under one heading per kind', () => {
+  it('groups a run with resource telemetry by kind, on the resources page', () => {
     const evidence = baseEvidence();
     render({
       ...evidence,
+      timeline: { ...evidence.timeline, present: true },
       resourceTimeline: {
         present: true,
         completenessStatus: 'COMPLETE',
@@ -312,6 +338,7 @@ describe('resource telemetry', () => {
                 limitDisplay: '100%',
                 utilisationDisplay: '94%',
                 atItsLimit: false,
+                utilisationFraction: 0.94,
               },
             ],
           },
@@ -319,15 +346,15 @@ describe('resource telemetry', () => {
       },
     });
 
-    expect(screen.getByText('Over the run')).toBeInTheDocument();
-    expect(screen.getByText('CPU')).toBeInTheDocument();
-    expect(screen.getByText(/System under test.*CPU utilisation.*peak 94%/)).toBeInTheDocument();
+    expect(screen.getByText('Run timeline')).toBeInTheDocument();
+    expect(screen.getByText('CPU — system under test vs load generator')).toBeInTheDocument();
   });
 
   it('a partial series is captioned as partial rather than rendered as though it were complete', () => {
     const evidence = baseEvidence();
     render({
       ...evidence,
+      timeline: { ...evidence.timeline, present: true },
       resourceTimeline: {
         present: true,
         completenessStatus: 'PARTIAL',
@@ -349,6 +376,7 @@ describe('resource telemetry', () => {
                 limitDisplay: '',
                 utilisationDisplay: '',
                 atItsLimit: false,
+                utilisationFraction: null,
               },
             ],
           },
@@ -356,7 +384,7 @@ describe('resource telemetry', () => {
       },
     });
 
-    expect(screen.getByText(/This series is partial/)).toBeInTheDocument();
+    expect(screen.getByText(/Resource series are partial/)).toBeInTheDocument();
     expect(screen.getByText(/the artifact could not be written to/)).toBeInTheDocument();
   });
 });

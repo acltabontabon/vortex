@@ -1,0 +1,71 @@
+/* Reused across ObjectivesPanel, OperationsTable, FindingsTable, ComparisonSection and
+   EvidenceProvenanceSection — one compact grid-table language instead of each section inventing its
+   own column rhythm. */
+
+.table {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border-default);
+  align-items: center;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.head {
+  color: var(--mantine-color-dimmed);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.66rem;
+  letter-spacing: 0.03em;
+}
+
+.dim {
+  color: var(--mantine-color-dimmed);
+}
+
+.list {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.disclosure {
+  font-size: 0.85rem;
+}
+
+.disclosure summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+
+.disclosureGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pass {
+  color: var(--mantine-color-pass-6);
+}
+
+.fail {
+  color: var(--mantine-color-fail-6);
+}
+
+.warn {
+  color: var(--mantine-color-warn-6);
+}
+
+.neutral {
+  color: var(--mantine-color-neutral-6);
+}

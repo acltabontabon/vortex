@@ -1,0 +1,73 @@
+.curve {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 10px 6.5rem 5.5rem 4rem 4rem 1fr;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 3px 0;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  align-self: center;
+}
+
+.met {
+  background: var(--mantine-color-pass-6);
+}
+
+.violated {
+  background: var(--mantine-color-fail-6);
+}
+
+.level {
+  font-weight: 600;
+}
+
+.metric {
+  color: var(--mantine-color-dimmed);
+}
+
+.metResult {
+  color: var(--mantine-color-pass-6);
+}
+
+.violatedResult {
+  color: var(--mantine-color-fail-6);
+  font-weight: 600;
+}
+
+.callout {
+  grid-column: 1 / -1;
+  font-size: 0.72rem;
+  color: var(--mantine-color-fail-6);
+  padding-left: 1.6rem;
+}
+
+.signals {
+  grid-column: 1 / -1;
+  padding-left: 1.6rem;
+  font-size: 0.72rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.signals summary {
+  cursor: pointer;
+}
+
+.signals ul {
+  margin: 4px 0 0;
+  padding-left: 1rem;
+}

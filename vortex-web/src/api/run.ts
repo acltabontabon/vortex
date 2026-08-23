@@ -164,6 +164,10 @@ export interface RunIdentity {
   requestedAtIso: string | null;
   finishedAtDisplay: string;
   durationDisplay: string | null;
+  /** Raw `TestType` enum name, e.g. `STRESS` — alongside `testTypeLabel` so a renderer can key
+   *  stable behaviour off an identifier rather than a display string that is free to reword. Null
+   *  for a run recorded before this field existed. */
+  testType: string | null;
 }
 
 export interface VerdictSection {
@@ -224,6 +228,10 @@ export interface AcceptanceResult {
   /** From the sealed domain `Threshold` type the result was evaluated against — never guessed
    *  client-side by matching words in `describe`. */
   kind: ObjectiveKind;
+  /** `observed` as a fraction of the threshold's own limit — 1.0 sits exactly at the limit, a
+   *  failed objective can exceed 1.0. Null when the measurement was unavailable. Never re-derived
+   *  by parsing `observed`; the domain already computed it once. */
+  observedPosition: number | null;
 }
 
 export interface AcceptanceEvidence {
@@ -337,6 +345,13 @@ export interface MetricDelta {
   metric: string;
   display: string;
   percentChangeDisplay: string;
+  /** The domain's own regression classification for this one delta, at its own noise threshold —
+   *  null when the change was too small to classify or a percentage does not apply. Never
+   *  re-derived by comparing baseline/candidate again in the browser. */
+  isDegradation: boolean | null;
+  /** Signed percent change as a number — null under the same condition `percentChangeDisplay`
+   *  reads "—". */
+  percentChange: number | null;
 }
 
 export interface ComparisonEvidence {
@@ -402,6 +417,9 @@ export interface ResourceSignal {
   utilisationDisplay: string;
   atItsLimit: boolean;
   describe: string;
+  /** The fraction `utilisationDisplay` formats, as a number — null under the same condition
+   *  `utilisationDisplay` is empty. */
+  utilisationFraction: number | null;
 }
 
 export interface Resources {
@@ -434,6 +452,9 @@ export interface ResourceSeries {
   limitDisplay: string;
   utilisationDisplay: string;
   atItsLimit: boolean;
+  /** The fraction `utilisationDisplay` formats, as a number — null under the same condition
+   *  `utilisationDisplay` is empty. */
+  utilisationFraction: number | null;
 }
 
 export interface ResourceKindPlot {

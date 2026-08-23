@@ -1,0 +1,30 @@
+.row {
+  display: grid;
+  grid-template-columns: 2fr repeat(5, 1fr);
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.sortButton {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sortButton:hover {
+  color: var(--mantine-color-text);
+}

@@ -48,7 +48,7 @@ public final class RegressionEvaluator {
      * p95 by a few percent between identical runs. Reporting every such wobble as a regression
      * would make the signal useless.
      */
-    private static final BigDecimal NOISE_THRESHOLD_PERCENT = BigDecimal.valueOf(10);
+    public static final BigDecimal NOISE_THRESHOLD_PERCENT = BigDecimal.valueOf(10);
 
     public ExecutionComparison compare(TestExecution baseline, TestExecution candidate) {
         BaselineEligibility eligibility = BaselineEligibility.of(baseline.quality());

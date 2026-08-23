@@ -126,7 +126,10 @@ public class GlobalRunsApiController {
         var verdict = result.verdict();
 
         List<MetricDeltaDto> deltas = comparison.deltas().stream()
-                .map(delta -> new MetricDeltaDto(delta.metric(), delta.display(), delta.percentChangeDisplay()))
+                .map(delta -> new MetricDeltaDto(delta.metric(), delta.display(), delta.percentChangeDisplay(),
+                        delta.isDegradation(dev.vortex.core.comparison.RegressionEvaluator.NOISE_THRESHOLD_PERCENT)
+                                .orElse(null),
+                        delta.percentChange().map(java.math.BigDecimal::doubleValue).orElse(null)))
                 .toList();
 
         return new CompareResultDto(

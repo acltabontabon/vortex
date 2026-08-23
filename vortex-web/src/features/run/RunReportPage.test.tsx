@@ -40,6 +40,7 @@ const evidence: NonNullable<Run['evidence']> = {
     requestedAtIso: '2026-08-22T09:00:00Z',
     finishedAtDisplay: '22 Aug 2026, 09:10',
     durationDisplay: '10m',
+    testType: 'AVERAGE_LOAD',
   },
   verdict: {
     question: 'Can the service sustain the traffic it typically receives?',

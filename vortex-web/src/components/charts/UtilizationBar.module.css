@@ -1,0 +1,39 @@
+.track {
+  position: relative;
+  display: inline-block;
+  width: 5.5rem;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--mantine-color-default-border);
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transition: width var(--motion, 160ms) ease-out;
+}
+
+.normal {
+  background: var(--mantine-color-neutral-6);
+}
+
+.high {
+  background: var(--mantine-color-warn-6);
+}
+
+.atLimit {
+  background: var(--mantine-color-fail-6);
+}
+
+.overflowMark {
+  position: absolute;
+  top: -2px;
+  right: -1px;
+  width: 2px;
+  height: 10px;
+  background: var(--mantine-color-fail-6);
+  border-radius: 1px;
+}

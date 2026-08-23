@@ -76,6 +76,8 @@ export function TimelineChart({
   markAtIso,
   markLabel,
   markers,
+  origin: originOverride,
+  syncId,
 }: {
   plot: TimelinePlot;
   height?: number;
@@ -90,10 +92,17 @@ export function TimelineChart({
   /** Additional markers beyond the single `markAtIso` — e.g. every workload stage boundary. Merged
    *  with `markAtIso` rather than replacing it, so existing callers are unaffected. */
   markers?: ChartMarker[];
+  /** A caller-supplied origin (epoch seconds), for a figure with several charts that must all read
+   *  elapsed time from the exact same instant — e.g. {@code RunTimeline}'s synchronized tracks.
+   *  Falls back to this plot's own first point when omitted, unchanged from before this existed. */
+  origin?: number;
+  /** Recharts' own cross-chart hover sync id — every chart sharing one value gets one moving cursor.
+   *  Omitted (no sync) by default, so existing callers are unaffected. */
+  syncId?: string;
 }) {
   if (!plot.hasData) return null;
 
-  const origin = originOf(plot.points, plot.referencePoints);
+  const origin = originOverride ?? originOf(plot.points, plot.referencePoints);
   if (origin === null) return null;
 
   const data = merge(plot.points, plot.referencePoints, origin);
@@ -131,6 +140,7 @@ export function TimelineChart({
         tickFormatter: formatElapsed,
       }}
       tooltipProps={{ labelFormatter: (label) => formatElapsed(Number(label)) }}
+      {...(syncId ? { lineChartProps: { syncId } } : {})}
       referenceLines={[
         ...(plot.referenceLevel !== null
           ? [

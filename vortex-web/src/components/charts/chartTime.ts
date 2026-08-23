@@ -11,6 +11,23 @@ export function toEpochSeconds(atIso: string): number {
   return new Date(atIso).getTime() / 1000;
 }
 
+const BYTE_UNITS = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+
+/** Bytes at a scale a person can read, for a chart axis/tooltip — mirrors the backend's own
+ *  `Bytes.display()` (powers of 1024) purely as a display convention, the same way this file's
+ *  `formatElapsed` turns seconds into `mm:ss`. Never used to derive a value, only to print one. */
+export function formatBytes(value: number): string {
+  let scaled = Math.abs(value);
+  let unitIndex = 0;
+  while (scaled >= 1024 && unitIndex < BYTE_UNITS.length - 1) {
+    scaled /= 1024;
+    unitIndex += 1;
+  }
+  const signed = value < 0 ? -scaled : scaled;
+  const number = unitIndex === 0 ? String(Math.round(signed)) : signed.toFixed(1);
+  return `${number} ${BYTE_UNITS[unitIndex]}`;
+}
+
 export function formatElapsed(seconds: number): string {
   const whole = Math.max(0, Math.round(seconds));
   const minutes = Math.floor(whole / 60);

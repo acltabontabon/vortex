@@ -1,0 +1,35 @@
+.row {
+  border-bottom: 1px solid var(--border-default);
+  font-size: 0.85rem;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: 1.2rem 1fr auto;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.4rem 0;
+  cursor: pointer;
+}
+
+.mark {
+  font-weight: 700;
+  text-align: center;
+}
+
+.headline {
+  min-width: 0;
+}
+
+.detail {
+  padding: 0 0 0.6rem 1.8rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.detail p {
+  margin: 0.2rem 0;
+}

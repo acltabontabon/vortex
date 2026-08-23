@@ -1,0 +1,45 @@
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--mantine-spacing-xl);
+  padding: var(--mantine-spacing-md) 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+@media (max-width: 48em) {
+  .grid {
+    grid-template-columns: 1fr;
+    gap: var(--mantine-spacing-md);
+  }
+}
+
+.block {
+  min-width: 0;
+}
+
+.headline {
+  margin-top: 0.3rem;
+}
+
+.qualifications {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.tone_pass {
+  color: var(--mantine-color-pass-6);
+}
+
+.tone_warn {
+  color: var(--mantine-color-warn-6);
+}
+
+.tone_fail {
+  color: var(--mantine-color-fail-6);
+}
+
+.tone_neutral {
+  color: var(--mantine-color-neutral-6);
+}

@@ -1,6 +1,6 @@
 import { LineChart } from '@mantine/charts';
 import type { ResourceKindPlot } from '../../api/run';
-import { type ChartMarker, formatElapsed, toEpochSeconds, verticalMarkerLines } from './chartTime';
+import { type ChartMarker, formatBytes, formatElapsed, toEpochSeconds, verticalMarkerLines } from './chartTime';
 
 /** One color per scope, so "system under test" and "load generator" are visually distinct on sight
  *  rather than only by hovering a legend — the single most damaging confusion a resource chart can
@@ -57,12 +57,20 @@ export function ResourceKindChart({
   plot,
   height = 160,
   markers = [],
+  origin: originOverride,
+  syncId,
 }: {
   plot: ResourceKindPlot;
   height?: number;
   /** Stage boundaries, a breakpoint, whatever instants this run's other charts already mark — drawn
    *  here too so a reader zooming in on one chart sees the others line up. */
   markers?: ChartMarker[];
+  /** A caller-supplied origin (epoch seconds) shared across several charts in one figure — see
+   *  {@code TimelineChart}'s own doc on this. Falls back to this plot's own first point when
+   *  omitted. */
+  origin?: number;
+  /** Recharts' own cross-chart hover sync id. Omitted (no sync) by default. */
+  syncId?: string;
 }) {
   const withPoints = plot.series.filter((series) => series.points.length > 0);
   if (withPoints.length === 0) return null;
@@ -74,7 +82,7 @@ export function ResourceKindChart({
       null,
     );
   if (firstAtIso === null) return null;
-  const origin = toEpochSeconds(firstAtIso);
+  const origin = originOverride ?? toEpochSeconds(firstAtIso);
 
   const data = merge({ ...plot, series: withPoints }, origin);
   if (data.length === 0) return null;
@@ -83,8 +91,17 @@ export function ResourceKindChart({
   const markerLines = verticalMarkerLines(markers, origin, lastElapsedSeconds);
 
   const unitSymbol = withPoints[0].unitSymbol;
-  const valueFormatter = (value: number) =>
-    unitSymbol === '%' ? `${value}%` : `${value} ${unitSymbol}`;
+  // A ratio's own unit symbol is blank by domain design — "0.3" alone means nothing on an axis.
+  // CPU is the one resource kind Vortex measures as a bare ratio (a fraction of one core), so this
+  // is the one place that ratio is named rather than left silent; a future ratio kind would need
+  // the same naming, not a guess at this ratio's unit.
+  const ratioUnit = plot.kind === 'CPU' ? 'cores' : '';
+  const valueFormatter = (value: number) => {
+    if (unitSymbol === '%') return `${value}%`;
+    if (unitSymbol === 'bytes') return formatBytes(value);
+    if (unitSymbol === '' && ratioUnit) return `${value} ${ratioUnit}`;
+    return `${value} ${unitSymbol}`;
+  };
 
   return (
     <LineChart
@@ -108,6 +125,7 @@ export function ResourceKindChart({
         tickFormatter: formatElapsed,
       }}
       tooltipProps={{ labelFormatter: (label) => formatElapsed(Number(label)) }}
+      {...(syncId ? { lineChartProps: { syncId } } : {})}
       referenceLines={markerLines}
     />
   );

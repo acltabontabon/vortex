@@ -130,6 +130,7 @@ function anEvidence(overrides: Partial<Run['evidence']> = {}): NonNullable<Run['
       requestedAtIso: '2026-08-22T04:54:00Z',
       finishedAtDisplay: '22 Aug 2026, 04:55',
       durationDisplay: '1m',
+      testType: 'AVERAGE_LOAD',
     },
     verdict: {
       question: 'Does the service meet its objectives under the traffic it normally receives?',
@@ -419,6 +420,7 @@ describe('a test\'s inline result', () => {
             observed: '48 ms',
             note: null,
             kind: 'LATENCY',
+            observedPosition: 0.24,
           },
           {
             describe: 'error rate below 5%',
@@ -427,6 +429,7 @@ describe('a test\'s inline result', () => {
             observed: '12%',
             note: 'exceeded during the ramp',
             kind: 'ERROR_RATE',
+            observedPosition: 2.4,
           },
         ],
         absenceExplanation: null,

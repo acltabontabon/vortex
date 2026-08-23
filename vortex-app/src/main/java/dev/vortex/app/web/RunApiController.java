@@ -496,7 +496,8 @@ public class RunApiController {
                 identity.resourceSummaryIfPresent().orElse(null),
                 identity.requestedAt() != null ? identity.requestedAt().toString() : null,
                 display.timestamp(identity.finishedAt()),
-                identity.durationIfPresent().map(display::duration).orElse(null));
+                identity.durationIfPresent().map(display::duration).orElse(null),
+                identity.testType().name());
 
         VerdictSectionDto verdictDto = new VerdictSectionDto(
                 evidence.question(), evidence.verdict().name(), display.verdictLabel(evidence.verdict()),
@@ -621,7 +622,8 @@ public class RunApiController {
         return new RunEvidenceDtos.ResourceSeriesDto(
                 series.signalId(), series.providerId(), series.scope().name(), series.scopeLabel(),
                 series.seriesLabel(), series.unitSymbol(), points, series.display(),
-                series.limitDisplay(), series.utilisationDisplay(), series.atItsLimit());
+                series.limitDisplay(), series.utilisationDisplay(), series.atItsLimit(),
+                series.utilisationFraction());
     }
 
     private RunEvidenceDtos.ResourceSignalDto toResourceDto(
@@ -640,7 +642,8 @@ public class RunApiController {
                         .map(used -> String.format("%.0f%%", used * 100))
                         .orElse(""),
                 resource.isAtItsLimit(),
-                resource.describe());
+                resource.describe(),
+                resource.utilisation().orElse(null));
     }
 
     /**
@@ -808,7 +811,8 @@ public class RunApiController {
             case dev.vortex.core.threshold.ErrorRateThreshold t -> "ERROR_RATE";
         };
         return new AcceptanceResultDto(result.threshold().describe(), result.verdict().name(),
-                display.verdictLabel(result.verdict()), result.observed(), result.note(), kind);
+                display.verdictLabel(result.verdict()), result.observed(), result.note(), kind,
+                result.observedPosition());
     }
 
     private OperationEvidenceDto toDto(OperationEvidence operation) {
@@ -934,7 +938,10 @@ public class RunApiController {
 
     private ComparisonEvidenceDto toDto(dev.vortex.core.evidence.ComparisonEvidence comparison) {
         List<MetricDeltaDto> deltas = comparison.deltas().stream()
-                .map(delta -> new MetricDeltaDto(delta.metric(), delta.display(), delta.percentChangeDisplay()))
+                .map(delta -> new MetricDeltaDto(delta.metric(), delta.display(), delta.percentChangeDisplay(),
+                        delta.isDegradation(dev.vortex.core.comparison.RegressionEvaluator.NOISE_THRESHOLD_PERCENT)
+                                .orElse(null),
+                        delta.percentChange().map(java.math.BigDecimal::doubleValue).orElse(null)))
                 .toList();
         var verdict = comparison.verdictIfPresent().orElse(null);
         return new ComparisonEvidenceDto(comparison.baselineLabel(), display.timestamp(comparison.baselineFinishedAt()),

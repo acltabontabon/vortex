@@ -1,0 +1,38 @@
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.mark {
+  flex-shrink: 0;
+  font-weight: 700;
+  width: 1rem;
+  text-align: center;
+}
+
+.tone_pass .mark {
+  color: var(--mantine-color-pass-6);
+}
+
+.tone_warn .mark {
+  color: var(--mantine-color-warn-6);
+}
+
+.tone_fail .mark {
+  color: var(--mantine-color-fail-6);
+}
+
+.tone_info .mark {
+  color: var(--mantine-color-neutral-6);
+}

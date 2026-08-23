@@ -1,0 +1,32 @@
+.row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.describe {
+  min-width: 0;
+}
+
+.observed {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 40em) {
+  .row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .observed,
+  .row > svg {
+    grid-column: 2;
+  }
+}

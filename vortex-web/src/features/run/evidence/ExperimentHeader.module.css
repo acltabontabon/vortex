@@ -1,0 +1,61 @@
+.header {
+  padding-bottom: var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  flex-wrap: wrap;
+}
+
+.name {
+  font-weight: 650;
+}
+
+.actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.summaryLine {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  font-size: 0.92rem;
+  flex-wrap: wrap;
+}
+
+.metaLine {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  font-family: var(--mantine-font-family-monospace);
+  color: var(--mantine-color-dimmed);
+  flex-wrap: wrap;
+}
+
+.dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}
+
+.details {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}

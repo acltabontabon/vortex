@@ -78,9 +78,11 @@ public final class ThresholdEvaluator {
         }
         Duration value = observed.get();
         String display = Durations.display(value);
+        Double position = threshold.maximum().isZero()
+                ? null : value.toNanos() / (double) threshold.maximum().toNanos();
         return value.compareTo(threshold.maximum()) <= 0
-                ? ThresholdResult.pass(threshold, display)
-                : ThresholdResult.fail(threshold, display);
+                ? ThresholdResult.pass(threshold, display, position)
+                : ThresholdResult.fail(threshold, display, position);
     }
 
     private ThresholdResult evaluateErrorRate(ErrorRateThreshold threshold, long requests,
@@ -90,8 +92,11 @@ public final class ThresholdEvaluator {
                     "No requests were recorded for " + subject + ", so an error rate could not be "
                             + "calculated.");
         }
+        double maximumFraction = threshold.maximum().fraction().doubleValue();
+        Double position = maximumFraction == 0
+                ? null : observed.fraction().doubleValue() / maximumFraction;
         return observed.compareTo(threshold.maximum()) <= 0
-                ? ThresholdResult.pass(threshold, observed.display())
-                : ThresholdResult.fail(threshold, observed.display());
+                ? ThresholdResult.pass(threshold, observed.display(), position)
+                : ThresholdResult.fail(threshold, observed.display(), position);
     }
 }

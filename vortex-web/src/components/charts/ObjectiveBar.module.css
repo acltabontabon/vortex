@@ -1,0 +1,45 @@
+.bar {
+  display: block;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.track {
+  stroke: var(--mantine-color-default-border);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.fill {
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.mark {
+  stroke: var(--mantine-color-body);
+  stroke-width: 1.5;
+}
+
+.limitTick {
+  stroke: var(--mantine-color-dimmed);
+  stroke-width: 1.5;
+}
+
+.overflow {
+  stroke: none;
+}
+
+.pass {
+  fill: var(--mantine-color-pass-6);
+  stroke: var(--mantine-color-pass-6);
+}
+
+.fail {
+  fill: var(--mantine-color-fail-6);
+  stroke: var(--mantine-color-fail-6);
+}
+
+.neutral {
+  fill: var(--mantine-color-neutral-6);
+  stroke: var(--mantine-color-neutral-6);
+}

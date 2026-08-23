@@ -553,7 +553,8 @@ public final class RunEvidenceService {
                                             .map(used -> Math.round(used * 1000) / 10.0 + "%")
                                             .orElse("")
                                     : "",
-                            caption != null && caption.isAtItsLimit()));
+                            caption != null && caption.isAtItsLimit(),
+                            caption != null ? caption.utilisation().orElse(null) : null));
         }
 
         List<ResourceTimelineEvidence.ResourceKindPlot> plots = byKind.entrySet().stream()

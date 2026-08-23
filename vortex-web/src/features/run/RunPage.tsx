@@ -79,16 +79,12 @@ export function RunPage() {
 
   return (
     <Stack gap="xl">
-      <Group justify="flex-end">
-        <Button component="a" href={runAgainHref} variant="default" size="xs">
-          Run again
-        </Button>
-        <Button component="a" href={`/runs/${id}/report`} variant="default" size="xs">
-          Shareable report
-        </Button>
-      </Group>
-
-      <RunEvidenceView evidence={run.evidence} serviceId={run.plan.projectId} />
+      <RunEvidenceView
+        evidence={run.evidence}
+        serviceId={run.plan.projectId}
+        executionId={id}
+        runAgainHref={runAgainHref}
+      />
 
       <RunAnalysisPanel executionId={id} />
     </Stack>

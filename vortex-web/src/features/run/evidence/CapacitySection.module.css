@@ -1,0 +1,42 @@
+.headline {
+  margin-bottom: var(--mantine-spacing-sm);
+}
+
+.checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  margin: var(--mantine-spacing-sm) 0;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mark {
+  font-weight: 700;
+  width: 1rem;
+  text-align: center;
+}
+
+.curve {
+  margin-top: var(--mantine-spacing-md);
+}
+
+.limits {
+  margin-top: var(--mantine-spacing-md);
+}
+
+.limitsTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.limitsTable td {
+  padding: 3px 0.75rem 3px 0;
+  text-align: left;
+}

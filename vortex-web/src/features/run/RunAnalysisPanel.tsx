@@ -18,9 +18,13 @@ export function RunAnalysisPanel({ executionId }: { executionId: string }) {
 
   return (
     <section>
-      <Title order={2} size="h4" mb="sm">
-        AI interpretation
+      <Title order={2} size="h4" mb={2}>
+        Interpretation
       </Title>
+      <Text size="xs" c="dimmed" mb="sm">
+        Vortex has already established the deterministic findings above. This adds an AI reading of
+        that same evidence — it does not determine pass/fail or capacity.
+      </Text>
 
       <AsyncPanel
         title="Analysing"
@@ -33,8 +37,8 @@ export function RunAnalysisPanel({ executionId }: { executionId: string }) {
       </AsyncPanel>
 
       {!panel.analysing && panel.latest === null && panel.availability.available && (
-        <Button onClick={() => start.mutate()} loading={start.isPending} variant="light">
-          Analyse with AI
+        <Button onClick={() => start.mutate()} loading={start.isPending} variant="light" color="ai" size="xs">
+          Analyse evidence with AI
         </Button>
       )}
 

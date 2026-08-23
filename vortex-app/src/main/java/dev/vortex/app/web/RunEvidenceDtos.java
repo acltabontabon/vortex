@@ -31,7 +31,11 @@ public final class RunEvidenceDtos {
             String targetUrl, boolean targetWasRewritten, String targetRewriteReason,
             String targetKind, String targetSummary, String targetOwnershipLabel,
             String resourceSummary,
-            String requestedAtIso, String finishedAtDisplay, String durationDisplay) {
+            String requestedAtIso, String finishedAtDisplay, String durationDisplay,
+            /** Raw {@code TestType} enum name, e.g. {@code STRESS} — alongside {@code testTypeLabel}
+             *  so a renderer can key stable behaviour off an identifier rather than a display string
+             *  that is free to reword. */
+            String testType) {
     }
 
     public record VerdictSectionDto(String question, String verdict, String verdictLabel, String answer,
@@ -59,7 +63,11 @@ public final class RunEvidenceDtos {
     /** {@code kind} is {@code LATENCY}, {@code ERROR_RATE}, from the sealed {@code Threshold} type
      *  the result was evaluated against — never guessed client-side from {@code describe}'s text. */
     public record AcceptanceResultDto(String describe, String verdict, String verdictLabel,
-            String observed, String note, String kind) {
+            String observed, String note, String kind,
+            /** {@code observed} as a fraction of the threshold, e.g. 0.42 at 42% of the limit; null
+             *  when the measurement was unavailable. Lets a renderer place a marker on an objective
+             *  bar without re-parsing {@code observed}. */
+            Double observedPosition) {
     }
 
     public record AcceptanceEvidenceDto(boolean hasObjectives, List<AcceptanceResultDto> results,
@@ -140,7 +148,10 @@ public final class RunEvidenceDtos {
      */
     public record ResourceSignalDto(String id, String name, String kind, String kindLabel,
             String scope, String scopeLabel, String display, String limitDisplay,
-            String utilisationDisplay, boolean atItsLimit, String describe) {
+            String utilisationDisplay, boolean atItsLimit, String describe,
+            /** The same fraction {@code utilisationDisplay} formats, as a number — null under the
+             *  same condition {@code utilisationDisplay} is empty. */
+            Double utilisationFraction) {
     }
 
     /**
@@ -171,7 +182,10 @@ public final class RunEvidenceDtos {
     public record ResourceSeriesDto(String signalId, String providerId, String scope,
             String scopeLabel, String seriesLabel, String unitSymbol,
             List<ResourceTimelinePointDto> points, String display, String limitDisplay,
-            String utilisationDisplay, boolean atItsLimit) {
+            String utilisationDisplay, boolean atItsLimit,
+            /** The same fraction {@code utilisationDisplay} formats, as a number — null under the
+             *  same condition {@code utilisationDisplay} is empty. */
+            Double utilisationFraction) {
     }
 
     public record ResourceKindPlotDto(String kind, String kindLabel, List<ResourceSeriesDto> series) {
@@ -252,7 +266,15 @@ public final class RunEvidenceDtos {
             boolean hasDetail, String strengthLabel, List<String> evidenceIds) {
     }
 
-    public record MetricDeltaDto(String metric, String display, String percentChangeDisplay) {
+    public record MetricDeltaDto(String metric, String display, String percentChangeDisplay,
+            /** {@code MetricDelta.isDegradation()} at the evaluator's own noise threshold — null when
+             *  the change was too small to classify or a percentage does not apply. A page must never
+             *  re-derive this by re-comparing baseline/candidate itself: whether a movement counts as
+             *  a regression is a domain decision, made once. */
+            Boolean isDegradation,
+            /** {@code MetricDelta.percentChange()} as a signed number — null under the same condition
+             *  {@code percentChangeDisplay} reads "—". */
+            Double percentChange) {
     }
 
     public record ComparisonEvidenceDto(String baselineLabel, String baselineFinishedAtDisplay,

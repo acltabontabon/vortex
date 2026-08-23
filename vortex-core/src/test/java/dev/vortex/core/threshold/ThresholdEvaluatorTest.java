@@ -50,6 +50,38 @@ class ThresholdEvaluatorTest {
     }
 
     @Test
+    @DisplayName("observedPosition is the observed value as a fraction of the threshold, for a bar to place a marker with")
+    void observedPositionIsComputedForLatencyAndErrorRate() {
+        var evaluation = evaluator.evaluate(Fixtures.thresholds(), Fixtures.results(250, 0.0004));
+
+        assertThat(evaluation.results())
+                .filteredOn(result -> result.thresholdId().equals("latency.p95"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.observedPosition()).isEqualTo(0.5, org.assertj.core.data.Offset.offset(0.01)));
+
+        var failing = evaluator.evaluate(Fixtures.thresholds(), Fixtures.results(1000, 0.0008));
+        assertThat(failing.results())
+                .filteredOn(result -> result.thresholdId().equals("latency.p95"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.observedPosition()).isGreaterThan(1.0));
+    }
+
+    @Test
+    @DisplayName("observedPosition is null when the measurement was unavailable, never guessed")
+    void observedPositionIsNullWhenUnevaluated() {
+        MeasuredResults withoutP99 = new MeasuredResults(
+                new TimeWindow(Fixtures.NOW, Fixtures.NOW.plus(Duration.ofMinutes(1))),
+                RequestsPerSecond.of(20), RequestsPerSecond.of(20), 200, 0,
+                LatencyPercentiles.builder().atMillis(95, 120).build(),
+                Map.of(), MetricSeries.empty(), List.of());
+
+        var evaluation = evaluator.evaluate(Fixtures.thresholds(), withoutP99);
+
+        assertThat(evaluation.unevaluated()).singleElement()
+                .satisfies(result -> assertThat(result.observedPosition()).isNull());
+    }
+
+    @Test
     void aBoundaryValueIsWithinTheObjective() {
         var evaluation = evaluator.evaluate(
                 ThresholdSet.of(LatencyThreshold.ofMillis(95, 500)),

@@ -45,10 +45,13 @@ public record ResourceTimelineEvidence(
     /**
      * One line on a resource chart — one signal, from one provider, describing one scope.
      *
-     * @param display            the peak reading, formatted for a caption
-     * @param limitDisplay       the published limit, formatted; empty when none was published
-     * @param utilisationDisplay the peak as a fraction of the limit, formatted; empty when no limit
-     *                           applies
+     * @param display             the peak reading, formatted for a caption
+     * @param limitDisplay        the published limit, formatted; empty when none was published
+     * @param utilisationDisplay  the peak as a fraction of the limit, formatted; empty when no limit
+     *                            applies
+     * @param utilisationFraction the same fraction {@code utilisationDisplay} formats, as a number a
+     *                            renderer can size a bar with — null under the same condition
+     *                            {@code utilisationDisplay} is empty
      */
     public record ResourceSeriesEvidence(
             String signalId,
@@ -61,7 +64,8 @@ public record ResourceTimelineEvidence(
             String display,
             String limitDisplay,
             String utilisationDisplay,
-            boolean atItsLimit) {
+            boolean atItsLimit,
+            Double utilisationFraction) {
         public ResourceSeriesEvidence {
             points = points == null ? List.of() : List.copyOf(points);
         }
