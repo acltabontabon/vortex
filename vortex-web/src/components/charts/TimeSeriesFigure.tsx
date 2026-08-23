@@ -1,5 +1,5 @@
 import { Text } from '@mantine/core';
-import type { ObservabilityEvidence, TimelineEvidence } from '../../api/run';
+import type { TimelineEvidence } from '../../api/run';
 import { TimelineChart } from './TimelineChart';
 import classes from './TimeSeriesFigure.module.css';
 
@@ -38,23 +38,17 @@ export function TimeSeriesFigure({
   timeline,
   annotation,
   secondaryReference,
-  observability,
 }: {
   timeline: TimelineEvidence;
   annotation: 'breakpoint' | 'jump';
   /** A magnitude fact worth stating once, as a caption, without turning a temporal test's chart back
    *  into a scale — e.g. Spike's peak vs. production. Omitted when there's nothing to say. */
   secondaryReference?: string | null;
-  /** Soak's own "did anything grow" signal — real telemetry when a provider answered, never faked
-   *  when one didn't. Vortex currently keeps this as a start→peak→end trace, not a full curve; see
-   *  `ObservationTrace` in vortex-core for why, and revisit once a real time series exists for it. */
-  observability?: ObservabilityEvidence | null;
 }) {
   const plots = timeline.plots.filter((plot) => plot.hasData);
   if (plots.length === 0) return null;
 
   const markAtIso = annotation === 'jump' ? timeline.levelChangeAtIso : timeline.breakpointAtIso;
-  const signals = observability?.present ? observability.signals : [];
 
   return (
     <div className={classes.plots}>
@@ -82,19 +76,6 @@ export function TimeSeriesFigure({
           />
         </div>
       ))}
-
-      {signals.length > 0 && (
-        <div className={classes.signals}>
-          <Text size="xs" fw={600} c="dimmed" mb={2}>
-            Observed over the run
-          </Text>
-          {signals.map((signal) => (
-            <Text key={signal.name} size="xs" c="dimmed">
-              {signal.name}: {signal.movement ?? signal.display}
-            </Text>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

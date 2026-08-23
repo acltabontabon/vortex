@@ -1,4 +1,3 @@
-import type { KeyboardEvent, MouseEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { Text } from '@mantine/core';
 import { useElementSize } from '@mantine/hooks';
@@ -33,28 +32,25 @@ const ROW_GAP = 4;
  * This never shows more than the service actually has, and "View all" still appears whenever there's
  * more history than even that.
  *
- * <p>A row's primary action selects the run's test, bringing that test's own current evidence into
- * the inspector — it never claims that this specific historical run's evidence is what's now shown,
- * since the inspector always reads a test's *current* latest run, which may or may not be this one.
- * The one path to this exact run's forensic detail is its own "View full result" link, revealed on
- * hover/focus rather than permanent, matching the density this rail is for.
+ * <p>A row's primary action opens that exact run's own full result — never the test's *current*
+ * latest run, which this historical one may or may not still be. The arrow only restates that
+ * destination visually (revealed on hover/focus, matching the density this rail is for); the whole
+ * row is the same link.
  */
 export function RecentRunsRail({
   overview,
   serviceId,
-  onSelectTest,
   fitHeight = null,
 }: {
   overview: Overview;
   serviceId: string;
-  onSelectTest: (name: string) => void;
   fitHeight?: number | null;
 }) {
   const { ref: headRef, height: headHeight } = useElementSize<HTMLDivElement>();
   // Measures the first row only — every row in a given render shares the same height (`showName`
   // is one decision for the whole list, not per row), so one row stands in for all of them without
   // that estimate ever depending on `shownCount` itself.
-  const { ref: rowRef, height: rowContentHeight } = useElementSize<HTMLDivElement>();
+  const { ref: rowRef, height: rowContentHeight } = useElementSize<HTMLAnchorElement>();
   const [shownCount, setShownCount] = useState(MIN_VISIBLE);
 
   const totalAvailable = overview.recentRuns.length;
@@ -123,7 +119,6 @@ export function RecentRunsRail({
               relativeTime={run.relativeTime}
               showName={!singleTestName}
               viewFullHref={`/runs/${run.id}`}
-              onSelectTest={onSelectTest}
             />
           ))}
         </div>
@@ -139,7 +134,6 @@ function RunRow({
   relativeTime,
   showName,
   viewFullHref,
-  onSelectTest,
   measureRef,
 }: {
   testName: string;
@@ -148,37 +142,15 @@ function RunRow({
   relativeTime: string;
   showName: boolean;
   viewFullHref: string;
-  onSelectTest: (name: string) => void;
   /** Set only on the first row — see the comment on `rowRef` above. */
-  measureRef?: (node: HTMLDivElement | null) => void;
+  measureRef?: (node: HTMLAnchorElement | null) => void;
 }) {
-  function isOnInteractiveChild(target: EventTarget) {
-    return (target as HTMLElement).closest('a') !== null;
-  }
-
-  function onClick(event: MouseEvent<HTMLElement>) {
-    if (isOnInteractiveChild(event.target)) return;
-    onSelectTest(testName);
-  }
-
-  function onKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (isOnInteractiveChild(event.target)) return;
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      onSelectTest(testName);
-    }
-  }
-
   return (
-    <div
-      ref={measureRef}
-      className={classes.run}
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={onKeyDown}
-    >
-      {/* The dot is this row's node on the timeline, not a repeat of VerdictBadge's inline one — it
+    // A real link, not a clickable `<div>` with a nested one for "view full result" — both used to
+    // point at the same destination, which just meant a second, redundant hit target. One link
+    // means native keyboard/middle-click/open-in-new-tab behaviour for free, none of it hand-rolled.
+    <a ref={measureRef} className={classes.run} href={viewFullHref}>
+      {/* The dot is this run's node on the timeline, not a repeat of VerdictBadge's inline one — it
           sits in its own column so the connecting line can pass through its centre. Colour lives on
           the dot only; the word beside it stays the page's normal text colour, same convention
           VerdictBadge's own `subtleText` variant uses for a column of several verdicts in a row. */}
@@ -190,17 +162,12 @@ function RunRow({
           <span className={classes.runWhen}>{shortRelativeTime(relativeTime)}</span>
         </div>
       </div>
-      {/* An icon, not a phrase — "View full result" read as a cramped, wrapping sentence squeezed
-          into an already-dense meta line at this column's width. Its own column, vertically centred
-          on the row rather than baseline-locked to the text beside it, same hover/focus reveal as
-          before. */}
-      <a
-        className={classes.viewFull}
-        href={viewFullHref}
-        aria-label={`View full result for ${testName}`}
-      >
+      {/* Purely decorative now — the whole row is the link, this only restates it visually. Still
+          hover/focus revealed, same reasoning as before: the row's headline is the test name and
+          the verdict, and which exact run this was is one glance away, not a fixture. */}
+      <span className={classes.viewFull} aria-hidden="true">
         <IconArrowRight size={14} stroke={1.75} />
-      </a>
-    </div>
+      </span>
+    </a>
   );
 }

@@ -210,7 +210,6 @@ export function OverviewPage() {
             <RecentRunsRail
               overview={data}
               serviceId={id}
-              onSelectTest={selectTest}
               fitHeight={isSideBySide ? testsColumnHeight : null}
             />
           )}

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import type { Overview, RunSummary } from '../../api/workspace';
 import { RecentRunsRail } from './RecentRunsRail';
@@ -97,39 +96,21 @@ function anOverview(overrides: Partial<Overview> = {}): Overview {
 describe('the recent runs rail', () => {
   it('says there are no runs yet, when there are none', () => {
     renderWithProviders(
-      <RecentRunsRail overview={anOverview()} serviceId="checkout" onSelectTest={() => {}} />,
+      <RecentRunsRail overview={anOverview()} serviceId="checkout" />,
     );
 
     expect(screen.getByText('No runs yet.')).toBeInTheDocument();
   });
 
-  it('selects the run\'s test on click, rather than navigating to the run', async () => {
-    const onSelectTest = vi.fn();
-    renderWithProviders(
-      <RecentRunsRail
-        overview={anOverview({ recentRuns: [aRun()] })}
-        serviceId="checkout"
-        onSelectTest={onSelectTest}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole('button', { name: /Pass/ }));
-
-    expect(onSelectTest).toHaveBeenCalledWith('capacity-check');
-  });
-
-  it('still offers the exact run\'s forensic detail, one link away', () => {
+  it('opens that exact run\'s own full result on click, never the test\'s current latest run', () => {
     renderWithProviders(
       <RecentRunsRail
         overview={anOverview({ recentRuns: [aRun({ id: 'run-42' })] })}
         serviceId="checkout"
-        onSelectTest={() => {}}
       />,
     );
 
-    expect(
-      screen.getByRole('link', { name: 'View full result for capacity-check' }),
-    ).toHaveAttribute('href', '/runs/run-42');
+    expect(screen.getByRole('link', { name: /Pass/ })).toHaveAttribute('href', '/runs/run-42');
   });
 
   it('names the test once, as a group heading, when every recent run is the same test', () => {
@@ -139,7 +120,6 @@ describe('the recent runs rail', () => {
           recentRuns: [aRun(), aRun({ id: 'run-2', relativeTime: '2 hours ago' })],
         })}
         serviceId="checkout"
-        onSelectTest={() => {}}
       />,
     );
 
@@ -154,7 +134,6 @@ describe('the recent runs rail', () => {
           recentRuns: [aRun(), aRun({ id: 'run-2', testName: 'burst-check' })],
         })}
         serviceId="checkout"
-        onSelectTest={() => {}}
       />,
     );
 
@@ -171,7 +150,6 @@ describe('the recent runs rail', () => {
           recentRuns: [aRun()],
         })}
         serviceId="checkout"
-        onSelectTest={() => {}}
       />,
     );
 
@@ -190,12 +168,11 @@ describe('the recent runs rail', () => {
       <RecentRunsRail
         overview={anOverview({ recentRuns: manyRuns(15) })}
         serviceId="checkout"
-        onSelectTest={() => {}}
         fitHeight={null}
       />,
     );
 
-    expect(screen.getAllByRole('button')).toHaveLength(5);
+    expect(screen.getAllByRole('link', { name: /Pass/ })).toHaveLength(5);
   });
 
   it('grows past the minimum to use the space beside a taller Tests column', () => {
@@ -210,12 +187,11 @@ describe('the recent runs rail', () => {
       <RecentRunsRail
         overview={anOverview({ recentRuns: manyRuns(15) })}
         serviceId="checkout"
-        onSelectTest={() => {}}
         fitHeight={500}
       />,
     );
 
-    expect(screen.getAllByRole('button')).toHaveLength(8);
+    expect(screen.getAllByRole('link', { name: /Pass/ })).toHaveLength(8);
   });
 
   it('never shows more rows than the service actually has, however tall Tests is', () => {
@@ -226,11 +202,10 @@ describe('the recent runs rail', () => {
       <RecentRunsRail
         overview={anOverview({ recentRuns: manyRuns(6) })}
         serviceId="checkout"
-        onSelectTest={() => {}}
         fitHeight={5000}
       />,
     );
 
-    expect(screen.getAllByRole('button')).toHaveLength(6);
+    expect(screen.getAllByRole('link', { name: /Pass/ })).toHaveLength(6);
   });
 });

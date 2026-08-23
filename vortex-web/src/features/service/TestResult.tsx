@@ -239,7 +239,6 @@ function Instrument({
             timeline={evidence.timeline}
             annotation={plan.annotation}
             secondaryReference={plan.annotation === 'jump' ? rangeReferenceCaption(test.range) : null}
-            observability={test.testType === 'SOAK' ? evidence.observability : null}
           />
         </div>
       );
