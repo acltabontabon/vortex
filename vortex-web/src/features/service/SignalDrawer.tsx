@@ -6,7 +6,7 @@ import { Unknown } from '../../components/Unknown';
 import { EnvironmentsSection } from './configuration/EnvironmentsSection';
 import { OperationsSection } from './configuration/OperationsSection';
 import { ObjectivesSection } from './configuration/ObjectivesSection';
-import { ProductionSection } from './configuration/ProductionSection';
+import { ProductionRealitySection } from './configuration/ProductionRealitySection';
 import { TestComposer } from './TestComposer';
 import classes from './SignalDrawer.module.css';
 
@@ -14,7 +14,7 @@ import classes from './SignalDrawer.module.css';
  * One readiness item, configured without leaving the service.
  *
  * <p>Every panel below is the *same component the Configuration page renders* — `EnvironmentsSection`,
- * `OperationsSection`, `ObjectivesSection`, `ProductionSection`, `TestComposer` — mounted here
+ * `OperationsSection`, `ObjectivesSection`, `ProductionRealitySection`, `TestComposer` — mounted here
  * instead of there. Nothing about validation, persistence or the shape of a form is restated: a
  * second implementation of "add an environment" is a second thing to keep correct, and the two would
  * disagree within a release. What this file owns is which panel answers which item, and the sentence
@@ -173,9 +173,10 @@ function SignalPanel({
       return <ObjectivesSection serviceId={serviceId} thresholds={data.thresholds} />;
     case 'PRODUCTION_TRAFFIC':
       return (
-        <ProductionSection
+        <ProductionRealitySection
           serviceId={serviceId}
           production={data.production}
+          observationSource={data.observationSource}
           calibrationSuggestions={data.calibrationSuggestions}
           catalog={data.catalog}
         />

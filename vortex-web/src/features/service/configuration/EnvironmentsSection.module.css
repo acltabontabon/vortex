@@ -1,0 +1,51 @@
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.list > .card:last-child {
+  border-bottom: none;
+}
+
+.info {
+  min-width: 0;
+}
+
+.detail {
+  margin-top: 2px;
+}
+
+/* Present, not prominent, until the row is touched — the same quiet-until-touched treatment
+   ServiceHeader's own edit/delete actions use, so an environment row and the page header read as
+   one consistent action vocabulary. */
+.actions {
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.card:hover .actions,
+.card:focus-within .actions {
+  opacity: 1;
+}
+
+.editAction {
+  color: var(--mantine-color-dimmed);
+}
+
+.editAction:hover,
+.editAction:focus-visible {
+  color: var(--mantine-color-text);
+}
+
+.empty {
+  padding: 0.5rem 0 0.75rem;
+}

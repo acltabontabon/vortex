@@ -32,6 +32,18 @@ export interface Environment {
   hasSecretReferences: boolean;
   maskedHeaders: Record<string, string>;
   target: ExecutionTargetSummary;
+  productionLike: boolean;
+  // Target-detail fields — the read side of EnvironmentRequest's write-only shape, present only
+  // for the target kind this environment actually has. Used to prefill an edit form.
+  image: string | null;
+  containerPort: number | null;
+  cpuMillicores: number | null;
+  memoryMebibytes: number | null;
+  readinessPath: string | null;
+  readinessExpectedStatus: number | null;
+  readinessTimeoutSeconds: number | null;
+  composeFile: string | null;
+  composeService: string | null;
 }
 
 export interface LabStatus {
@@ -185,6 +197,21 @@ export interface EnvironmentRequest {
 
 export const useAddEnvironmentMutation = (id: string) =>
   useConfigMutation<EnvironmentRequest>(id, '/environments');
+
+/**
+ * Written by hand rather than through {@link useConfigMutation}: that helper always POSTs, and
+ * this is the one environment mutation that deletes.
+ */
+export function useDeleteEnvironmentMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiClient.delete<{ message: string }>(
+        `/api/services/${id}/environments/${encodeURIComponent(name)}`
+      ),
+    onSuccess: () => invalidateService(queryClient, id),
+  });
+}
 
 export interface TargetValidationResponse {
   valid: boolean;

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button, Group, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useSetReleaseMutation } from '../../../api/configuration';
-import { SectionDisclosure } from './SectionDisclosure';
+import { SummaryField } from './SummaryField';
 
 export function ReleaseSection({
   serviceId,
@@ -11,21 +11,28 @@ export function ReleaseSection({
   serviceId: string;
   serviceVersion: string | null;
 }) {
+  const [editing, setEditing] = useState(!serviceVersion);
   const [value, setValue] = useState(serviceVersion ?? '');
   const mutation = useSetReleaseMutation(serviceId);
 
   function save() {
     mutation.mutate(
       { serviceVersion: value },
-      { onSuccess: (r) => notifications.show({ message: r.message, color: 'pass' }) }
+      {
+        onSuccess: (r) => {
+          notifications.show({ message: r.message, color: 'pass' });
+          setEditing(false);
+        },
+      }
     );
   }
 
   return (
-    <SectionDisclosure
-      title="Release under test"
-      openByDefault={!serviceVersion}
-      state={serviceVersion ?? 'not recorded'}
+    <SummaryField
+      label="Release under test"
+      display={serviceVersion ?? 'not recorded'}
+      editing={editing}
+      onEdit={() => setEditing(true)}
     >
       <Group align="flex-end" gap="sm">
         <TextInput
@@ -39,7 +46,12 @@ export function ReleaseSection({
         <Button onClick={save} loading={mutation.isPending}>
           Save
         </Button>
+        {serviceVersion && (
+          <Button variant="default" onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
+        )}
       </Group>
-    </SectionDisclosure>
+    </SummaryField>
   );
 }

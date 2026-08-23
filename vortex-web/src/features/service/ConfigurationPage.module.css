@@ -1,5 +1,22 @@
-.page {
-  max-width: 900px;
+/*
+ * Elevation tier 2: one hairline-bordered, tinted block per top-level group ("Service definition",
+ * "Test environments", "Production reality", "Expectations"). Everything inside a group that
+ * doesn't need its own nested box (an environment card, Release, Objectives) renders directly on
+ * this surface rather than acquiring a border of its own — the concrete fix for card-in-card.
+ */
+.group {
+  border: 1px solid var(--border-default);
+  border-radius: var(--mantine-radius-md);
+  background: var(--surface-card);
+  padding: 1.1rem;
+}
+
+.groupTitle {
+  margin-bottom: 2px;
+}
+
+.groupDescription {
+  margin-bottom: 0.75rem;
 }
 
 .section {
@@ -33,4 +50,14 @@
   padding: 0 1.1rem 1.1rem;
   border-top: 1px solid var(--mantine-color-default-border);
   padding-top: 1rem;
+}
+
+.configFile {
+  font-size: 0.78rem;
+  background: var(--mantine-color-default-hover);
+  padding: 0.75rem 1rem;
+  border-radius: var(--mantine-radius-sm);
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
 }

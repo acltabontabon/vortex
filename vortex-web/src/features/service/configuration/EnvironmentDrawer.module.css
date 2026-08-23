@@ -1,0 +1,6 @@
+.groupLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-size: 0.72rem;
+  color: var(--mantine-color-dimmed);
+}

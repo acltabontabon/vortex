@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -18,16 +19,25 @@ import dev.vortex.core.application.ProjectService;
 import dev.vortex.core.calibration.CalibrationPolicy;
 import dev.vortex.core.calibration.WorkloadDrift;
 import dev.vortex.core.capacity.ProductionObservation;
+import dev.vortex.core.environment.DependencyMode;
+import dev.vortex.core.environment.Environment;
+import dev.vortex.core.environment.EnvironmentCapabilities;
+import dev.vortex.core.environment.EnvironmentType;
+import dev.vortex.core.environment.SecretReferences;
+import dev.vortex.core.environment.TargetUrl;
 import dev.vortex.core.fixtures.Fixtures;
 import dev.vortex.core.port.LocalLab;
 import dev.vortex.core.port.ProductionObservationSource.NotRetrieved;
 import dev.vortex.core.port.ProductionObservationSource.Retrieved;
 import dev.vortex.core.port.TargetExecutor;
 import dev.vortex.core.project.ProjectConfiguration;
+import dev.vortex.core.shared.EnvironmentId;
 import dev.vortex.core.shared.RequestsPerSecond;
+import dev.vortex.core.target.ExternalEndpointTarget;
 import dev.vortex.core.workload.Observation;
 import dev.vortex.core.workload.RateAllocator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -147,6 +157,65 @@ class ConfigurationApiControllerTest {
             var target = (dev.vortex.core.target.ExternalEndpointTarget)
                     configuration.environmentByName("local").orElseThrow().target();
             assertThat(target.endpoint().value()).isEqualTo("http://localhost:9090");
+        }
+
+        @Test
+        @DisplayName("removes an existing environment")
+        void removesAnExistingEnvironment() throws Exception {
+            mvc.perform(delete("/api/services/" + SERVICE + "/environments/local"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value(
+                            org.hamcrest.Matchers.containsString("Environment 'local' removed")));
+
+            assertThat(saved().environmentByName("local")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("removing a name that isn't configured is not an error")
+        void removingAnUnknownNameIsIdempotent() throws Exception {
+            mvc.perform(delete("/api/services/" + SERVICE + "/environments/ghost"))
+                    .andExpect(status().isOk());
+
+            assertThat(saved().environmentByName("local")).isPresent();
+        }
+
+        @Test
+        @DisplayName("a masked header value is preserved rather than overwritten literally")
+        void preservesAMaskedHeaderValue() throws Exception {
+            Environment withSecretHeader = new Environment(EnvironmentId.of("local"), "local",
+                    EnvironmentType.LOCAL_ISOLATED,
+                    new ExternalEndpointTarget(TargetUrl.of("http://localhost:8080")),
+                    EnvironmentCapabilities.localIsolated(), DependencyMode.MOCKED,
+                    Map.of("X-Api-Key", "a-real-literal-value"));
+            when(projects.configuration(any())).thenReturn(
+                    Fixtures.configuration().withEnvironments(List.of(withSecretHeader)));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/environments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"local","baseUrl":"http://localhost:8080",
+                                     "type":"LOCAL_ISOLATED","dependencies":"MOCKED",
+                                     "headerNames":"X-Api-Key","headerValues":"%s"}
+                                    """.formatted(SecretReferences.MASK)))
+                    .andExpect(status().isOk());
+
+            var env = saved().environmentByName("local").orElseThrow();
+            assertThat(env.headers()).containsEntry("X-Api-Key", "a-real-literal-value");
+        }
+
+        @Test
+        @DisplayName("a masked header value with nothing to recover it from is rejected")
+        void rejectsAMaskedHeaderWithNoExistingMatch() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/environments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"local","baseUrl":"http://localhost:8080",
+                                     "type":"LOCAL_ISOLATED","dependencies":"MOCKED",
+                                     "headerNames":"X-New-Header","headerValues":"%s"}
+                                    """.formatted(SecretReferences.MASK)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.detail").value(
+                            org.hamcrest.Matchers.containsString("retype its value to change it")));
         }
 
         @Test

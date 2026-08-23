@@ -41,6 +41,16 @@ function aConfiguration(overrides: Partial<Configuration> = {}): Configuration {
         hasSecretReferences: false,
         maskedHeaders: {},
         target: { kind: 'EXTERNAL_ENDPOINT', summary: 'http://localhost:8080', ownershipLabel: 'Externally managed' },
+        productionLike: false,
+        image: null,
+        containerPort: null,
+        cpuMillicores: null,
+        memoryMebibytes: null,
+        readinessPath: null,
+        readinessExpectedStatus: null,
+        readinessTimeoutSeconds: null,
+        composeFile: null,
+        composeService: null,
       },
     ],
     environmentTypes: [{ name: 'LOCAL_ISOLATED', label: 'Local (isolated)', description: '' }],
@@ -69,10 +79,9 @@ describe('the configuration page', () => {
     queryResult = { data: aConfiguration(), isError: false };
     renderWithProviders(<ConfigurationPage />);
 
-    // Two facts share this text for an external endpoint: the environment's own baseUrl fact, and
-    // its target-summary fact (an external endpoint's summary *is* its address) — both present.
-    expect(screen.getAllByText('http://localhost:8080').length).toBeGreaterThan(0);
-    expect(screen.getByText('Save environment')).toBeInTheDocument();
+    expect(screen.getByText('local')).toBeInTheDocument();
+    expect(screen.getAllByText(/http:\/\/localhost:8080/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Add environment' })).toBeInTheDocument();
   });
 
   it('states the release plainly when recorded', () => {

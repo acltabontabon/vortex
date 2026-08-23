@@ -68,9 +68,8 @@ export function DatasetsSection({ serviceId }: { serviceId: string }) {
   return (
     <div>
       <Text size="sm" c="dimmed" mb="sm">
-        Values a request needs that have to be real — customer ids, account numbers, product codes.
-        Rows are walked in order and wrap at the end; every value one request reads from a dataset
-        comes from the same row.
+        Real values a request needs — customer ids, account numbers, product codes — read row by
+        row, one dataset per request.
       </Text>
 
       {problem && (

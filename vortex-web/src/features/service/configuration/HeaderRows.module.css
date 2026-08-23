@@ -1,0 +1,18 @@
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.row {
+  align-items: center;
+}
+
+.name {
+  flex: 0 0 40%;
+}
+
+.value {
+  flex: 1;
+  min-width: 0;
+}

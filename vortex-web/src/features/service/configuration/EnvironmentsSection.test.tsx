@@ -5,24 +5,31 @@ import { renderWithProviders } from '../../../test/renderWithProviders';
 import type { Environment, EnvironmentOption } from '../../../api/configuration';
 import { EnvironmentsSection } from './EnvironmentsSection';
 
-const addMutate = vi.fn();
-const validateMutate = vi.fn();
-let addPending = false;
-let validatePending = false;
-let validateData: { valid: boolean; checks: string[] } | undefined;
+const deleteMutate = vi.fn();
 
 vi.mock('../../../api/configuration', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../api/configuration')>();
   return {
     ...actual,
-    useAddEnvironmentMutation: () => ({ mutate: addMutate, isPending: addPending, isError: false }),
-    useValidateTargetMutation: () => ({
-      mutate: validateMutate,
-      isPending: validatePending,
-      data: validateData,
-    }),
+    useDeleteEnvironmentMutation: () => ({ mutate: deleteMutate, isPending: false }),
+    // EnvironmentDrawer's own mutations — not under test here, only that the drawer opens.
+    useAddEnvironmentMutation: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+    useValidateTargetMutation: () => ({ mutate: vi.fn(), isPending: false, data: undefined }),
   };
 });
+
+// The confirm dialog needs a provider this test does not wrap with — see DatasetsSection.test.tsx
+// for the same reasoning. What matters here is that deletion asks first and states plainly that
+// recorded evidence is unaffected.
+const confirmChildren = vi.fn();
+vi.mock('@mantine/modals', () => ({
+  modals: {
+    openConfirmModal: (options: { children: unknown; onConfirm: () => void }) => {
+      confirmChildren(options.children);
+      options.onConfirm();
+    },
+  },
+}));
 
 const ENVIRONMENT_TYPES: EnvironmentOption[] = [
   { name: 'LOCAL_ISOLATED', label: 'Local (isolated)', description: '' },
@@ -43,16 +50,23 @@ function anEnvironment(overrides: Partial<Environment> = {}): Environment {
     hasSecretReferences: false,
     maskedHeaders: {},
     target: { kind: 'EXTERNAL_ENDPOINT', summary: 'http://localhost:8080', ownershipLabel: 'Externally managed' },
+    productionLike: false,
+    image: null,
+    containerPort: null,
+    cpuMillicores: null,
+    memoryMebibytes: null,
+    readinessPath: null,
+    readinessExpectedStatus: null,
+    readinessTimeoutSeconds: null,
+    composeFile: null,
+    composeService: null,
     ...overrides,
   };
 }
 
 function render(environments: Environment[] = []) {
-  addMutate.mockReset();
-  validateMutate.mockReset();
-  addPending = false;
-  validatePending = false;
-  validateData = undefined;
+  deleteMutate.mockReset();
+  confirmChildren.mockReset();
   return renderWithProviders(
     <EnvironmentsSection
       serviceId="checkout"
@@ -64,117 +78,58 @@ function render(environments: Environment[] = []) {
 }
 
 describe('EnvironmentsSection', () => {
-  it('shows each saved environment\'s own target summary', () => {
-    render([anEnvironment({ target: { kind: 'DOCKER_IMAGE', summary: 'Docker: payment-service:1.4.2', ownershipLabel: 'Vortex managed' } })]);
+  it('says plainly that nothing is configured yet, rather than an empty list', () => {
+    render([]);
 
-    expect(screen.getByText('Docker: payment-service:1.4.2')).toBeInTheDocument();
+    expect(screen.getByText(/No environments configured yet/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add environment' })).toBeInTheDocument();
   });
 
-  it('shows only the target URL field for the default, existing-endpoint kind', () => {
-    render();
+  it('shows each environment as a compact row with its target and dependency mode', () => {
+    render([
+      anEnvironment({
+        target: { kind: 'DOCKER_IMAGE', summary: 'Docker: payment-service:1.4.2', ownershipLabel: 'Vortex managed' },
+      }),
+    ]);
 
-    expect(screen.getByLabelText('Target URL')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Image')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Compose file')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Test Connection' })).not.toBeInTheDocument();
+    expect(screen.getByText('local')).toBeInTheDocument();
+    expect(screen.getByText(/Docker: payment-service:1\.4\.2/)).toBeInTheDocument();
+    expect(screen.getByText(/Mocked/)).toBeInTheDocument();
   });
 
-  it('switches to the Docker image fields when that target kind is selected', async () => {
+  it('shows a production-sized indicator only when the environment is marked as one', () => {
+    render([anEnvironment({ productionLike: true })]);
+
+    expect(screen.getByText(/production-sized/)).toBeInTheDocument();
+  });
+
+  it('opens the same editor, empty, from "Add environment"', async () => {
     const user = userEvent.setup();
-    render();
+    render([anEnvironment()]);
 
-    await user.click(screen.getByRole('radio', { name: 'Docker image' }));
+    await user.click(screen.getByRole('button', { name: 'Add environment' }));
 
-    expect(screen.queryByLabelText('Target URL')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Image')).toBeInTheDocument();
-    expect(screen.getByLabelText('Container port')).toBeInTheDocument();
-    expect(screen.getByLabelText(/CPU \(cores\)/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Test Connection' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Name')).toHaveValue('');
   });
 
-  it('switches to the Compose fields when that target kind is selected', async () => {
+  it('opens the same editor, prefilled, from a row\'s Edit action', async () => {
     const user = userEvent.setup();
-    render();
+    render([anEnvironment({ name: 'staging', baseUrl: 'https://staging.example.com' })]);
 
-    await user.click(screen.getByRole('radio', { name: 'Docker Compose' }));
+    await user.click(screen.getByRole('button', { name: 'Edit staging' }));
 
-    expect(screen.queryByLabelText('Target URL')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Compose file')).toBeInTheDocument();
-    expect(screen.getByLabelText('Service')).toBeInTheDocument();
-    expect(screen.getByLabelText('Container port')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Name')).toHaveValue('staging');
+    expect(screen.getByLabelText('Target URL')).toHaveValue('https://staging.example.com');
   });
 
-  it('submits an existing-endpoint environment with exactly today\'s request shape (regression guard)', async () => {
+  it('confirms before deleting, and states that recorded evidence is unaffected', async () => {
     const user = userEvent.setup();
-    render();
+    render([anEnvironment({ name: 'staging' })]);
 
-    await user.clear(screen.getByLabelText('Target URL'));
-    await user.type(screen.getByLabelText('Target URL'), 'http://localhost:9090');
-    await user.click(screen.getByRole('button', { name: 'Save environment' }));
+    await user.click(screen.getByRole('button', { name: 'More actions for staging' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete environment' }));
 
-    expect(addMutate).toHaveBeenCalled();
-    const sent = addMutate.mock.calls[0][0];
-    expect(sent).toEqual({
-      name: 'local',
-      baseUrl: 'http://localhost:9090',
-      type: 'LOCAL_ISOLATED',
-      dependencies: 'MOCKED',
-      productionLike: false,
-      headerNames: undefined,
-      headerValues: undefined,
-      targetKind: undefined,
-    });
-  });
-
-  it('submits a Docker image configuration with the millicore-converted CPU value', async () => {
-    const user = userEvent.setup();
-    render();
-
-    await user.click(screen.getByRole('radio', { name: 'Docker image' }));
-    await user.type(screen.getByLabelText('Image'), 'payment-service:1.4.2');
-    await user.type(screen.getByLabelText('Container port'), '8080');
-    await user.type(screen.getByLabelText(/CPU \(cores\)/), '0.5');
-    await user.type(screen.getByLabelText('Memory (MiB)'), '512');
-    await user.click(screen.getByRole('button', { name: 'Save environment' }));
-
-    expect(addMutate).toHaveBeenCalled();
-    const sent = addMutate.mock.calls[0][0];
-    expect(sent).toMatchObject({
-      targetKind: 'DOCKER_IMAGE',
-      image: 'payment-service:1.4.2',
-      containerPort: 8080,
-      cpuMillicores: 500,
-      memoryMebibytes: 512,
-      baseUrl: '',
-    });
-  });
-
-  it('calls the validate endpoint with the current form values, and renders the returned checks', async () => {
-    const user = userEvent.setup();
-    render();
-
-    await user.click(screen.getByRole('radio', { name: 'Docker image' }));
-    await user.type(screen.getByLabelText('Image'), 'payment-service:1.4.2');
-    await user.type(screen.getByLabelText('Container port'), '8080');
-
-    validateData = { valid: true, checks: ['Docker daemon reachable: OK', 'Image present: OK'] };
-    await user.click(screen.getByRole('button', { name: 'Test Connection' }));
-
-    expect(validateMutate).toHaveBeenCalled();
-    const sent = validateMutate.mock.calls[0][0];
-    expect(sent).toMatchObject({ targetKind: 'DOCKER_IMAGE', image: 'payment-service:1.4.2', containerPort: 8080 });
-  });
-
-  it('shows the validation result once it arrives', async () => {
-    render();
-    const user = userEvent.setup();
-
-    // Switching kind triggers the re-render the mock's freshly-set data needs to be read on —
-    // there is no live subscription here, only what the mocked hook returns on its next call.
-    validateData = { valid: false, checks: ['Docker daemon reachable: FAILED — daemon not running'] };
-    await user.click(screen.getByRole('radio', { name: 'Docker Compose' }));
-
-    expect(screen.getByText('Connection checks failed')).toBeInTheDocument();
-    expect(screen.getByText(/daemon not running/)).toBeInTheDocument();
+    expect(confirmChildren).toHaveBeenCalled();
+    expect(deleteMutate).toHaveBeenCalledWith('staging', expect.anything());
   });
 });

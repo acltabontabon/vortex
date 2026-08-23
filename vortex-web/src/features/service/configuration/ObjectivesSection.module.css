@@ -1,0 +1,18 @@
+.cells {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+@media (max-width: 640px) {
+  .cells {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+}

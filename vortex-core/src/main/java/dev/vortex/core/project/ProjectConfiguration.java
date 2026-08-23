@@ -174,6 +174,23 @@ public record ProjectConfiguration(
                 operationBindings, newEnvironments, workloads, thresholds, productionObservation, observationSource, localLab);
     }
 
+    /**
+     * Removes one environment, matching by name.
+     *
+     * <p>Safe with respect to history by construction: {@code RunIdentity} stores the environment's
+     * name as a plain string snapshot, not a live reference, and {@code RunEvidence} never holds an
+     * {@code Environment}/{@code EnvironmentId} at all — deleting the configuration entry cannot
+     * change what an already-recorded run reports.
+     *
+     * <p>Removing a name that is not present is not an error. The caller wanted it gone.
+     */
+    public ProjectConfiguration withoutEnvironment(String name) {
+        String wanted = Objects.requireNonNullElse(name, "");
+        return withEnvironments(environments.stream()
+                .filter(existing -> !existing.name().equalsIgnoreCase(wanted))
+                .toList());
+    }
+
     public ProjectConfiguration withWorkloads(List<Workload> newWorkloads) {
         return new ProjectConfiguration(version, serviceName, serviceDescription, serviceVersion,
                 operationBindings, environments, newWorkloads, thresholds, productionObservation, observationSource, localLab);

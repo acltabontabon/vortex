@@ -80,6 +80,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -174,6 +175,7 @@ public class ConfigurationApiController {
         // reports no baseUrl rather than a manufactured one.
         String baseUrl = environment.target() instanceof ExternalEndpointTarget endpoint
                 ? endpoint.endpoint().value() : null;
+        TargetDetail detail = targetDetail(environment.target());
         return new EnvironmentDto(
                 environment.name(),
                 baseUrl,
@@ -186,7 +188,43 @@ public class ConfigurationApiController {
                 environment.classification().caveat(),
                 environment.hasSecretReferences(),
                 environment.headerNames(),
-                targetSummary(environment.target()));
+                targetSummary(environment.target()),
+                environment.capabilities().productionLikeInfrastructure(),
+                detail.image, detail.containerPort, detail.cpuMillicores, detail.memoryMebibytes,
+                detail.readinessPath, detail.readinessExpectedStatus, detail.readinessTimeoutSeconds,
+                detail.composeFile, detail.composeService);
+    }
+
+    /**
+     * The structured fields {@link EnvironmentRequest} accepts on write, read back off whichever
+     * {@link ExecutionTarget} variant this environment actually has — {@code null} for every field
+     * that variant doesn't carry. Exists so an edit form can prefill exactly what it would submit,
+     * the read side of {@link #targetFrom}.
+     */
+    private TargetDetail targetDetail(ExecutionTarget target) {
+        return switch (target) {
+            case ExternalEndpointTarget ignored -> TargetDetail.EMPTY;
+            case DockerImageTarget image -> new TargetDetail(
+                    image.image().value(), image.containerPort().value(),
+                    image.resources().cpuIfPresent().map(CpuAllocation::millicores).orElse(null),
+                    image.resources().memoryIfPresent()
+                            .map(m -> m.bytes() / (1024L * 1024L)).orElse(null),
+                    image.readinessCheckIfPresent().map(ReadinessCheck::path).orElse(null),
+                    image.readinessCheckIfPresent().map(ReadinessCheck::expectedStatus).orElse(null),
+                    image.readinessCheckIfPresent()
+                            .map(r -> (int) r.timeout().toSeconds()).orElse(null),
+                    null, null);
+            case DockerComposeTarget compose -> new TargetDetail(
+                    null, compose.containerPort().value(), null, null, null, null, null,
+                    compose.composeFile(), compose.serviceName());
+        };
+    }
+
+    private record TargetDetail(String image, Integer containerPort, Integer cpuMillicores,
+            Long memoryMebibytes, String readinessPath, Integer readinessExpectedStatus,
+            Integer readinessTimeoutSeconds, String composeFile, String composeService) {
+        static final TargetDetail EMPTY =
+                new TargetDetail(null, null, null, null, null, null, null, null, null);
     }
 
     /** {@code kind} matches the wire vocabulary shared with {@code EnvironmentRequest.targetKind}
@@ -315,9 +353,12 @@ public class ConfigurationApiController {
                     false, Boolean.TRUE.equals(request.productionLike()),
                     type != EnvironmentType.LOCAL_ISOLATED, false);
 
+            Map<String, String> existingHeaders = configuration.environmentByName(slug)
+                    .map(Environment::headers).orElseGet(Map::of);
             Environment environment = new Environment(EnvironmentId.of(slug), slug, type,
                     targetFrom(request), capabilities,
-                    dependencies, parseHeaders(request.headerNames(), request.headerValues()));
+                    dependencies, resolveHeaders(
+                            parseHeaders(request.headerNames(), request.headerValues()), existingHeaders));
 
             List<Environment> updated = new ArrayList<>();
             boolean replaced = false;
@@ -339,6 +380,20 @@ public class ConfigurationApiController {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
+    }
+
+    /**
+     * Removing a name Vortex doesn't have is not an error — the caller wanted it gone, and it
+     * already is. No existence check, matching the only other delete endpoint in this controller
+     * family ({@code RequestDataApiController.delete}), which behaves the same way.
+     */
+    @DeleteMapping("/environments/{name}")
+    public MessageResponse deleteEnvironment(@PathVariable String id, @PathVariable String name) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+        projects.saveConfiguration(projectId, configuration.withoutEnvironment(name));
+        return new MessageResponse("Environment '" + name + "' removed. Runs already recorded "
+                + "against it keep their own evidence — nothing already recorded is affected.");
     }
 
     /**
@@ -488,6 +543,32 @@ public class ConfigurationApiController {
             headers.put(name, value);
         }
         return headers;
+    }
+
+    /**
+     * Resolves a masked placeholder ({@link SecretReferences#MASK}) in {@code parsed} back to the
+     * real value already stored under that header name, so leaving a masked header untouched on
+     * save doesn't overwrite it with the literal placeholder string — {@code toDto} always masks a
+     * literal header value on the way out (see {@code Environment#headerNames}), so the browser
+     * never has the real value to resubmit. A masked value with nothing to recover it from (a new
+     * header, or a renamed one) is rejected: Vortex never writes the placeholder as a real value.
+     */
+    private Map<String, String> resolveHeaders(Map<String, String> parsed, Map<String, String> existing) {
+        Map<String, String> resolved = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : parsed.entrySet()) {
+            String value = entry.getValue();
+            if (SecretReferences.MASK.equals(value)) {
+                String real = existing.get(entry.getKey());
+                if (real == null) {
+                    throw new IllegalArgumentException("Header '" + entry.getKey() + "' shows "
+                            + SecretReferences.MASK + " — retype its value to change it. Vortex never "
+                            + "writes a masked placeholder as a real header value.");
+                }
+                value = real;
+            }
+            resolved.put(entry.getKey(), value);
+        }
+        return resolved;
     }
 
     // ==================================================================== release

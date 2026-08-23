@@ -20,10 +20,18 @@ public final class ConfigurationDtos {
 
     // ---------------------------------------------------------------- environments
 
+    /**
+     * The target-detail fields ({@code image} through {@code composeService}) are {@code null} when
+     * not applicable to this environment's target kind — they exist so an edit form can prefill
+     * exactly what {@code EnvironmentRequest} accepts on write, the read side of the same shape.
+     */
     public record EnvironmentDto(String name, String baseUrl, String type, String typeLabel,
             String dependencyMode, String dependencyModeLabel, String classification,
             String classificationLabel, String classificationCaveat, boolean hasSecretReferences,
-            Map<String, String> maskedHeaders, ExecutionTargetSummaryDto target) {
+            Map<String, String> maskedHeaders, ExecutionTargetSummaryDto target, boolean productionLike,
+            String image, Integer containerPort, Integer cpuMillicores, Long memoryMebibytes,
+            String readinessPath, Integer readinessExpectedStatus, Integer readinessTimeoutSeconds,
+            String composeFile, String composeService) {
     }
 
     /**
