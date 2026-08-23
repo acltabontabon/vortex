@@ -1,0 +1,33 @@
+= ADR-017: Capacity observation, not capacity baseline
+
+== Status
+
+Accepted
+
+== Context
+
+The natural name is `CapacityBaseline`. It implies a property of the service — a number you look
+up and compare against.
+
+It is not. Tested capacity moves with the version, configuration, infrastructure, dependencies,
+traffic mix, data shape and database size.
+
+== Decision
+
+Named `CapacityObservation`. Historical evidence, not mutable service metadata.
+
+Observations accumulate rather than overwriting. Each is constructed with its conditions — version,
+environment, classification, dependency mode, traffic mix, workload, objectives, duration, execution
+— and cannot be rendered without them.
+
+The label is *tested SLO-compliant capacity*, never *capacity* or *maximum throughput*.
+
+== Consequences
+
+*Gained:* the language discourages the mistake the type is designed to prevent. The interface
+renders the number and its conditions together, making a decontextualised screenshot awkward to take.
+
+*Cost:* more verbose than "capacity: 118". That verbosity is the feature.
+
+*Not called certification:* that would imply organisational governance Vortex does not provide. A
+reporting layer could add one later.

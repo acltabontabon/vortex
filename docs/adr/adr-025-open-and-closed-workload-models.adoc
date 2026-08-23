@@ -1,0 +1,75 @@
+= ADR-025: Open and closed workload models, and why only open models carry a mix
+
+== Status
+
+Accepted
+
+== Context
+
+Vortex generated arrival-rate workloads only. That was a defensible default and a poor absolute:
+some callers genuinely are a bounded population — a connection pool, a fixed worker fleet, a known
+number of terminals — and modelling them as an open arrival stream tests a system nobody has.
+
+The distinction between open and closed workloads is old and well understood in the field. Vortex
+should name it as the field names it rather than hide it behind its own vocabulary, and should help
+an engineer pick the one that matches their caller.
+
+== Decision
+
+Both models are first-class, as `WorkloadModel.OPEN` and `WorkloadModel.CLOSED`, each carrying the
+question it can answer and guidance on when it fits. Four workload shapes result, from two
+independent choices:
+
+[cols="1,2,2", options="header"]
+|===
+| | constant | ramping
+
+| *open* (arrival rate)
+| `constant-arrival-rate`
+| `ramping-arrival-rate`
+
+| *closed* (concurrency)
+| `constant-vus`
+| `ramping-vus`
+|===
+
+Arrival rate remains the *default*, for the reason it always was: an open workload keeps offering the
+same load when the service slows down, whereas a closed workload quietly reduces its own offered load
+at exactly the moment a capacity test most wants the pressure held steady.
+
+The level a workload controls is a `LoadLevel` — `RequestsPerSecond` or `Concurrency` — and it
+carries its unit everywhere it is displayed, compared, stored or fingerprinted. The two never convert
+into one another, because deriving a request rate from a virtual-user count requires knowing the
+latency of the operation involved, which is a measurement rather than a property of the workload.
+
+=== A weighted operation mix is valid only under an open workload
+
+Weights under an open workload distribute an arrival rate, so they _are_ traffic composition: 15% of
+120 requests/sec is 18 requests/sec, whatever the service does.
+
+Weights under a closed workload would distribute virtual users, and a virtual user's throughput
+depends on how fast the operation it calls responds. 15% of the VUs is not 15% of the requests, and
+the two drift further apart precisely as the service degrades — so the number would be least true
+exactly when someone is relying on it. *Closed scenarios therefore target a single operation*,
+enforced in `Scenario`'s constructor with a message that explains the reason rather than stating the
+rule.
+
+Nothing in the product describes VU allocation as a traffic mix.
+
+== Consequences
+
+*Gained.* A bounded client population can be modelled honestly. Vortex can say which model suits a
+question instead of having one answer. And a stored `50` can no longer be mistaken for the wrong
+quantity: the unit travels with it through the plan fingerprint, the database and the report, so a
+regression comparison between an arrival-rate run and a concurrency run at the same number returns
+`NOT_COMPARABLE` rather than a confident percentage.
+
+*Cost.* Two quantities to render, compare and explain wherever one used to be enough. Some figures
+are simply unavailable under a closed workload, and are reported as unavailable rather than
+approximated: a predicted request count (it depends on the latency being measured), a delivered-load
+shortfall (nothing was offered), and capacity headroom against production traffic (virtual users and
+requests per second are not divisible).
+
+*Not done.* Vortex does not translate between the models — no "50 VUs is about N requests/sec"
+convenience anywhere. That conversion is valid at exactly one latency, and the latency is the thing
+the test exists to find out.

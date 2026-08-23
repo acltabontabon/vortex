@@ -1,0 +1,57 @@
+.diagram {
+  margin: var(--mantine-spacing-sm) 0;
+}
+
+/*
+ * The domain sends this as real prose with `\n\n` paragraph breaks and `\n  • ` bullet lines, not
+ * one run-on sentence — `pre-line` is what makes those breaks actually render instead of collapsing
+ * to a single space the way plain text always does in HTML.
+ */
+.summary {
+  margin: 0;
+  white-space: pre-line;
+  line-height: 1.5;
+}
+
+.operations {
+  margin-top: var(--mantine-spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.operationRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.operationRow:last-child {
+  border-bottom: none;
+}
+
+.dim {
+  color: var(--mantine-color-dimmed);
+}
+
+.list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.checkRow {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.checkDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+}

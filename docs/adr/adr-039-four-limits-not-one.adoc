@@ -1,0 +1,259 @@
+= ADR-039: Four limits, not one, and capacity names the one it found
+
+== Status
+
+Accepted, and implemented in slices 4.6 and 4.7 of
+xref:../01-product/roadmap.adoc[Phase 4 — HTTP foundation hardening].
+
+Three details were settled during implementation.
+
+=== A ramp does not hold the level it arrives at
+
+Condition 3 asks how long a level was *held*. A stage says "move to this target over this duration",
+so a stage whose target differs from the one before it is a ramp: the level it names is where it
+arrives, not where it stayed. Only a stage whose target matches its predecessor is a plateau, and
+only plateaus are counted. Summing every stage that mentions a level would credit a ramp's whole
+climb to the level it happened to end at — which is exactly the fifteen-seconds-versus-ten-minutes
+confusion the condition exists to catch.
+
+=== Headroom's old numerator is renamed, not overloaded
+
+The two calculations take the same shaped arguments and differ only in their first parameter, so
+adding the new one as an overload made every existing call ambiguous rather than broken — a compiler
+error that says nothing about what changed. The sustainable-capacity calculation therefore keeps the
+name `calculate`, and the historical one becomes `calculateFromTestedCapacity`. A caller wanting the
+old numerator now has to ask for it by name.
+
+Historical observations still use it. Rows recorded before this slice did not fail the five
+conditions; nobody evaluated them, and retroactively refusing headroom on every past page would read
+as a bug rather than as the announced discontinuity it is. `SustainableCapacity.notEvaluated()` and
+"evaluated, not established" are deliberately different states for this reason, and `V4` stores the
+conditions alongside the level so the difference survives a restart.
+
+=== A capacity without resource telemetry is weaker, not absent
+
+Condition 5 is `NOT_EVALUATED` where nothing with a declared limit covered the level. Refusing the
+capacity outright would leave every team without resource telemetry with no figure at all; asserting
+it as firmly as a fully observed run would overstate it. It is established at `MEDIUM` strength
+instead, and the condition's own sentence says the question is unknown rather than ruled out.
+
+== Context
+
+Vortex already refuses to say "maximum throughput". It records a *tested SLO-compliant capacity*, the
+level beside the first non-compliant level, both edges together, with a `BoundaryStatus` saying
+whether they form a boundary at all — see
+xref:adr-032-capacity-records-both-edges.adoc[ADR-032] and
+xref:../03-performance-model/experiments.adoc[breakpoints and capacity].
+
+It also distinguishes two limits: the `SloBreakpoint`, where an agreed objective was first violated,
+and `SystemSaturation`, where the system itself appeared to stop coping. That second one requires two
+independent signals and reports a bounded range.
+
+Both are real and both are incomplete, in the same direction.
+
+*The objective breakpoint is a statement about an agreement.* Raise p95 from 500 ms to 800 ms and it
+moves while the service behaves identically. That is documented and correct, and it means the number
+answers "when do we breach our SLO?" rather than "what can this service do?".
+
+*System saturation is inferred from client-side symptoms.* Its three signals — rate shortfall, error
+runaway, latency explosion — are all measured at the load generator. Two of them have an innocent
+explanation that lives on the generator rather than the service: a shortfall is exactly what a
+saturated generator produces, and a latency explosion measured client-side includes time the request
+spent queued in a client that could not dispatch it. It is careful about corroboration and blind
+about *whose* symptoms it is corroborating.
+
+And neither is a resource statement. `ConstraintCandidate` records resources near their limits at the
+boundary and says, in its own `describe()`, that coincidence is not causation. That is the right
+epistemics and the wrong altitude: it can say a pool was at 98% where objectives broke, and it cannot
+say the service reached a resource limit at all, because nothing in the domain knows which signals
+are resources or what their limits are. ADR-037 fixes that; this ADR decides what to do with it.
+
+Meanwhile the number a capacity page actually needs to answer — *what can this service sustain?* — is
+not any of these. The highest level that passed is not a capacity if the generator produced it
+badly, if it was held for forty seconds, or if throughput had already stopped responding to offered
+load two stages earlier.
+
+== Decision
+
+=== Four limits, each with its own evidence and its own name
+
+[cols="1,2,2", options="header"]
+|===
+| Limit | What it is | What it needs
+
+| *Objective breakpoint*
+| The level where a declared objective was first violated
+| Thresholds and stages. Exists today as `SloBreakpoint`
+
+| *Throughput ceiling*
+| The level beyond which increasing offered load stops producing proportionally increased achieved
+  throughput
+| Offered and achieved rate per stage, and a run quality that rules out the generator (ADR-038)
+
+| *Resource limit*
+| The level where a typed resource signal reached its declared limit
+| A `ResourceSignal` with a `ResourceLimit`, scoped to the system under test (ADR-037)
+
+| *System saturation*
+| The level where the system as a whole stopped coping, from corroborating symptoms
+| Two independent signals. Exists today as `SystemSaturation`
+|===
+
+They are four different findings, reported separately, and they routinely disagree. A service can
+breach a 200 ms p95 objective at 300 requests/sec while its throughput ceiling is 900 and its CPU
+never passes 40% — that is a service that is slow, not a service that is full, and one number cannot
+say both. Collapsing them into "the breakpoint" would throw away the distinction that tells an
+engineer whether to tune the code, add instances, or renegotiate the objective.
+
+*A throughput ceiling is not a shortfall.* The shape is `offered ↑, achieved flat, latency ↑` — a
+queue forming somewhere. Where run quality says the generator was itself constrained, the same shape
+is evidence about Vortex's host and is not reported as a property of the service at all.
+
+*CPU is not privileged.* The resource limit is whichever typed signal reached its declared limit
+first, and where none did, Vortex reports that no resource limit was observed. A run with CPU
+telemetry and nothing else may not conclude CPU was the constraint merely because CPU is the only
+thing it could see.
+
+=== Sustainable capacity is demonstrated, not inferred
+
+----
+Sustainable capacity — the highest offered level for which all of the following hold:
+
+  1. the offered load was actually generated          (run quality permits the claim)
+  2. every declared objective was met                 (Verdict PASS at that level)
+  3. it was held for the declared sustain duration    (not a ramp passing through)
+  4. achieved throughput tracked offered load         (at or below the throughput ceiling)
+  5. no observed resource reached its declared limit  (where such telemetry exists)
+----
+
+=== "Held" has a number behind it
+
+Condition 3 is meaningless without one. A level a ramp passed through in fifteen seconds and a level
+held for ten minutes are not the same evidence, and JIT compilation, connection-pool growth, cache
+fill and the first collection cycle all land inside the first minute of any level.
+
+Sustain duration is a property of the workload, defaulted by test type:
+
+[cols="1,1,3", options="header"]
+|===
+| Test type | Default hold | Why
+
+| `SMOKE`
+| —
+| Never quotable as capacity; it exists to check the workload is valid
+
+| `AVERAGE_LOAD`
+| 5m
+| The run future releases are compared against. Long enough that warm-up is a small fraction of it
+
+| `STRESS`, `BREAKPOINT`
+| 2m per level
+| The floor at which a stepped level is evidence rather than a transient. Ten levels at 5m each is a
+  fifty-minute run nobody will schedule, and the boundary matters more than any single level
+
+| `SPIKE`
+| —
+| Abrupt arrival is the subject; no level is held, and no capacity is claimed
+
+| `SOAK`
+| 30m
+| Below this it is an average-load test with a longer name
+|===
+
+A level held for less than its sustain duration is still measured, still rendered, and cannot be a
+sustainable-capacity edge. The finding says which number it missed and by how much.
+
+Two minutes is a floor, not a recommendation. It is the point below which a level is measuring
+warm-up; whether a given service needs five is a question its engineers answer, which is why the
+value is declarable per workload rather than fixed.
+
+Conditions 1–4 are computable from measurements Vortex either has or is adding in this phase.
+Condition 5 is conditional on telemetry: where none exists, it is *not evaluated* rather than
+assumed satisfied, and the resulting capacity is reported as such. A capacity established without
+resource telemetry is a weaker claim than one established with it, and the difference is stated
+rather than left to the reader.
+
+Sustainable capacity will frequently be *lower* than today's tested SLO-compliant capacity, and will
+sometimes not exist for a run that produces one. That is the point. The existing figure keeps its
+name and its meaning — it is the highest compliant edge, and it remains the honest answer to "what
+level passed?". Sustainable capacity answers a stricter question and says so.
+
+=== Sustainable capacity is the headline, and headroom is computed from it
+
+A capacity result's most common real use is a deployment decision — somebody has to say whether this
+release can carry production traffic. That reader needs the defensible number in the largest type,
+not the most flattering one.
+
+----
+Sustainable capacity      410 requests/sec
+Production peak           120 requests/sec
+Headroom                  3.4×
+
+Highest level that passed 450 requests/sec
+                          not sustainable: achieved throughput flattened above 410
+----
+
+Both figures always appear. The headline is sustainable capacity; tested SLO-compliant capacity sits
+beneath it as *highest level that passed*, which is what it has always been.
+
+Where sustainable capacity does not exist, the headline is the refusal and the unmet condition, and
+the highest passing level is shown below it explicitly labelled as not a capacity claim. That is the
+mechanism `HeadroomCalculator` already uses, applied one level higher.
+
+*Headroom's numerator becomes sustainable capacity.* This is a deliberate change to an existing
+figure and the whole reason the figure exists: headroom is the number that ends up on a slide
+justifying a deployment, and dividing production traffic into a level the service was never
+demonstrated to sustain is precisely the arithmetic that makes such a slide wrong. Every existing
+refusal stays — isolated tests, absent production observation, mismatched units, unstable boundary —
+and joins a fifth: no sustainable capacity was established, and which condition failed.
+
+=== The limiting signal is named only when a signal named itself
+
+A capacity conclusion carries a *first limiting signal*: which of the four limits was reached first,
+and, where the answer is a resource limit, which typed resource. It is stated only where the
+evidence is present. Where two limits were reached at the same level, both are named. Where the
+available telemetry cannot identify one:
+
+[quote]
+____
+No resource limit can be identified from the available telemetry. Objectives were first violated at
+450 requests/sec; CPU and memory were observed and neither reached a declared limit; no network,
+disk or runtime-pause telemetry was collected.
+____
+
+That sentence is a better result than a confident guess, and it doubles as instructions for the next
+run.
+
+=== Efficiency is a comparison metric, and only in the units it was measured in
+
+Normalised efficiency — CPU-seconds per request, bytes of memory per unit of throughput — is
+defensible only when the numerator is scoped to the system under test, measured over the same window
+as the denominator, and expressed as an absolute quantity rather than a percentage. "42% CPU at 300
+requests/sec" versus "74% CPU at 300 requests/sec" is a meaningful comparison only if both figures
+came from the same core count on the same shape of host; a percentage of an unstated denominator is
+not a metric, it is a coincidence.
+
+So efficiency figures are computed and reported *within a comparison of compatible experiments*, never
+as a standalone number on a single run's page, and they carry the `DERIVED` source that already marks
+values Vortex calculated rather than measured.
+
+== Consequences
+
+*Gained.* A capacity conclusion states what stopped the service, or states that nothing observed did.
+The four limits stop being one overloaded word, and the difference between "slow" and "full" survives
+into the report. Sustainable capacity is a figure that can be defended in a review, because every one
+of its five conditions is separately checkable and separately falsifiable.
+
+*Cost.* Five conditions is five ways for a run not to produce a capacity, and the most common early
+outcome will be "no sustainable capacity was established" on runs that today confidently report one.
+Headroom moves with the numerator, so figures already recorded against tested compliant capacity are
+not comparable with figures recorded after this change — a discontinuity in a number teams may
+already be tracking, and one worth announcing rather than shipping quietly. Four limits mean four things to render on a page
+that is already dense, and the interface work to keep that legible is not small. Efficiency being
+comparison-only will disappoint the first person who wants it on a single run.
+
+*Trade accepted.* The alternative is one number labelled "capacity", which is what makes performance
+results quotable and what makes them wrong. Vortex has already accepted this trade twice — refusing
+headroom rather than computing it from an isolated test, refusing a boundary that was not monotonic —
+and both refusals turned out to be the parts of the product worth trusting. A capacity figure that
+frequently declines to exist is the cost of one that means something when it does.

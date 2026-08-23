@@ -1,0 +1,75 @@
+/*
+ * A left-accent bar, not a boxed panel — this is evidence sitting quietly under a field, not
+ * another card competing for attention. Reuses the same green ShelfCard's "selected" state already
+ * established as this app's one accent for "Vortex found something real".
+ */
+.evidence {
+  border-left: 2px solid light-dark(#00a05a, #34d68c);
+  padding-left: 8px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.evidenceIcon {
+  color: light-dark(#00a05a, #34d68c);
+  flex-shrink: 0;
+}
+
+.warnIcon {
+  color: var(--mantine-color-warn-6);
+  flex-shrink: 0;
+}
+
+.operationPeek {
+  font-family: var(--mantine-font-family-monospace);
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.disclosureToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border-radius: var(--mantine-radius-sm);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosureToggle {
+    transition: none;
+  }
+}
+
+.disclosureToggle:hover {
+  color: var(--mantine-color-text);
+  background-color: light-dark(rgba(0, 0, 0, 0.035), rgba(255, 255, 255, 0.05));
+}
+
+.disclosureToggle:focus-visible {
+  outline: 2px solid var(--mantine-color-brand-6);
+  outline-offset: 2px;
+}
+
+.chevron {
+  transition: transform 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}

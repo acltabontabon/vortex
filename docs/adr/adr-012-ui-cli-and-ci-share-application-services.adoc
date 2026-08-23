@@ -1,0 +1,28 @@
+= ADR-012: UI, CLI and CI share application services
+
+== Status
+
+Accepted
+
+== Context
+
+It is easy to build the interface first and add a CLI later as a thin re-implementation. The two
+then diverge, and eventually disagree about whether a build passed.
+
+== Decision
+
+All front ends call the same application services in `vortex-core`. `TestRunner` is used
+identically by the web interface and the command line; only the progress presentation differs.
+
+No UI-only state is required for execution. Configuration is portable, exit codes are documented and
+tested, pass/fail is machine-readable, and reports are exportable.
+
+== Consequences
+
+*Gained:* one implementation of what running a test means. A pipeline and an engineer get the same
+verdict from the same definition.
+
+*Cost:* application services must be usable without a request context — no session state, no
+servlet types in signatures.
+
+*Enforced by:* ArchUnit — the domain must not depend on web technology.

@@ -1,0 +1,52 @@
+/*
+ * Neutral by construction. No warn colour, no fail colour, no dashed "empty" border — every one of
+ * those would make a correct answer look like a problem.
+ */
+.unknown {
+  display: flex;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background-color: light-dark(#f7f8f6, #121a15);
+}
+
+.compact {
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+}
+
+.mark {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--mantine-color-dimmed);
+  border: 1px solid var(--mantine-color-default-border);
+}
+
+.body {
+  min-width: 0;
+}
+
+.what {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.reason {
+  margin: 3px 0 0;
+  font-size: 0.82rem;
+  color: var(--mantine-color-dimmed);
+  max-width: 68ch;
+}
+
+/* For a value slot inside a fact row, where the reason sits in the note beneath it. Dimmed color is
+   the whole signal — italics would be a font gimmick standing in for hierarchy. */
+.inline {
+  color: var(--mantine-color-dimmed);
+}

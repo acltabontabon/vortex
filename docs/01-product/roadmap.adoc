@@ -1,0 +1,1286 @@
+= Roadmap
+:toc:
+:toclevels: 2
+
+Phases, not dates. Each one is useful on its own; none is a prerequisite for the previous one being
+worth having — with one deliberate exception. Phase 4 is a quality gate rather than a feature set,
+and Phases 5 to 8 are sequenced behind it.
+
+'''
+
+== Phase 0 — Foundation ✅
+
+Architecture, domain model, module boundaries, k6 adapter, local persistence, application shell.
+
+== Phase 1 — Local performance workbench ✅
+
+Project onboarding, OpenAPI import, operations, workloads, operation mixes, thresholds, safety
+and preflight, local k6 execution, live progress, deterministic evaluation, execution history,
+reports, portable configuration.
+
+*This is the MVP.* Everything above works end to end against a real service with real k6.
+
+== Phase 2 — Local AI performance engineer ✅ (foundation)
+
+Ollama integration, workload explanation, evidence-based result interpretation
+with citation validation, next-test recommendations.
+
+Working today. Still to come: richer proposal workflows, and tool-calling once local models handle
+it reliably enough to be worth the complexity.
+
+== Phase 3 — Production-informed performance engineering ✅
+
+_Working today: an observation source in `vortex.yaml` names a Prometheus or Dynatrace endpoint;
+`vortex calibrate` fetches what the service actually receives and proposes workloads from it, stating
+how each number was derived and writing nothing unless asked. During a run, those same systems are
+queried alongside the service's own metrics endpoint, and what they report is cut by the level the
+workload was holding. A capacity observation records both edges of the boundary it found, the
+resources that were near their limit there, and whether the two edges form a boundary at all.
+Headroom is stated on every result page and in every export — or the reason it cannot be._
+
+----
+      Prometheus / Dynatrace
+                ↓
+       production observation
+                ↓
+   vortex calibrate → proposal → review → vortex.yaml
+                ↓
+              k6 run
+                ↓
+   k6 results + service telemetry, aligned by stage
+                ↓
+        capacity observation
+----
+
+*Prometheus and Dynatrace are the two supported observation sources.* Not Datadog, not New Relic, not
+AppDynamics, not an arbitrary OpenTelemetry backend — two real adapters written against systems teams
+actually run, rather than a plugin framework with two names attached to it. Another source becomes
+worth building when somebody has one and needs it. See
+xref:../adr/adr-031-production-observation-has-its-own-port.adoc[ADR-031].
+
+OpenTelemetry is not a third source. It is how a service emits telemetry, not something Vortex
+queries: a service instrumented with it is already reachable through whichever system ingests it.
+Vortex will not build a collector or a telemetry pipeline of its own.
+
+=== What the phase established, and what it refuses to claim
+
+The interesting work turned out not to be the plumbing. It was drawing the line between what a run
+measured and what it merely computed, and then holding that line in the evidence:
+
+* *A mix that describes part of production says so.* Weights normalise — that is what a mix is — but
+  the share of traffic they account for is kept separately, so a partial match cannot quietly become
+  the definition of the whole service. Below four requests in five, Vortex refuses to build workloads
+  from it.
+* *Stage alignment carries its basis.* k6 reports its virtual-user count, so a concurrency workload's
+  stage boundaries can be measured; an arrival-rate workload's cannot, and are computed from planned
+  durations. A signal aligned by a computed boundary is still correlated evidence and never
+  strengthens a finding — those timestamps are Vortex's own arithmetic, not corroboration. See
+  xref:../adr/adr-033-derived-evidence-is-labelled.adoc[ADR-033].
+* *Absence carries a cause.* "No matching series", "the token was refused" and "the host was
+  unreachable" are three different afternoons, and a report that calls all three "unavailable" wastes
+  all three.
+* *A run that did not establish a boundary says so.* `100 PASS / 200 FAIL / 300 PASS` has a highest
+  passing level and no capacity. See
+  xref:../adr/adr-032-capacity-records-both-edges.adoc[ADR-032].
+* *Constraint candidates are correlated, never causal.* A pool at 98% where objectives broke has been
+  observed alongside the degradation, not shown to have produced it.
+
+Still to come: a remote and distributed execution path for the runs that outgrow one machine (Phase
+5), and deciding whether a change in this evidence should stop a pipeline (Phase 6). Keeping the second of
+those out of Phase 3 is deliberate — producing the evidence and acting on it are different problems.
+
+The destination is defensible capacity evidence, not charts. Vortex keeps what it needs to explain its
+own conclusion and a way back to the system that measured it. For trace exploration, arbitrary queries
+or a dashboard, the answer is the tool that already does it well.
+
+== Phase 3.5 — Request data ✅
+
+_Working today: a request value declares where it comes from — a fixed literal, a value Vortex
+generates, a field of an uploaded CSV or JSON dataset, or an environment variable resolved only when
+the load generator starts. The same four sources apply to headers, path parameters, query parameters
+and body fields. Vortex compiles them into k6 and records the sources, never the values, in every
+export._
+
+The interesting constraint was keeping it declarative. A template language would have been quicker
+and would have turned a reviewable configuration file into a program somebody has to debug, one
+reasonable-looking feature at a time. See
+xref:../adr/adr-036-request-data-is-declared-not-scripted.adoc[ADR-036].
+
+Deliberately not built: values captured from a prerequisite request. The model is shaped so a fifth
+source slots in — the ADR says exactly what it would need — but a setup-request mechanism is the
+first step towards a workflow engine, and it should be a decision taken on its own.
+
+== Phase 4 — HTTP foundation hardening ✅
+
+_Working today: a run reads everything k6 reports about itself, including the work its generator
+could not start. Reliability is a distribution rather than a count. Resource signals carry what kind
+of resource they are, whose it is, and the limit they were measured against, so an error rate of 92%
+can no longer be mistaken for a saturated machine. Vortex observes its own host, so "the service
+could not go faster" and "we could not ask faster" are different answers. Every completed run carries
+a `RunQuality` with reason codes that each cite a measurement; an invalid run keeps every number it
+took and states which claims it cannot support, and a pipeline sees exit code 5. Four limits are
+reported separately, sustainable capacity is the headline, and headroom is computed from it._
+
+*This phase was a gate, not a list.* Every phase before it was useful on its own and none blocked the
+one before it. This one was different on purpose: it is where Vortex stopped broadening and made the
+HTTP capability trustworthy enough that a second transport can reuse it instead of forcing a
+redesign. Phases 5 to 8 waited behind it — see <<deferred-behind-the-gate>>.
+
+The question a Vortex run should be able to answer at the end of it:
+
+[quote]
+____
+How much load did this service sustainably handle, what happened to the system while it handled it,
+where did it approach its limits, and how much is that conclusion worth?
+____
+
+Today Vortex answers the first clause well, the second partially, the third by inference from
+client-side symptoms, and the fourth only for the parts of the evidence it already grades.
+
+=== What already exists, and is not being rebuilt
+
+A large share of this phase's conceptual work is done. What follows is inventory, not aspiration:
+
+[cols="1,3", options="header"]
+|===
+| Already in place | Where
+
+| Latency p50/p90/p95/p99, min, mean, max, per run and per operation
+| `LatencyPercentiles`, parsed from k6's `http_req_duration`
+
+| Requested versus achieved rate, per stage
+| `StageObservation.rateShortfall`, `MeasuredResults.targetLoad` / `achievedRate`
+
+| Observed virtual users, and stage boundaries measured from them
+| `SamplePoint.observedVus`, `StageWindowBasis.OBSERVED`
+
+| Error rate, per run and per operation, never defaulted
+| `ErrorRate`, `NOT_EVALUATED` as a first-class verdict
+
+| Timeline-aligned telemetry sampled for the life of the run, bucketed per stage
+| `TelemetryCollector`, `StageTelemetry`, five-second sampling
+
+| Provenance on every measurement — provider, query as issued, link to check it
+| `ObservationProvenance`
+
+| Rise and recovery, not just a peak
+| `ObservationTrace` — start → peak → end
+
+| Absence with a cause, in five distinguishable flavours
+| `TelemetryAvailability`, `TelemetryGap`
+
+| Three telemetry adapters behind one port
+| Actuator, Prometheus, Dynatrace
+
+| Objective breakpoint, with strength from how tightly it is bracketed
+| `SloBreakpoint`
+
+| System saturation requiring two independent signals, reported as a range
+| `SystemSaturationDetector`
+
+| Capacity that records both edges and says whether they form a boundary
+| `CapacityObservation`, `BoundaryStatus` — xref:../adr/adr-032-capacity-records-both-edges.adoc[ADR-032]
+
+| Resources near their limit at the boundary, recorded as correlated and never causal
+| `ConstraintCandidate`
+
+| Headroom against a production observation, or the reason there isn't one
+| `HeadroomCalculator`
+
+| Experiment identity over fifteen dimensions, and comparison that refuses when they differ
+| `ExperimentIdentity`, `ExperimentCompatibility`, `RegressionEvaluator`
+
+| A published evidence contract with provenance, artifacts and a reproduction command
+| `vortex.evidence/2`, `EvidenceProvenance`
+
+| Raw sample stream kept, compressed, per execution
+| `~/.vortex/executions/<id>/raw-metrics.json.gz`
+|===
+
+The hard epistemic work — what may be claimed, and from what — is largely done. What is missing is
+narrower and more specific than "resource monitoring".
+
+=== What is genuinely missing
+
+*Resources are named numbers, not typed signals.* `ResourcePressure` decides a signal is near its
+limit when its unit is percent and its value is at least ninety. That is a rule about a unit: an
+error rate of 92% satisfies it, a heap at 3.9 GB of 4 GB does not. Nothing in the domain knows which
+signals are CPU, which system each describes, or what limit any of them approaches. See
+xref:../adr/adr-037-resource-observation-is-typed.adoc[ADR-037].
+
+*Vortex has never measured the machine generating the traffic.* Every resource signal it collects
+describes the target. It therefore cannot tell "the service could not go faster" from "we could not
+ask faster" — the single most damaging failure mode in load testing, and the one that turns a
+generator's ceiling into a quoted service capacity.
+
+*The k6 ingest reads four metrics.* `http_reqs`, `http_req_failed`, `http_req_duration` and `vus`.
+`dropped_iterations` — the direct evidence that the generator failed to produce the offered rate — is
+discarded, along with the connection/TLS/waiting phase breakdown and the status distribution. Every
+non-2xx is one undifferentiated "failure".
+
+*No concept of experiment validity.* Nothing asks whether the run was carried out as specified: too
+short, too few samples, telemetry that stopped after two stages, a warm-up that never finished, a
+target that fell over mid-run. See
+xref:../adr/adr-038-run-quality-grades-the-experiment.adoc[ADR-038] and the current-state axes
+described in xref:../03-performance-model/experiments.adoc[experiments] — the full design for the
+missing fourth axis is expanded in slice 4.5 below.
+
+*One limit, doing the work of four.* Objective breakpoint, throughput ceiling, resource limit and
+system saturation are four different findings that routinely disagree, and only two of them exist.
+"Slow" and "full" are not the same diagnosis. See
+xref:../adr/adr-039-four-limits-not-one.adoc[ADR-039].
+
+*Capacity is the highest level that passed.* Not the highest level that was demonstrably generated,
+met its objectives, was held rather than passed through, tracked offered load, and reached no
+observed resource limit.
+
+*Provenance omits the machine.* `EvidenceProvenance` records Vortex, k6, JVM and container image
+versions, the plan fingerprint, timestamps and artifacts. It does not record the operating system,
+the architecture, the host's core count or memory, which providers were consulted, what they could
+not supply, or how good the run was. A capacity figure without the shape of the machine that produced
+it is not reproducible six months later.
+
+*Comparison compares four numbers.* Latency percentiles, error rate and achieved throughput.
+Not resource efficiency, not breakpoint movement, not capacity movement, not headroom, and not
+whether both runs had the same telemetry available — two runs with different observability coverage
+are not equally informative and today are treated as though they were.
+
+'''
+
+[#p0]
+=== P0 — foundation correctness
+
+Required before the gate. Each slice ends with evidence a run can be checked against.
+
+*4.1 — Read the rest of what k6 already reports.* `dropped_iterations`, `iterations`, the
+`http_req_connecting` / `http_req_tls_handshaking` / `http_req_waiting` breakdown, and the HTTP
+status distribution. No new dependency, no new adapter, no protocol work — the sample stream already
+contains all of it and the aggregator throws it away. This is the cheapest slice in the phase and the
+one every validity rule depends on.
+
+*4.2 — Reliability becomes a distribution, not a count.* Status-class breakdown, timeouts,
+connection failures and transport failures reported as distinct outcomes rather than one "failure"
+tally. A 503 at 400 requests/sec and a connection reset at 400 requests/sec are different findings.
+
+*4.3 — Typed resource signals.* `ResourceKind`, `ResourceScope`, `ResourceLimit`; classification
+tables in the three existing adapters; `ResourcePressure` re-expressed as a comparison against a
+declared limit rather than against the number ninety. Unclassified signals keep working and stay
+uncitable as limiting resources. (ADR-037)
+
+[[observe-the-generator]]
+*4.4 — Observe the load generator.* A local reader supplying CPU and memory scoped
+`LOAD_GENERATOR`. This is the one new provider P0 requires, and it earns its place by being the only
+way to tell whose limit was reached. No new dependency: host CPU and memory from
+`OperatingSystemMXBean`, the k6 child process's CPU from `ProcessHandle`, a containerised runner's
+from the Docker adapter that already exists. The machine being measured is the one Vortex runs on,
+so nothing here constrains what Vortex can test. Distinguishing "the service could not go faster"
+from "we could not ask faster" requires measuring both; where the generator's own signal is
+unavailable — a distributed run, a container with no reachable metrics — the absence carries a cause
+and the reason code below simply does not fire. Its silence is never read as proof the generator was
+healthy.
+
+[[runquality]]
+*4.5 — `RunQuality`.* Not built today: no `RunQuality` class, reason-code enum, or exit-code-5
+handling exists anywhere in `vortex-core`. This slice adds a fourth axis underneath the three that
+already exist — `Verdict` (were the objectives met), `BoundaryStatus` (did the tested levels form a
+capacity boundary), `EvidenceStrength` (how well corroborated is a finding, see
+xref:../03-performance-model/experiments.adoc[experiments]) — answering a different question: was
+the experiment itself carried out as specified?
+
+[cols="1,3", options="header"]
+|===
+| Grade | Meaning
+
+| `VALID`
+| The experiment was carried out as specified. Conclusions stand as measured.
+
+| `DEGRADED`
+| Something reduces what the evidence supports. Conclusions are qualified.
+
+| `INVALID`
+| The experiment did not measure what it claims to. Conclusions are withheld.
+|===
+
+*It is not part of the verdict.* A run can meet every objective and be invalid; a run can miss every
+objective and be perfectly valid — a stress test that breaks the service is the healthiest artefact
+in the product.
+
+A validity rule may exist only if something measurable produces it. There is no scoring, no
+weighting, and no blended "confidence percentage". A finding either fires on evidence or does not
+exist:
+
+[cols="1,2,2", options="header"]
+|===
+| Reason code | Evidence | Effect
+
+| `OFFERED_LOAD_NOT_GENERATED`
+| k6 dropped iterations, or achieved rate materially below offered rate while the service showed no
+  distress
+| Capacity claims withheld at and above that level
+
+| `GENERATOR_SATURATED`
+| A resource signal scoped to the load generator at or above its limit (evidence from 4.4)
+| Capacity claims withheld
+
+| `RUN_TOO_SHORT`
+| Measured duration below the declared minimum for the test type
+| Qualified
+
+| `INSUFFICIENT_SAMPLES`
+| Stage request count below the declared minimum
+| Qualified; that stage may not be a boundary edge
+
+| `WARM_UP_NOT_COMPLETED`
+| A warm-up was declared and the run ended inside it
+| Qualified
+
+| `TELEMETRY_INCOMPLETE`
+| Gaps covering the stages a conclusion rests on
+| Qualified; no limiting-resource statement
+
+| `TARGET_UNAVAILABLE_DURING_RUN`
+| Connection-class failures clustered in time, or a failing probe
+| Qualified or invalid by extent
+
+| `EXECUTION_INTERRUPTED`
+| Cancelled, or interrupted mid-run
+| Capacity claims withheld; measurements retained
+
+| `WINDOW_MISALIGNED`
+| Telemetry window not overlapping the execution window within tolerance
+| Qualified; telemetry not usable as corroboration
+|===
+
+`DEGRADED` is the default effect. `INVALID` is reserved for cases where a specific *claim* would be
+false, not merely weaker. "Materially below", "the declared minimum" and "within tolerance" decide
+verdicts, so they live in a single `ValidityPolicy` held beside the objectives rather than as literals
+scattered through the code — not configurable in this phase, but shaped so an organisational policy
+pack can supply them later. A finding never says only *run too short*; it names the number an
+engineer would need in order to argue with the qualification, which is the same number they need in
+order to fix it: "held for 2m; an average-load test requires 5m before a level is quotable as
+capacity."
+
+An invalid run stores and renders exactly what a valid one does: the raw sample stream, the summary,
+the percentiles, the telemetry, the artifacts. Nothing is deleted and nothing is edited. What changes
+is what Vortex is willing to *state* — capacity is not quoted, headroom is refused with the reason,
+and the run is not offered as a regression baseline. This is the shape headroom refusal already has:
+Vortex does not go quiet where a number was expected, it replaces the number with the sentence saying
+why there isn't one.
+
+A baseline is judged against repeatedly, so a bad one costs more than a bad run — and refusing every
+degraded baseline would refuse almost all of them, since partial telemetry is the normal case.
+Eligibility is scoped to what the degradation actually undermines:
+
+[cols="1,2", options="header"]
+|===
+| Baseline carries | What the comparison may not conclude
+
+| `INVALID`
+| Nothing — it is not offered as a baseline
+
+| `TELEMETRY_INCOMPLETE`
+| Resource and efficiency deltas; latency, throughput and reliability stand
+
+| `INSUFFICIENT_SAMPLES`
+| Capacity and breakpoint movement
+
+| `RUN_TOO_SHORT`, `WARM_UP_NOT_COMPLETED`
+| Capacity movement; latency deltas carry the qualification
+
+| `WINDOW_MISALIGNED`
+| Anything resting on telemetry correlation
+|===
+
+Wired into capacity, headroom, per-code regression-baseline eligibility, and a new
+`ExitCode 5 — evidence not valid` so a pipeline fails closed when Vortex cannot tell:
+
+----
+0   all objectives met
+1   tool failure
+2   objective violated
+3   configuration or preflight failed
+4   cancelled
+5   evidence not valid  ← new
+----
+
+*Invalidity fails closed* — a pipeline that green-lights a deploy on a run which never generated the
+load it asked for is the exact outcome this concept exists to prevent. *Degradation does not* — the
+verdict decides the exit code and the qualification is printed beside it; failing a build because
+telemetry was incomplete would train teams to stop collecting telemetry. `RunQuality` is not a
+heuristic health score (no blended number, no letter grade), not a replacement for the verdict
+(validity says whether the experiment happened correctly, the verdict says whether the service met
+its objectives — both appear, neither is derived from the other), and not a way to hide bad results
+(a service that failed under valid conditions failed). (ADR-038)
+
+*4.6 — Throughput ceiling and the four limits.* Detect `offered ↑, achieved flat, latency ↑` and
+report it separately from the objective breakpoint and from a resource limit. Name the first limiting
+signal where the evidence supports one, and say plainly when it does not. (ADR-039)
+
+*4.7 — Sustainable capacity.* The five-condition definition, with per-test-type sustain-duration
+defaults behind condition 3. Reported as the headline figure with today's tested SLO-compliant
+capacity beneath it as *highest level that passed*, and each unmet condition stated. Headroom's
+numerator moves to sustainable capacity — a deliberate discontinuity in a figure teams may already
+be tracking. (ADR-039)
+
+*4.8 — Provenance completion.* Operating system, architecture, host core count and memory, telemetry
+providers consulted, telemetry availability summary and run quality added to `EvidenceProvenance` and
+to the exported contract. This is a schema change: `vortex.evidence/2`, with the mapping written as
+an explicit function so a domain change stops it compiling. Pre-1.0 there is no v1 reader and no dual
+support — the version is bumped and old files stay tagged with the contract they were written under.
+
+*4.9 — Comparison learns the new evidence.* Deltas for capacity, breakpoint movement, headroom and
+run quality; telemetry availability added as a comparability qualifier so two runs with different
+coverage are compared with that difference stated; a run whose quality is `INVALID` refused as a
+baseline.
+
+*4.10 — The result page reflects the model.* Five blocks, in the order an engineer reads them —
+*Load* (requested versus achieved), *Service* (throughput, latency, reliability), *Resources* (what
+was observed, scoped, against limits), *Capacity* (limits, sustainable capacity, headroom),
+*Experiment* (run quality, missing telemetry, what the evidence does not support). Conclusions first,
+measurements behind them. Not a metrics dashboard.
+
+[#p1]
+=== P1 — foundation depth
+
+Materially strengthens conclusions. Not required to pass the gate.
+
+* *Resource efficiency in comparisons.* CPU-seconds per request and memory behaviour relative to
+  throughput, computed only within a compatible comparison, in absolute units, marked `DERIVED`.
+  Version A at 300 requests/sec and 42% CPU versus version B at 300 and 74% is a regression worth
+  catching even when both meet their latency objective. (ADR-039)
+* *Container and Kubernetes resource telemetry.* Limits, throttling and memory pressure — the
+  signals that make a resource limit a fact rather than an inference, for services that run in
+  containers, which is most of them.
+* *Runtime telemetry as a first-class kind.* GC pause duration and frequency, non-heap memory,
+  executor and connection-pool saturation, carried as `RUNTIME_*` and `POOL` signals. Optional
+  everywhere; never a precondition for a valid HTTP result.
+* *Declared warm-up.* A workload can state a warm-up period; measurements inside it are excluded from
+  evaluation and its non-completion becomes a validity finding. Today's alternative is an engineer
+  remembering to discard the first stage by eye.
+* *Sustain duration declarable per workload.* The per-test-type defaults land in P0 with sustainable
+  capacity; overriding them per workload — because a given service's warm-up is longer than the
+  default assumes — is the part that can wait.
+* *Sample-size floors tuned per objective.* P0 ships one floor in `ValidityPolicy`; deriving it from
+  the percentile being evaluated — a p99 needs far more samples than a p50 to mean anything — is the
+  refinement, and it replaces the current situation where eleven requests and eleven thousand carry
+  equal weight in `BoundaryStatus`.
+* *Network and disk saturation signals* where a provider supplies them, as ordinary resource kinds.
+
+[#p2]
+=== P2 — advanced capability
+
+Useful later. Explicitly out of the gate.
+
+* Additional observability providers beyond the three that exist plus the local reader
+* Cross-run resource trend analysis over more than two executions
+* Per-operation resource attribution — which operation consumed what, which a load test cannot
+  honestly answer without tracing
+* Automated capacity modelling or extrapolation beyond the levels actually tested
+* Richer visualisation: correlated multi-signal charts, overlays, annotated timelines
+* Cost-per-request or infrastructure-cost derivations
+
+'''
+
+=== Order, and why
+
+The dependencies are real, not administrative:
+
+----
+4.1  k6 ingest completion
+      │
+      ├──────────────► 4.2  reliability distribution
+      │
+      ▼
+4.3  typed resource signals ──► 4.4  observe the load generator
+                                       │
+                                       ▼
+                                4.5  RunQuality
+                                       │
+                                       ▼
+                                4.6  four limits
+                                       │
+                                       ▼
+                                4.7  sustainable capacity
+                                       │
+                        ┌──────────────┼──────────────┐
+                        ▼              ▼              ▼
+                  4.8 provenance   4.9 comparison  4.10 interface
+----
+
+`RunQuality` cannot be built before the evidence its reason codes cite exists — that is the rule the
+ADR imposes on itself, and building it earlier would mean inventing heuristics and then deleting
+them. Sustainable capacity cannot be defined before run quality, because its first condition *is* run
+quality. The last three slices are parallel and each consumes the finished model rather than shaping
+it.
+
+'''
+
+[#the-gate]
+=== The gate: HTTP Foundation Complete
+
+[quote]
+____
+Given an HTTP service, Vortex can execute a controlled performance experiment and produce a
+reproducible, evidence-backed capacity conclusion incorporating traffic, latency, reliability,
+resource behaviour, experiment validity, objectives and provenance — or state precisely which of
+those it could not establish, and why.
+____
+
+Concrete and testable. Each criterion is a thing a test can assert, not a thing a reviewer can feel:
+
+. *Traffic.* A run reports requested load, achieved throughput, iteration rate and observed
+  concurrency, per stage, with requested and achieved never conflated.
+. *Latency.* p50, p90, p95, p99, min, mean and max, per run and per operation, with one operation's
+  measurements never attributed to another.
+. *Reliability.* Error rate plus a status-class distribution, with timeouts, connection failures and
+  transport failures distinguishable from application errors.
+. *Resources.* At least one end-to-end telemetry path — one provider, real, working — delivering
+  typed resource signals scoped to the system under test, aligned to the execution timeline, with
+  their limits where the provider publishes them. *Not* every provider. One that works.
+. *Generator.* Every run carries resource signals scoped to the load generator, or a recorded reason
+  it does not.
+. *Validity.* Every completed run carries a `RunQuality` with its reason codes, and every reason code
+  in the implemented set cites a measurement Vortex actually collects.
+. *The generator-ceiling test.* A run whose offered load was not generated does not report a service
+  capacity. This is the acceptance test the phase exists for, and it is executable: run the demo
+  service with an offered rate the local generator cannot produce, and assert the result withholds
+  the capacity claim and says why.
+. *Limits.* Objective breakpoint, throughput ceiling, resource limit and system saturation are
+  reported as separate findings, each with its own evidence and strength, and a run that establishes
+  none of them says so.
+. *Sustainable capacity.* Reported as the headline with every one of its five conditions
+  individually evaluated, refused with a reason when any is unmet, and used as headroom's numerator.
+. *Pipeline behaviour.* An invalid run exits `5`; a degraded run exits on its verdict with the
+  qualification printed. Both asserted.
+. *No fabrication.* With resource telemetry absent, a run produces a valid capacity conclusion and no
+  limiting-resource claim. Asserted, not assumed.
+. *Provenance.* An `evidence.json` copied to another machine six months later states the Vortex and
+  k6 versions, OS and architecture, host shape, service version, environment, workload, resolved
+  configuration, objectives, telemetry providers and their availability, run quality, measurements,
+  derived figures, the capacity conclusion, the verdict and the plan fingerprint.
+. *Reproduction.* The reproduction command in that file, run against the same service and
+  configuration, produces a run with an identical plan fingerprint.
+. *Comparison.* Two runs of the same experiment across two service versions produce deltas covering
+  latency, reliability, throughput, capacity and run quality — and two runs that differ in telemetry
+  availability say so rather than presenting the difference as a regression.
+. *Protocol independence.* No type in `dev.vortex.core.metrics`, `dev.vortex.core.analysis` or the
+  resource-signal model names HTTP. Enforceable as an ArchUnit rule, which is how it should be
+  enforced.
+
+The gate does *not* require Kubernetes telemetry, container metrics, GC telemetry, Dynatrace, or any
+particular provider. It requires the abstraction to be right and one practical path through it to
+work end to end.
+
+'''
+
+[#deferred-behind-the-gate]
+=== Deferred behind the gate
+
+Not cancelled — sequenced. Each of these is worth more after the foundation than before it, and two
+of them would have to be partly redone if built first.
+
+*Remote and distributed execution (Phase 5)* multiplies the number of load generators — first by
+moving one off the machine the engineer is watching, and only later by running several at once.
+Deciding whether a generator was the limiting system is materially harder once it is not local, and
+building either stage before `RunQuality` and the four limits exist would mean building that
+reasoning twice: once for a host, once for a worker fleet.
+
+*Continuous performance engineering (Phase 6)* puts a verdict in a pipeline. A gate that fails a
+build on a run whose validity nobody assessed is a gate that will be switched off within a month.
+Automated regression detection in particular should consume run quality, capacity movement and
+efficiency deltas — all of which are P0 and P1 here.
+
+*Asynchronous workload testing (Phase 7)* is the phase this gate most directly protects. Its evidence
+model reuses telemetry, resource observation, validity, saturation, capacity and provenance
+unchanged, and only the measurement layer differs. Building it against today's model would either
+inherit the gaps or force a redesign of both at once.
+
+*Production-informed dependency simulation (Phase 8)* depends on two pieces of this phase directly.
+`RunQuality` needs to be able to say whether a simulated dependency behaved as configured during a
+run, and `ResourceScope.DEPENDENCY` (ADR-037) is how a resource signal describing a simulated
+dependency is told apart from one describing the system under test or the load generator. Building
+dependency simulation ahead of either would mean inventing a smaller version of both and then
+reconciling them later.
+
+*Team dashboards and cross-service comparison* aggregate conclusions across services. Aggregating
+conclusions whose validity is not yet expressible produces a page of numbers that cannot be defended
+individually, let alone in a row.
+
+The two *Ongoing* items are unaffected: native-image verification is orthogonal, and organisational
+policy packs remain a documented concept rather than an empty framework.
+
+== Phase 5 — Remote and distributed execution 🔜
+
+Local execution is Vortex's whole story today, and this phase does not change that story — it adds
+a second one beside it. The architectural shape belongs in
+xref:../02-architecture/architecture.adoc#remote-execution[Remote and distributed execution]; this
+section is the product direction and the sequencing that gets there.
+
+[quote]
+____
+Local Vortex remains local-first and self-contained. A Vortex Coordinator exists only when Vortex
+crosses into remote execution infrastructure, and it is never in the way of a local test.
+____
+
+A developer must always be able to do exactly this, with nothing remote involved:
+
+----
+Vortex Workbench
+    ↓
+local k6
+    ↓
+localhost / target
+----
+
+What changes is that, for the runs one machine cannot generate or that need a controlled and
+disposable execution environment, the Workbench gains a second path to choose instead:
+
+----
+Vortex Workbench
+    ↓
+Vortex Coordinator
+    ↓
+Kubernetes API
+    ↓
+Ephemeral Job (Vortex Runner + k6)
+    ↓
+Target
+----
+
+Both paths are expected to eventually read, from the user's side, as choosing an execution
+environment rather than switching products:
+
+----
+Execution Environment
+
+● Local
+○ Performance Cluster
+----
+
+No UI work is implied by naming that here — it is noted so the eventual interface change is not a
+surprise, the same discipline the roadmap already applies to async workload testing (Phase 7) and
+dependency simulation (Phase 8).
+
+=== Why this is not simply "Phase 5, unchanged"
+
+The direction below refines rather than replaces what this phase already said: distributed execution
+was already on the roadmap, routed through the
+https://github.com/grafana/k6-operator[k6 Operator]
+(xref:../adr/adr-010-k6-operator-for-distributed-execution.adoc[ADR-010]). What changes is the
+mechanism, not the destination — a Vortex Coordinator talking to the Kubernetes API directly and
+running a purpose-built Vortex Runner inside an ephemeral Job, rather than a `TestRun` manifest
+handed to the Operator to schedule. ADR-010's actual decision — *Vortex will not build a distributed
+scheduler* — is unaffected; Kubernetes remains the scheduler either way. The mechanism change is now
+recorded as its own decision,
+xref:../adr/adr-040-vortex-coordinator-for-remote-execution.adoc[ADR-040], which formally supersedes
+ADR-010 — see
+xref:../02-architecture/architecture.adoc#remote-execution[Relationship to ADR-010 and ADR-040] for
+the architectural reasoning.
+
+The other refinement is sequencing. The phase previously read as one step — generate manifests,
+execute against Kubernetes, extend safety. It is staged instead, because distributed execution and
+remote execution are different amounts of new risk and neither should be built to validate the other:
+
+=== Stage 1 — Local execution, preserved
+
+Already true today, and the property this phase is most likely to erode by accident if
+"architectural symmetry" is allowed to creep in. No Coordinator, no Kubernetes, no network
+connectivity to Vortex infrastructure and no remote authentication are ever required to run a test.
+This is worth restating as a roadmap stage precisely because it is not one — it is the baseline every
+later stage is checked against.
+
+=== Stage 2 — One remote worker
+
+The first real remote milestone, and deliberately boring:
+
+[quote]
+____
+A user can click Run in the Vortex Workbench, choose a remote execution environment, execute the
+same Vortex test on one ephemeral EKS worker, and receive trustworthy evidence back.
+____
+
+That single path validates, without any distribution complexity to confound the result: Workbench →
+Coordinator communication, the remote execution contract, Kubernetes Job lifecycle, Runner
+packaging, workload materialisation, evidence transport, generator resource evidence (the same
+signal Phase 4 <<observe-the-generator,4.4>> adds for a local run, now read from a worker instead),
+cancellation, failure semantics and execution-environment evidence. Getting one worker right first is what makes
+distribution in Stage 3 additive rather than a second debugging exercise layered on an unproven path.
+
+=== Stage 3 — Distributed execution
+
+Only once Stage 2 is reliable. The Coordinator partitions a requested workload across several
+Runners and aggregates their evidence — and worker saturation, worker failure, missing evidence or
+incomplete delivery has to affect confidence and verdict correctly, not just get averaged away:
+
+----
+Runner A   requested 5,000 rps   delivered 4,995 rps   CPU 61%    healthy
+Runner B   requested 5,000 rps   delivered 5,001 rps   CPU 58%    healthy
+Runner C   requested 5,000 rps   delivered 4,200 rps   CPU 100%   saturated, dropping iterations
+Runner D   requested 5,000 rps   delivered 4,980 rps   CPU 63%    healthy
+----
+
+A naive rollup reports `Requested 20,000 / Delivered 19,176 / FAIL` — which blames the target for a
+generator that ran out of headroom. The correct read, extending
+xref:../adr/adr-038-run-quality-grades-the-experiment.adoc[`RunQuality`] and its reason codes
+(<<runquality,4.5>>) per worker instead of once, is:
+
+[quote]
+____
+Target capacity: INCONCLUSIVE. The requested workload was not successfully generated — Runner C
+saturated before delivering its assigned share.
+____
+
+*Failure to generate the requested workload is not evidence that the target cannot handle the
+requested workload.* Vortex already lives by that sentence for one generator; distributed execution's
+only real evidentiary job is applying it per worker.
+
+=== Stage 4 — Smarter worker allocation
+
+Only if actual usage demonstrates the need: calibrated worker capacity, workload-aware shard sizing,
+heterogeneous worker capabilities, dedicated worker pools, topology-aware placement. Not designed
+now, and not built ahead of evidence that Stage 3's even split is actually a limitation somebody has
+hit.
+
+=== The safety model extends, it does not get rebuilt
+
+`ExecutionPolicy` and typed `SafetyDecision` confirmation
+(xref:../02-architecture/security.adoc[safety policies]) already gate a run against an environment's
+declared rate limit; `EnvironmentCapabilities.distributedExecutionAllowed` already exists in
+configuration as a per-environment flag (xref:../04-reference/configuration.adoc[configuration
+reference]) even though nothing reads it yet. Remote execution is the reason it will: a shared
+performance environment opts in explicitly, the same typed-confirmation discipline applies to a
+Coordinator-submitted run as to a local one, and the invariant that a run never starts against a
+non-local target without an explicit confirmation does not get a quieter remote exception.
+
+=== What remote execution does not make Vortex
+
+Kubernetes does scheduling, pod placement, worker lifecycle and resource allocation. Vortex does
+workload semantics, objectives, evidence and verdicts. Vortex will not build its own scheduler,
+cluster manager, service mesh or distributed-compute platform to get there — see
+xref:../02-architecture/architecture.adoc#remote-execution[guardrails] for the full list of what
+stays deliberately unbuilt, including persistent runner fleets, worker discovery protocols,
+heartbeat/lease systems, adaptive sharding, autoscaling, and multi-region or multi-cloud execution.
+None of it earns its place until *does this materially improve the confidence, repeatability,
+scalability or usability of a performance experiment?* answers yes.
+
+=== Relationship to Phase 7 and Phase 8
+
+Remote execution should not assume `Runner == HTTP/k6` forever — Phase 7's event-driven transports
+are a reason to keep the Runner's execution runtime and its transport separate, not a reason to build
+transport plugins now; neither phase needs the other to start. And remote execution may eventually be
+a more realistic place to run a dependency-simulated topology than a laptop — but
+Phase 8 changes what a dependency does, this phase changes where the generator runs, and neither
+implies the other. They stay architecturally separate, the same discipline that already keeps
+dependency simulation out of local lab
+(xref:../02-architecture/architecture.adoc#local-lab-vs-dependency-simulation[local lab and
+dependency simulation are not the same concern]).
+
+=== Sequencing, and why
+
+----
+Trustworthy local execution        (Phase 3 · Phase 4)
+        │
+        ▼
+Single remote worker                (Stage 2)
+        │
+        ▼
+Trustworthy remote evidence         (RunQuality extended per worker)
+        │
+        ▼
+Distributed execution                (Stage 3)
+        │
+        ▼
+Advanced placement / capacity       (Stage 4 — only if needed)
+----
+
+Phase 4 sits above this phase for a reason stronger than sequencing convenience: distributed
+execution multiplies execution capacity, and it multiplies bad evidence exactly as fast if the
+evidence semantics underneath it are still wrong. See <<deferred-behind-the-gate,deferred behind the
+gate>>, above.
+
+== Phase 6 — Continuous performance engineering 🔜
+
+* *A fully portable project.* `vortex run <workload> <path>` already adopts a committed
+  `vortex.yaml` on a machine that has never run Vortex, which is what a pipeline does. The review
+  state of mutating operations is now committed with it — an approval visible in a pull request is
+  stronger evidence than a click in somebody's browser. What remains local is the API description
+  itself, so a fresh checkout can resolve workloads and objectives but cannot yet resolve the
+  operations they name. Closing this means making the specification reference committable too.
+* CI templates (GitLab, GitHub Actions)
+* Performance gates on the documented exit codes
+* Automated regression detection across releases, on the capacity evidence Phase 3 records
+* Scheduled runs
+* Team dashboards and cross-service comparison
+
+== Phase 7 — Asynchronous workload testing 🔜
+
+Everything above answers one question about services that expose an HTTP surface: _given this
+workload, what can this operation demonstrably sustain, and what does the evidence allow Vortex to
+claim?_ A meaningful share of real services have no HTTP surface worth testing — they exist primarily
+as consumers of a queue or a topic. The question does not change; only how work arrives does.
+
+----
+Asynchronous Workload Testing
+        │
+        ├── AWS SQS       ← first target
+        │
+        ├── Kafka         ← future
+        │
+        ├── JMS           ← future, and only after deciding what "JMS" can honestly mean
+        │
+        └── other brokers ← only when a real need justifies one
+----
+
+Not "SQS support." SQS is the first vertical slice of a broader capability, the same way Prometheus
+was the first production observation source rather than the ceiling on what one could be (Phase 3).
+
+=== First target: AWS SQS
+
+A deliberately narrow V1 — narrow enough to become production-grade rather than a messaging
+framework:
+
+* Configure an SQS queue as a workload target
+* Publish messages at a controlled, rampable arrival rate
+* Configurable message body, using the same workload-data model HTTP request bodies already use —
+  fixed, generated, dataset, environment (Phase 3.5)
+* Measure the publishing rate actually achieved
+* Observe queue depth, backlog growth, and approximate age of the oldest message
+* Observe consumer processing/drain rate where the evidence permits
+* Observe failures and DLQ activity where a DLQ is configured
+* Determine whether the consumer keeps pace with arrival, and where it stops
+
+Deliberately out of scope for the first slice, not merely deferred: arbitrary event choreography,
+workflow orchestration testing, broker administration, arbitrary message scripting, and Kafka,
+RabbitMQ or generic JMS support. Those are separate decisions, each with its own semantics — see
+below.
+
+=== The capacity question, asked of a consumer
+
+An HTTP operation's capacity question is _can this operation sustain 150 requests/sec within its
+latency and error objectives?_ A consumer's is different in shape, because there is no request to wait
+on — only a rate arriving and a rate being cleared:
+
+_Can this consumer sustainably process the incoming workload without accumulating backlog or
+violating its processing objectives?_
+
+----
+Arrival rate       1,000 msg/s
+Processing rate      730 msg/s
+Backlog growth       +270 msg/s
+Oldest message         43 sec
+Failure rate           0.2%
+----
+
+That is not a successful 730 msg/s result — it is `Not sustainable at 1,000 msg/s`. A backlog that
+grows without bound is the asynchronous equivalent of a threshold breach, and finding the arrival rate
+where it stops growing is the asynchronous equivalent of an `SloBreakpoint`: the same
+"bracketed by how many levels" evidence-strength reasoning applies, not a new concept invented for
+messaging.
+
+=== Evidence discipline carries over unchanged
+
+This is the part that must not slip. Vortex already refuses to compute a number it did not measure
+(Phase 3); asynchronous evidence obeys the same rule. `Published 50,000 / Processed 49,950 / Backlog
+50 / DLQ 0` establishes throughput and backlog. It does *not* establish a p95 processing latency — that
+requires evidence correlating a specific publish with a specific processing completion, which a
+queue's own metrics do not generally provide. Where that correlation evidence is unavailable, Vortex
+says so, the same way it already reports `NOT_EVALUATED` rather than guessing.
+
+Async metrics fall into the same tiers the
+xref:../02-architecture/execution-and-evidence.adoc[evidence model] already defines, sourced
+honestly:
+
+* what the workload generator actually published — the same footing k6's own metrics have today
+* what the broker reports — queue depth, backlog age, DLQ counts, receive/delete counts
+* what consumer or application telemetry reports, where a consumer exposes any
+* what infrastructure telemetry reports, through the observability providers Phase 3 already built
+* explicit correlation evidence, only where a message actually carries something that ties its
+  processing back to its publication
+
+Messaging support is not permitted to weaken what Vortex is willing to claim. A metric Vortex cannot
+observe stays absent, not approximated.
+
+=== Workload data stops being an HTTP-only concept
+
+Phase 3.5 built request data as a declared source — fixed, generated, dataset, environment — attached
+to *the operation*, not to HTTP specifically. A generated value is already transport-agnostic in the
+domain; only its two current destinations (headers, body fields) are HTTP-shaped:
+
+----
+Workload Data
+      │
+      ├── Static
+      ├── UUID
+      ├── Timestamp
+      ├── Sequence
+      ├── Dataset
+      └── Generated
+             │
+       ┌─────┴─────┐
+       ▼           ▼
+ HTTP Request   Message
+----
+
+An idempotency key generated once per execution already means the same thing whether it lands in an
+`X-Idempotency-Key` header or an `eventId` field in a message body. Nothing in
+xref:../adr/adr-036-request-data-is-declared-not-scripted.adoc[ADR-036] needs to change to make that
+true — a message body is one more place a declared value can be bound to. HTTP stays the only consumer
+built today; this is a statement that the model does not need to be re-founded when a second one
+arrives.
+
+=== HTTP becomes one workload entry point, not the definition of one
+
+`Operation` is HTTP-shaped throughout the current domain — a method, a path, an `HttpMethod`, an
+`OperationKind` derived from it. That was the right model for an HTTP-only product. The direction this
+phase points the domain in is roughly:
+
+----
+Service
+  └── Workload Target
+        ├── HTTP Operation      (today's Operation)
+        └── Message Consumer    (future)
+----
+
+This is architectural pressure, not a decision taken today. No `WorkloadDriver`, `MessagingDriver` or
+`SqsDriver` interface is being introduced by this roadmap entry — those are premature until a real SQS
+implementation exists to justify their shape, the same discipline that kept `ObservabilityProvider`
+written against two real adapters rather than a plugin framework (Phase 3). See
+xref:../02-architecture/architecture.adoc[domain model].
+
+=== Kafka and JMS are separate decisions, not a consequence of SQS
+
+SQS, Kafka and JMS do not share semantics, and flattening them behind one generic abstraction would
+hide exactly the differences that matter to a capacity conclusion:
+
+[cols="1,3", options="header"]
+|===
+| Broker | What is actually observable and load-bearing
+
+| SQS
+| Queue depth, visibility timeout, receive/delete lifecycle, DLQ, approximate oldest-message age,
+  competing consumers
+
+| Kafka
+| Partitions, consumer groups, offsets, consumer lag, partition skew, rebalance behaviour, throughput
+  per partition
+
+| JMS
+| An API/specification, not one broker — supporting it means deciding what Vortex can promise and
+  which provider's semantics can actually be observed reliably, before writing an adapter
+|===
+
+Supporting SQS does not imply committing to any of these. Each becomes worth building when a real need
+justifies it, the same discipline that kept Prometheus and Dynatrace as the only two observability
+sources rather than a plugin framework (Phase 3).
+
+=== This will eventually reach product language
+
+`Endpoint`, `Request`, `Response`, `HTTP status` are HTTP-specific words used throughout today's
+interface. A workload target that is a message consumer needs its own vocabulary —
+`orders-processing-queue` is not a request/response pair — and its results emphasize different things:
+arrival rate, processing throughput, backlog, backlog growth, consumer lag, oldest-message age,
+failure/DLQ rate, rather than throughput, p95/p99 latency, error rate and HTTP status distribution. No
+UI work is implied by this roadmap entry; it is noted so the eventual product-language work is not a
+surprise.
+
+=== What this does not make Vortex
+
+Publishing messages at a controlled rate is workload generation in service of a capacity question, the
+same way k6 is — not a reason to become a message-publishing utility, an AWS console replacement, a
+Kafka management UI, or a distributed workflow simulator. See
+xref:overview.adoc[scope and non-goals]. The transport changes; the questions Vortex asks about a
+system under test do not.
+
+== Phase 8 — Production-informed dependency simulation 🔜
+
+Local testing has a fidelity problem that Phase 3 does not close. Deriving a workload from observed
+production traffic reproduces _what arrives_ at the service under test; it says nothing about _what
+happens next_ when that service calls its own dependencies.
+
+----
+Production                              Local
+
+Service A                               Service A
+    │                                       │
+    │ real network / infrastructure         │ localhost / Docker network
+    │ latency                               │
+    ▼                                       ▼
+Service B                               Service B
+----
+
+A dependency that answers in 20–300 ms in production typically answers in 1–3 ms on the same laptop
+as the service under test. That is not only a latency error. Dependency latency governs how long a
+request holds a connection, a thread or a virtual thread; how deep a queue grows before it drains; how
+much memory a service accumulates waiting on responses; how often a timeout or retry fires; and where
+backpressure and saturation actually begin. An isolated test whose dependencies answer in a
+millisecond never exercises any of that — it measures a service that never has to wait, which is not
+the service that runs in production.
+
+Reproducing production's _incoming_ workload without reproducing the conditions that workload executes
+under does not make a local result production-informed in the way that matters for concurrency,
+pooling and saturation findings. This phase closes that gap for dependencies, the way Phase 3 closed
+it for arrival traffic.
+
+=== Dependency profiles
+
+A service may declare which of its dependencies materially participate in its workload — not every
+downstream call, only the ones that plausibly affect concurrency, latency or saturation:
+
+----
+loan-application-service
+
+Dependencies
+  loan-account-service
+  customer-service
+  mambu
+----
+
+Each declared dependency carries three things: a production identity (what it corresponds to in the
+observation source), a local target (where it actually runs during a local test), and the production
+observation source Vortex should ask about it:
+
+----
+loan-account-service
+
+Production identity    Dynatrace service entity
+Local target            http://localhost:9081
+Observation source       Dynatrace
+----
+
+Vortex derives a reusable _dependency profile_ from what that source reports about the dependency's
+observed behaviour. A profile describes the dependency as production actually behaves, not any one
+test — the same shape the roadmap already gives production traffic itself (Phase 3's workload source).
+
+=== Not an average
+
+A single average latency does not represent a distribution, and modelling a dependency by its average
+would misrepresent exactly the behaviour this phase exists to reproduce:
+
+----
+average = 45 ms
+
+does not represent
+
+p50 = 18 ms   p90 = 72 ms   p95 = 110 ms   p99 = 320 ms
+----
+
+The tail is where concurrency, connection-pool exhaustion, queueing, timeouts and retries actually
+happen — a dependency holding a connection open for 320 ms once in a hundred calls behaves very
+differently under load from one that never exceeds 45 ms, and an average cannot tell them apart. A
+dependency profile is therefore a _distribution_, not a figure: p50/p90/p95/p99 at minimum, with room
+for jitter characteristics, a timeout rate and a failure rate alongside it. The exact statistical
+model — how a distribution is fit, resampled or replayed — is deliberately not decided here; it is the
+first design question when this phase becomes active, not before.
+
+=== Observation is not simulation
+
+Dynatrace, or whichever source supplies a dependency's numbers, must not become part of the execution
+engine. The roles stay separate, the same way Phase 3 kept `ProductionObservationSource`
+(xref:../adr/adr-031-production-observation-has-its-own-port.adoc[ADR-031]) apart from the engine that
+runs a test:
+
+----
+Dynatrace
+    │
+    ▼
+Production observation
+    │
+    ▼
+Dependency profile
+    │
+    ▼
+Simulation plan
+    │
+    ▼
+Network / dependency simulation
+----
+
+Dynatrace is an observation provider here, exactly as it already is in Phase 3 — not something the
+simulation depends on directly. The two adapters that supply workload objectives today (Prometheus,
+Dynatrace) are the two candidates for supplying dependency profiles, and the same discipline applies:
+another source — OpenTelemetry-backed, Datadog, Grafana/Prometheus, manual configuration, or a
+service's own historical Vortex observations — is worth adding when somebody has one and needs it, not
+on spec. OpenTelemetry remains how a service _emits_ telemetry, not a third source Vortex would query;
+that line does not move for this phase.
+
+=== Vortex orchestrates simulation; it does not build a network emulator
+
+Reproducing observed latency, jitter, timeouts and failures on a live connection is a solved problem —
+Toxiproxy and Linux `tc`/`netem` are mature, purpose-built tools for exactly this. Vortex's job is the
+performance-testing model built on top: profiles, the mapping from a declared dependency to a running
+proxy, the simulation plan, the UX for turning it on, and the evidence that records what was actually
+simulated. The low-level mechanics of delaying or dropping packets are not something Vortex should
+reimplement.
+
+Which tool — Toxiproxy, `netem`, or something else — is a decision for an ADR written when this phase
+is actually taken up, informed by what each can express against what dependency profiles need to
+express. Nothing here commits to one.
+
+Conceptually, simulation sits between the service under test and a dependency it already calls, so the
+service itself needs no code changes:
+
+----
+                    Vortex Load Generator
+                            │
+                            ▼
+                    Service Under Test
+                            │
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+           Proxy         Proxy         Proxy
+              │             │             │
+       dependency      dependency      dependency
+         profile         profile         profile
+              │             │             │
+              ▼             ▼             ▼
+        Local Service   Local Service     Mock
+----
+
+=== The abstraction is a dependency profile, not a latency profile
+
+Latency is the first characteristic worth simulating, and the only one this phase needs to design in
+detail. Naming the concept `LatencyProfile` would make it too narrow to survive its own second
+release — a dependency's production behaviour is more than how long it takes to answer:
+
+----
+DependencyProfile
+
+  latencyDistribution     p50, p90, p95, p99, jitter        ← this phase
+  errorRate                                                  ← plausible later
+  timeoutRate                                                ← plausible later
+  connectionFailureRate                                      ← plausible later
+  bandwidthCharacteristics                                   ← plausible later
+----
+
+Rate limits, concurrency limits and retry-related behaviour are further out still, and none of them
+are designed here — the point is only that `DependencyProfile` is shaped so latency is one
+characteristic among several, not the definition of the type.
+
+=== What a test would declare
+
+Eventually, a workload's environment would expose something conceptually equivalent to:
+
+----
+Environment              Local
+Production dependency
+simulation                Enabled
+----
+
+and Vortex would, in order: resolve the declared dependency topology for the service under test; load
+the selected production observations; derive dependency profiles from them; generate a simulation
+plan; configure the corresponding network/proxy simulation for each declared dependency; execute the
+workload; and record what was actually simulated as part of the run's evidence. The user describes
+services and dependencies; Vortex owns the mechanics in between — the same shape Phase 3 already gives
+calibration (observe → propose → review → run), extended one stage further.
+
+=== Evidence must still answer "under what conditions?"
+
+A run made with dependency simulation enabled is not exempt from the reproducibility discipline the
+rest of Vortex already holds itself to
+(xref:../02-architecture/execution-and-evidence.adoc[execution and evidence]). A reader six months
+later must be able to answer: which dependencies were simulated, from which profile, observed over
+what window, from which source, using what simulation configuration, and which profile version.
+Without that, a capacity figure produced under simulation is exactly the kind of context-free number
+Vortex exists to prevent — "we handle 1000 TPS", except the missing context this time is what the
+dependencies were doing rather than where the test ran.
+
+=== This stays isolated, and stays honest about it
+
+A dependency simulated from real production statistics is still a dependency that is not the real one.
+xref:../03-performance-model/experiments.adoc[Isolated versus integrated tests] already draws this
+line conservatively: a run is integrated only when dependencies are real and the infrastructure is
+production-like, and everything else is isolated, however remote the machine — that rule does not bend
+for a well-informed simulation. What changes is not the classification but its honesty: a simulated
+run could be labelled `LOCAL / PRODUCTION-INFORMED` rather than plain `LOCAL`, saying its dependency
+behaviour is grounded in observation rather than invented, without claiming the one thing only an
+integrated test can support.
+
+Vortex must never describe this capability as making local testing equivalent to production —
+Kubernetes scheduling, cloud network topology, service meshes, TLS termination paths, noisy neighbours,
+shared infrastructure contention, database topology, production resource contention and cross-service
+GC/runtime behaviour are not reproduced by simulating one dependency's latency distribution, and no
+amount of profile fidelity closes all of them. Say _production-informed local performance testing_.
+Never _production-equivalent_, _production-identical_ or _production replica_ — the purpose is
+increased fidelity, not the pretence that local infrastructure has become production.
+
+=== What this phase does not make Vortex
+
+Reproducing observed dependency latency and failure characteristics is fidelity in service of a
+capacity question, not fault injection for its own sake. Chaos Mesh and Litmus already do fault
+injection well (xref:overview.adoc[scope and non-goals]); this phase does not compete with them, and a
+dependency profile is not a chaos experiment — it replays what a dependency was actually observed
+doing, not an arbitrary failure somebody chose to see what breaks.
+
+=== Strategic relationship to the rest of the roadmap
+
+Vortex's direction is progressively: observe production, derive realistic objectives from it,
+reproduce a meaningful workload, measure system behaviour, and produce evidence. This phase extends
+that pipeline rather than replacing it — production observation now informs both sides of the
+experiment, not only the traffic arriving at it:
+
+----
+Observe production
+        │
+        ├── workload characteristics    (Phase 3)
+        │
+        └── dependency characteristics  (this phase)
+                    │
+                    ▼
+        Construct performance experiment
+                    │
+                    ▼
+              Execute locally
+                    │
+                    ▼
+                 Measure
+                    │
+                    ▼
+        Compare against objectives
+                    │
+                    ▼
+             Produce evidence
+----
+
+The long-term idea is not "Vortex generates load against a target." It is closer to: Vortex
+reconstructs enough of a service's observed production behaviour — both what arrives and what it waits
+on — to make a local performance experiment mean something.
+
+=== Where this sits, and what has to be true first
+
+This is not the next priority. Vortex's current work is Phase 4 — making HTTP measurement, resource
+observation and experiment validity trustworthy. Manipulating dependency behaviour before that
+foundation is solid would produce a more elaborate version of the same problem Phase 4 exists to fix: a
+confident number resting on evidence nobody can yet grade.
+
+----
+HTTP performance foundation (Phase 4)
+        │
+        ▼
+Resource observability — DEPENDENCY-scoped signals (ADR-037, part of Phase 4)
+        │
+        ▼
+Production baseline / Dynatrace integration (Phase 3 — already done)
+        │
+        ▼
+Dependency modelling — declared dependencies and profiles, this phase's own first slice
+        │
+        ▼
+Production-informed dependency simulation
+----
+
+See <<deferred-behind-the-gate>>, above, for exactly what this phase needs from Phase 4 before it can
+start.
+
+== Ongoing
+
+* *Native image.* Configured; not yet verified. See
+  xref:../02-architecture/architecture.adoc#native-image[native image].
+* *Organisational policy packs.* Standard headers, default thresholds, approved environments,
+  traffic limits — supplied by an organisation without contaminating the core model. Documented as a
+  concept; deliberately not implemented as an empty plugin framework.
+
+== What is not on the roadmap
+
+See xref:overview.adoc[scope and non-goals]. Briefly: not a load generator, not an observability
+platform, not an APM, not a chaos platform, not a chatbot, and never an autonomous performance
+engineer.

@@ -1,0 +1,70 @@
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+}
+
+.path {
+  font-family: var(--mantine-font-family-monospace);
+  font-weight: 650;
+  font-size: 0.95rem;
+}
+
+.sectionLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+  margin-bottom: 6px;
+}
+
+/*
+  One row per value: its name, then the source selector, then only the control that source needs.
+  A grid rather than a table because the second column's content changes shape — a text field, two
+  selects, a number pair — and a table cell that has to hold all of those ends up sized for the
+  widest one.
+*/
+.slot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.slot:last-child {
+  border-bottom: none;
+}
+
+.slotName {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 0.85rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+@media (max-width: 30em) {
+  .controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.hint {
+  font-size: 0.76rem;
+  color: var(--mantine-color-dimmed);
+}

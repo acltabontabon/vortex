@@ -1,0 +1,135 @@
+= ADR-037: Resource observation is typed; the provider that supplied it is not
+
+== Status
+
+Accepted, and implemented in slice 4.3 of
+xref:../01-product/roadmap.adoc[Phase 4 — HTTP foundation hardening].
+
+Two details were settled during implementation and are worth recording here, because both are places
+where the decision would otherwise have quietly failed to hold:
+
+* *`ResourceLimit` carries the unit it is expressed in, and a limit in the wrong unit does not
+  divide.* Micrometer publishes `system.cpu.usage` as a ratio while Vortex derives heap utilisation
+  as a percentage, so a single "a proportion's limit is one hundred" rule would have left every
+  ratio-valued resource unable to reach its limit — a resource that can never be found at its limit
+  reads exactly like one that never was. `ResourceLimit.inherentTo(unit)` answers for the two
+  proportion units and returns nothing for the rest.
+* *The Actuator adapter classifies both the raw `used`/`max` pair and the percentage it derives from
+  them.* The derived percentages are what the pressure rule has always actually fired on for a Spring
+  service, and classifying only the absolute pair would have removed every constraint candidate the
+  provider produces without failing a test.
+
+== Context
+
+Telemetry reaches Vortex as `MetricObservation`: an id, a name, a `MetricSource`, a `MetricUnit`, an
+`Aggregation`, a value, a window, provenance and an optional trace. That is enough to *render* a
+measurement honestly and enough to *cite* it. It is not enough to reason about one.
+
+The gap shows up in one line of the domain. `ResourcePressure.isUnderPressure` decides that a signal
+is near its limit when its unit is `PERCENT` and its value is at least 90. That rule is not about
+resources at all — it is about the unit a number happens to be expressed in. An error rate of 92%, a
+cache hit ratio of 95% and a percentile expressed as a percentage all satisfy it. A heap measured in
+bytes against a maximum measured in bytes does not, however obviously exhausted it is.
+
+The consequence is that Vortex cannot say *which* resource was near its limit, only that something
+whose unit was percent was above ninety. `ConstraintCandidate` carries a `name` — a display string
+copied from whatever the provider called it. Nothing in the domain knows that
+`system.cpu.utilization`, `builtin:host.cpu.usage:max` and `process.cpu.usage` are all CPU, or that
+two of them describe different systems.
+
+Two bad answers are available and both should be refused.
+
+The first is to teach the core the provider's vocabulary: a switch over metric names in
+`vortex-core`, mapping `node_cpu_seconds_total` and friends onto meaning. That puts Prometheus's
+naming, Micrometer's naming and Dynatrace's selector syntax inside a module whose entire point is
+that it has no dependencies and no knowledge of anyone's wire format. It also breaks the first time a
+team renames a recording rule.
+
+The second is to model resources as provider-shaped types — a `PrometheusCpu`, a `JvmHeap`, a
+`KubernetesPodMemory`. That makes every conclusion conditional on which system happened to be
+reachable, which is precisely the coupling xref:adr-031-production-observation-has-its-own-port.adoc[ADR-031]
+kept out of production observation.
+
+== Decision
+
+=== A signal declares what kind of resource it measures, and whose
+
+A `ResourceSignal` is a `MetricObservation` plus three pieces of classification:
+
+----
+ResourceSignal
+  observation   MetricObservation      the measurement, unchanged
+  kind          ResourceKind           CPU | MEMORY | NETWORK | DISK
+                                       | RUNTIME_MEMORY | RUNTIME_PAUSE
+                                       | POOL | QUEUE | THREADS
+  scope         ResourceScope          SYSTEM_UNDER_TEST | LOAD_GENERATOR | DEPENDENCY
+  limit         ResourceLimit          the constraint it is relative to — absent when unknown
+----
+
+`ResourceKind` is a closed set of *performance-engineering* categories, not a taxonomy of everything
+a monitoring system publishes. A kind earns its place by changing what a conclusion may say. CPU and
+memory do. `RUNTIME_PAUSE` does — a stop-the-world pause explains a latency tail in a way no
+utilisation figure can. "Number of HTTP sessions" does not, and stays an ordinary `MetricObservation`.
+
+`ResourceScope` is the part that is easy to omit and expensive to omit. CPU at 95% means *the service
+is at its limit* or *the machine generating traffic is at its limit*, and those two readings lead to
+opposite actions. Today Vortex cannot distinguish them because it only ever looks at one system. It
+is about to look at two — see xref:adr-038-run-quality-grades-the-experiment.adoc[ADR-038] — and a
+scope that arrives afterwards would arrive after the conclusions that needed it.
+
+`ResourceLimit` is what makes a utilisation figure a statement. "Memory 3.2 GB" is a fact about
+nothing until a limit is beside it; "3.2 GB of a 4 GB container limit" is evidence. Where a provider
+publishes the limit, it is carried. Where it does not, the limit is absent and Vortex must not
+compute a percentage against a number it guessed — the same rule that already governs headroom.
+
+=== Classification happens in the adapter, and the core never string-matches
+
+The provider knows what it published. `PrometheusObservabilityProvider` already holds a table
+mapping `system.cpu.utilization` to a PromQL expression; it is the natural and only correct place to
+also record that this is `CPU`, scoped to the `SYSTEM_UNDER_TEST`, with a limit of 100%. Dynatrace's
+adapter does the same for its selectors, Actuator's for Micrometer's names.
+
+`vortex-core` reasons over `ResourceKind` and never over a metric name. This is the same shape
+`MetricSource` already has: the core knows a measurement came from Prometheus without knowing what
+PromQL is.
+
+=== An unclassified signal stays evidence and never becomes a claim
+
+A provider may return measurements it cannot classify — a custom metric a team asked for, a
+dependency-latency series, anything outside the closed set. Those remain `MetricObservation`s. They
+are collected, aligned to stages, cited, exported and rendered exactly as they are today.
+
+What they cannot do is become a limiting-resource statement. "CPU was the first resource to reach its
+limit" requires a signal that declared itself CPU. Nothing gets promoted by looking like it.
+
+=== Runtime telemetry is a kind, not a tier
+
+`RUNTIME_MEMORY` and `RUNTIME_PAUSE` are where JVM heap, non-heap and garbage-collection pauses live.
+They are ordinary resource kinds with ordinary limits, carried in the same shape as CPU. A Go
+service's runtime metrics, a .NET service's, or a Node process's would land in the same two kinds
+without a line of new domain code.
+
+There is no JVM package, no `JvmEvidence`, no `if (isSpringBoot)`. A service that publishes none of
+it produces a run with no signals of those kinds, which is the same situation as a service that
+publishes no CPU — an absence with a cause, as
+xref:adr-033-derived-evidence-is-labelled.adoc[ADR-033] already requires.
+
+== Consequences
+
+*Gained.* Vortex can name a limiting resource without naming a provider, and can hold conclusions
+about the service apart from conclusions about the machine generating the traffic. The percent-based
+pressure heuristic can be replaced by a comparison against a declared limit, which is what the
+heuristic was approximating. A future provider — Kubernetes metrics, a container runtime, a local
+process reader — becomes an adapter that classifies, not a change to the model.
+
+*Cost.* Every adapter grows a classification table it must keep honest, and a mis-classified signal is
+worse than an unclassified one: it produces a confident statement about the wrong resource. The
+closed set will be wrong at some point and adding a kind means touching every adapter that could
+supply it. `ResourceLimit` will be absent more often than anyone wants, because most providers
+publish utilisation without publishing what it is a fraction of.
+
+*Trade accepted.* The alternative is to keep reasoning about resources by their units and their
+names, which works until two providers name the same thing differently or one names two different
+things the same way — and then produces a bottleneck attributed to a resource nobody measured. A
+model that says "I do not know what this signal is" is more useful than one that guesses, because
+the guess is invisible in the report that quotes it.

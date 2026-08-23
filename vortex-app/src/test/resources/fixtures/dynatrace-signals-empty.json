@@ -1,0 +1,7 @@
+{
+  "totalCount": 0,
+  "resolution": "1m",
+  "result": [
+    { "metricId": "builtin:host.cpu.usage:max", "data": [] }
+  ]
+}

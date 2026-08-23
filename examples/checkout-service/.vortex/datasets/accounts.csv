@@ -1,0 +1,6 @@
+accountId,email,productCode
+acc-1001,customer-1001@example.com,STANDARD
+acc-1002,customer-1002@example.com,STANDARD
+acc-1003,customer-1003@example.com,PREMIUM
+acc-1004,customer-1004@example.com,PREMIUM
+acc-1005,customer-1005@example.com,STANDARD

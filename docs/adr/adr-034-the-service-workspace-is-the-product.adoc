@@ -1,0 +1,201 @@
+= ADR-034: The service workspace is the product
+
+== Status
+
+Accepted. Supersedes the navigation described in
+xref:adr-022-guided-setup-instead-of-a-wizard.adoc[ADR-022] while keeping its reasoning; amends
+xref:adr-004-thymeleaf-and-htmx.adoc[ADR-004]'s JavaScript budget.
+
+== Context
+
+The interface had grown two levels of navigation, and both named entities rather than intentions.
+
+....
+WORKBENCH            a service
+  Dashboard            Overview
+  Services             Operations
+  Runs                 Workloads
+SETUP                  Runs
+  Settings             Capacity
+  Diagnostics          Configuration
+....
+
+Every one of those words is accurate, and the arrangement still misrepresented the product.
+
+*Nobody opens Vortex to browse a list.* They open it because they want to know something about one
+service. The global navigation spent 232px of every screen on five destinations, three of which —
+Dashboard, Runs, Diagnostics — were rarely the reason anyone had come.
+
+*Overview restated the other five tabs.* It carried a readiness checklist, the latest run and a
+workload summary, all of which existed elsewhere. A tab whose content is a digest of its siblings is
+a symptom of the siblings being the wrong division.
+
+*Capacity was a conclusion filed as a destination.* Tested SLO-compliant capacity is not state a
+service has; it is something a run establishes, under conditions that have to travel with it. Giving
+it its own page put the number one click away from the evidence for it, which is precisely how a
+figure ends up on a slide without its conditions.
+
+*Configuration was seven unrelated things.* 775 lines of template holding operations, environments,
+the local lab, release, observed traffic, observation sources and objectives — every form
+permanently open, nothing linkable. It answered "what can I change?" when the question anyone
+arrives at a service with is "what is this, and is it ready?".
+
+*The optional assistant occupied permanent furniture.* A green "Local AI ready" badge sat in the
+sidebar of every screen, in the one place reserved for things that are always true, advertising a
+component Vortex is explicitly designed to work without.
+
+== Decision
+
+*The service is the workspace.* Global navigation shrinks to a top bar: the brand, a service
+switcher, the command palette, runtime status, and the theme toggle. Dashboard, Services, Runs,
+Settings and Diagnostics stop being permanent destinations. All of them remain reachable — from the
+home page, the switcher, the runtime panel or the palette — because being reachable and being
+permanent are different claims on a screen.
+
+*Navigation names intentions, and states the question each one answers.*
+
+....
+UNDERSTAND        TRAFFIC          EVALUATE           EVIDENCE
+What is it?       What load?       What question?     What do we know?
+....
+
+The question line is the first thing to go when the window narrows. It teaches the workflow to
+somebody meeting it for the first time and costs one line to an expert who has stopped needing it.
+
+*`Traffic`, not `Model`.* "Model" already means two other things here: a workload model is open or
+closed — the most consequential distinction in the glossary — and a model is the language model
+behind the assistant. A third meaning in the primary navigation would make all three harder to read.
+
+*Understand is a profile, not a settings page.* Its resting state is what Vortex currently knows,
+grouped as *Service* (definition, operations, release), *Reality* (production observation,
+environment, local lab) and *Expectations* (objectives). Reading is the common case; the forms are
+unchanged and one disclosure away.
+
+*Evidence opens with the conclusion.* "What do we currently know?" — the tested capacity boundary,
+the headroom or the recorded reason there is none — followed by the runs that produced it. Capacity
+ceases to be a tab.
+
+*Home replaces the dashboard.* One row per service, each showing its state and the next thing worth
+doing, each linking to where that happens. With no services, the same page is the onboarding.
+
+*The runtime indicator states a count, never a verdict.* See below.
+
+*A command palette exists, and owns nothing.* See below.
+
+== Two things this decision refuses
+
+=== "Ready" is not a thing the shell can claim
+
+The obvious top-bar affordance is a green dot reading *Ready*. It was implemented, looked
+reassuring, and was rejected.
+
+"Ready" would have to cover five capabilities — Java, the load generator, the workspace, Docker, a
+local model — of which two are optional and their absence is not a problem. None of them says
+anything about whether the service you are about to test can be reached, which is the readiness a
+user would actually infer from the word.
+
+So the trigger reads `Runtime 4/5`: a count of what was checked, with each capability's own state
+and its own remedy in the panel. The single judgement made anywhere is the one
+`DoctorReport.isReady` already makes and `vortex doctor` already exits on — whether everything
+*required* is present — and it colours nothing when an optional tool is merely absent.
+
+Whether a particular service is reachable is a different question with a different answer per
+environment, and it is answered in that service's workspace.
+
+=== The load axis draws no region Vortex did not compute
+
+The evidence page gained the product's one genuinely distinctive picture: the levels a run held,
+whether each met its objectives, and where that stopped being true.
+
+The first version shaded it into *safe*, *approaching* and *failed*. It was the best-looking thing in
+the redesign and it was a lie: Vortex has no rule that determines when a service is approaching its
+limit, so two-thirds of that gradient rendered an invented conclusion more persuasively than any of
+the measured ones.
+
+What is drawn is one mark per level, coloured by a verdict the domain reached, and a boundary only
+where `BoundaryStatus.isQuotable()` permits one — so a run whose compliance came back after failing
+shows its stages and no line, and a run without objectives shows its stages in neutral. The
+saturation range is drawn as a band or not at all, and is refused entirely when it was bounded in a
+different quantity from the axis.
+
+The semantics live in `LoadAxis` in `vortex-core`; `LoadAxisRenderer` only projects them. That is
+the same split as `SeriesPlot` and for the same reason (xref:adr-021-server-rendered-svg-charts.adoc[ADR-021]):
+renderers multiply, and a second one must project the same conclusions rather than derive its own.
+
+== Amendment: the entrance names the operation
+
+The decision above put the question first, and the primary control followed it: every entrance into a
+run read *Ask a question*. Applied to the workspace and to Home, that went one step too far. The
+question-first flow is the right flow, and "Ask a question" is the right description of it — but as
+the words on the button that begins everything, it required the reader to already know what Vortex
+means by a question. Read cold it suggests a chatbot, a documentation search, or a query over
+evidence already collected. Somebody opening Vortex has come to run a performance test against a
+service and understand what happened, and could not tell from that button that this was where.
+
+So the operational language moves outward and the conceptual language moves inward. Every control
+that starts a run says *Run a test*; the screen it lands on asks *What do you want to learn about
+{service}?* and offers the questions. Both are kept, at the point where each is the clearer one.
+
+The phase is still called *Evaluate*. Renaming it to match the button would set it against the route,
+the controller, the resolution screen and the glossary term underneath it, and the clarity was never
+the tab's job.
+
+Two further corrections followed from the same review.
+
+*Home became a workbench rather than a list.* One row per service and its next action was accurate
+and read as an index of articles: a heading, a sentence, a rule, another heading. It answered none of
+the three questions somebody arrives with. It is now four levels in the order the work happens —
+the action, the services and what is known about each, the recent conclusions, and what now looks
+doubtful — with the review section omitted entirely when there is nothing in it.
+
+*A blocked action is explained rather than removed.* Hiding the primary control when a service is not
+ready made setup look like the destination. `ProjectReadiness` now separates the two prerequisites
+that actually block a run from the five that make the evidence stronger, and the interface names what
+is missing with the domain's own instruction for each.
+
+=== The capacity range
+
+Home, the service workspace and the evidence pages draw one picture: what production sends a service,
+the load it sustained while meeting its objectives, and the load at which that stopped being true.
+`CapacityRange` in `vortex-core` decides what may be drawn; `CapacityRangeRenderer` projects it, in
+two sizes that emit the same classes for the same range.
+
+It is deliberately a separate record from `LoadAxis` rather than a second factory on it. `LoadAxis`
+answers "what did this run establish?" and normalises against the highest level that run reached,
+clamping anything above — which would silently place a service whose production traffic has outgrown
+its tested capacity exactly on top of that capacity, concealing the one situation the picture exists
+to reveal. The scale here is the largest mark actually drawn.
+
+Its refusals are the same ones, applied through the same domain methods rather than re-derived: no
+shaded regions ever; no capacity mark where `BoundaryStatus.isQuotable()` says no; no failing mark
+unless the boundary is `ESTABLISHED`; no production mark unless it measures the same quantity as the
+tested level, which is the refusal `HeadroomCalculator` already makes. Two marks minimum — a single
+one alone on a line implies the line spans something, and the figure beside it says everything the
+picture could. And the open end is drawn only when the tested capacity is the last mark: past a
+production mark it would read as a claim that traffic goes on climbing, which nothing here measured.
+
+== Consequences
+
+*Gained:* navigation that matches how the work is done. 232px back on every screen, which the
+evidence pages needed. Capacity that cannot be read without its conditions. One page fewer to
+maintain than the tabs it replaces, and a settings page that stopped being a scroll.
+
+*Cost:* almost every route moved. `/services/{id}` redirects to `/understand`; `/workloads` became
+`/traffic`; `/runs` and `/capacity` merged into `/evidence`; `/doctor` redirects to `/runtime`. The
+web tests changed with the copy, which is what they are for.
+
+*Unchanged:* the domain, every semantic guarantee in
+xref:../01-product/overview.adoc[the principles], and the vocabulary settled by
+xref:adr-024-service-level-workload-modelling.adoc[ADR-024] and
+xref:adr-030-workloads-not-scenarios.adoc[ADR-030]. `Run` in particular keeps its meaning; see
+xref:../02-architecture/interface.adoc[the interface's vocabulary] for why it was not renamed to *Experiment*.
+
+*Watch for:* Understand accumulating sections until it is Configuration again under a better name.
+The rule is that its resting state stays readable — facts first, forms behind disclosures.
+
+*Watch for, after the amendment:* Needs attention growing into a to-do list. It carries what Vortex
+established and now doubts — a failure, a boundary it could not draw, an assumption production has
+moved away from — and never "this service is incomplete", which every incomplete service already says
+on its own row. Note also that nothing here computes staleness: there is no rule for when evidence
+goes off, and the honest version of that worry is the release it was measured against versus the one
+configured now.

@@ -1,0 +1,264 @@
+= The interface
+:toc:
+:toclevels: 2
+
+How Vortex looks is a consequence of what Vortex is willing to claim. This page records the
+repeated ideas that make it recognisable, the words it chose to make them, and the rules they exist
+to enforce.
+
+The structural decisions behind it are in
+xref:../adr/adr-034-the-service-workspace-is-the-product.adoc[ADR-034]; the stack is
+xref:../adr/adr-035-react-and-mantine-as-the-interface.adoc[ADR-035].
+
+'''
+
+== Vocabulary
+
+Vortex's domain model is seven words: Service, Operation, Workload, Evaluation, Quality gate, Run,
+Evidence. The interface names four *phases* of work over them, because a service's workspace is
+organised by what you are doing rather than by where the data is stored
+(xref:../adr/adr-034-the-service-workspace-is-the-product.adoc[ADR-034]).
+
+[cols="1,1,3"]
+|===
+| Phase | Asks | Holds
+
+| *Understand*
+| what is it?
+| the service's definition and operations, the environment it runs in, the traffic production
+  actually sends it, and the objectives it is expected to meet
+
+| *Traffic*
+| what load?
+| the workloads Vortex can apply
+
+| *Evaluate*
+| what question?
+| the performance question to answer, and the run that answers it
+
+| *Evidence*
+| what do we know?
+| tested capacity and its boundary, headroom or the reason there is none, and the runs behind them
+|===
+
+*Traffic*, not *Model* — "workload model" and "language model" already claim that word twice, and a
+third meaning in the primary navigation would make all three harder to read.
+
+=== The verb and the nouns
+
+Three words sit close enough together to be confused, and the interface keeps them apart by where it
+uses them rather than by hoping nobody notices.
+
+*Run a test* is the act, and the words on every control that starts one — on Home, in a service
+workspace, beside a workload, and after a finished run. It is the phrase a first-time user reads
+before they know any of Vortex's vocabulary, so it says what it does.
+
+*Evaluation* is the question a run answers, and the noun for one instance of asking it. It names the
+phase, the route `/services/{id}/evaluate`, and the resolution screen, and it is what the interface
+calls the thing once somebody is inside it.
+
+*Run* is the historical execution record — one application of one workload, at one time, producing
+one piece of evidence.
+
+The rule: the verb where the interface asks somebody to act, the nouns where it describes what
+exists. This is why the phase is still called *Evaluate* while the button above it says *Run a test*.
+Renaming the phase to match the button would put it at odds with every URL and heading beneath it,
+and the operational clarity was never the tab's job — it is the button's.
+
+*Ask a question* was the button for a while, on the reasoning that the question is the thing Vortex
+can actually answer. That reasoning holds and is why the first screen of the flow asks one. As the
+words on the control that begins everything it did not: read cold, it suggests a chatbot, a
+documentation search, or a query over evidence already collected.
+
+=== Words deliberately not changed
+
+*Run* stays a run. *Experiment* was the obvious alternative, and it is already taken: an
+xref:execution-and-evidence.adoc#experiment-identity[experiment identity] is what makes two runs comparable — the plan, not
+the execution — so calling a run an experiment would collide with
+xref:../adr/adr-027-release-identity-is-not-experiment-identity.adoc[ADR-027] and make
+"two runs of the same experiment" unsayable. The interface leads with *Evidence* for what a run
+produced, and keeps *Run* for the execution itself.
+
+*Workload*, *Evaluation*, *Operation* and *Service* also stay. They were settled by
+xref:../adr/adr-024-service-level-workload-modelling.adoc[ADR-024] and
+xref:../adr/adr-030-workloads-not-scenarios.adoc[ADR-030] after a documented misunderstanding, and
+re-opening them would reintroduce it.
+
+*Local lab* stays the name of the feature, though the interface talks about starting and stopping
+*dependencies*, which is what the user is actually doing.
+
+'''
+
+== The governing rule
+
+Where two of these conflict, the earlier one wins:
+
+. domain semantics and epistemic guarantees
+. a non-expert engineer's ability to understand what Vortex knows, and why
+. workflow efficiency
+. visual consistency
+. aesthetics
+
+If a cleaner interface would require Vortex to imply knowledge the evidence does not support, the
+cleaner interface loses. This is not a tiebreaker anyone is expected to reach for often; it is the
+reason the load axis has no gradient and the top bar has no green *Ready*.
+
+'''
+
+== Unknown is a first-class interface state
+
+[quote]
+____
+*Vortex never renders absence as emptiness when it knows why the answer is absent.*
+____
+
+A dash, an `N/A`, an empty card and a "No data" panel all say the same unhelpful thing — there is
+nothing here — when the domain usually knows something far more useful.
+
+Compare:
+
+[cols="1,3"]
+|===
+| Instead of | Vortex says
+
+| `Headroom —`
+| "There is no tested capacity to compare production traffic against. This run's objectives were not
+  evaluated, so no level was established as compliant. Add objectives to the workload, or re-run one
+  that has them."
+
+| `System saturation: N/A`
+| "Not established by this test. The service absorbed every traffic level this run offered, so its
+  breaking point is above the range tested."
+
+| An empty capacity page
+| "No tested capacity has been established for this service. A capacity is something a run
+  establishes, not something a service has."
+|===
+
+These are answers. One of them — *not established by this test* — is
+xref:../03-performance-model/experiments.adoc[documented as a feature].
+
+*The surface.* Deliberately neutral: not styled as an error, which would say something went wrong,
+and not styled as an empty state, which would say nothing is here. Something is here — the reason.
+Where a deterministic next action exists it is offered; where one does not, none is invented.
+
+*Where it applies, at least.* Tested capacity not yet established · a boundary not established
+because the far edge was not reached · a boundary not established because results were not monotonic
+· system saturation not established · headroom refused, with its `HeadroomCalculator` reason ·
+telemetry not measured, with its `TelemetryGap` cause · `NOT_EVALUATED` because no objectives existed
+· production validation unavailable because the workload was manually entered.
+
+'''
+
+== The load axis
+
+The one picture only Vortex can draw, because only Vortex keeps the two limits apart: an *SLO
+breakpoint* is a statement about an agreement and is deterministic, while *system saturation* is a
+statement about the machine, is inferred from noisy signals, and is frequently not established.
+
+....
+0 ──────●──────────●──────────┆─────●───────── requests/sec
+       100        200         │    300
+                        boundary
+....
+
+*What it draws:* one mark per level held, coloured by the verdict the domain reached; a boundary
+marker only when `BoundaryStatus.isQuotable()`; a saturation *band*, never a point; an open
+right-hand end when nothing was violated.
+
+*What it refuses:*
+
+* *No "approaching" region, ever.* There is no deterministic rule that says a service is nearing its
+  limit, so a gradient between compliant and failing levels would be an invented conclusion rendered
+  more persuasively than the measured ones.
+* *No boundary on a non-monotonic run.* 100 pass, 200 fail, 300 pass did not establish a boundary,
+  however tidy the points would look joined up.
+* *No verdict colour without objectives.* Unevaluated levels are drawn neutral. An objective that
+  was never checked has not been met.
+* *No mixing of quantities.* A saturation range bounded in VUs is not placed on a requests/sec axis;
+  no conversion between them exists.
+
+*Where the meaning lives.* `LoadAxis` in `vortex-core` decides what the axis means — stages,
+compliance, boundary state, saturation, evaluation state. `LoadAxisRenderer` in `vortex-app`
+decides pixels. Renderers multiply, and the second one must project the same conclusions rather than
+derive its own (xref:../adr/adr-021-server-rendered-svg-charts.adoc[ADR-021]).
+
+*The table is the other half.* Every axis is accompanied by the numbers behind it. A shape on a
+screen is not something anyone can quote in a review, and it is also how the section survives into
+the printed report.
+
+'''
+
+== The three tiers, made visible
+
+The interface keeps measurement, deterministic derivation and interpretation visibly apart. Measured
+figures read as plain text with tabular numerals. Calculated figures read the same, but with the
+arithmetic discoverable — "observed peak 182 × 1.5 = 273" — rather than presented as a bare number.
+Interpreted figures live in a fenced panel in their own colour, naming the model and carrying
+`Interpretation.disclaimer()`; that violet appears nowhere else, so a reader never has to work out
+which tier a sentence came from. The underlying evidence hierarchy is explained in full in
+xref:execution-and-evidence.adoc[].
+
+'''
+
+== Provenance, in two registers
+
+A conclusion inherits the confidence of its weakest input, so where a figure came from travels with
+it everywhere. But a dense evidence table cannot afford a badge per row, and a wall of chips is its
+own kind of illegible.
+
+* *Compact marker* — small and quiet, suitable for a table: observed, derived, or manually entered.
+* *Expanded disclosure* — `WorkloadSource.describe()`, the observation window, and
+  `derivationIfPresent()`.
+
+The derivation stays easy to discover, particularly for calibration suggestions, where checking the
+arithmetic is the entire point.
+
+'''
+
+== Colour
+
+Neutrals carry almost the whole interface. Colour is reserved for meaning.
+
+*Two greens, never confused.* `--accent` is the brand and the primary action: "do this."
+`--pass` is a verdict: "this met its objectives." Form enforces what hue alone would not — a solid
+green fill is only ever a button, and a verdict is always a tinted surface with its word spelled
+out. Every verdict also carries a glyph, because colour is never the only signal.
+
+Verdicts are restrained: a failing test is serious, not alarming. A run in flight is blue, because
+it has not passed. AI output is violet wherever it appears.
+
+'''
+
+== Motion
+
+Motion communicates state or causality, or it does not happen. Stage marks appearing along the axis
+during a live run; composition bars settling; a phase transition. Nothing decorative, nothing that
+delays interaction, everything under `prefers-reduced-motion`.
+
+'''
+
+== JavaScript
+
+`vortex.js` is the whole of it, and everything in it is something that genuinely needs a browser: a
+theme preference, the live progress stream, typed-confirmation validation, the adaptive workload
+editor, an unsaved-changes guard, toasts, and the command palette.
+
+*The palette owns no domain or navigation state.* It consumes a small server-provided index,
+resolves destinations, and is an accelerator only. Every destination it exposes is reachable without
+it. That is why its trigger ships hidden and is revealed by script rather than rendered by the
+server: an affordance that does nothing is worse than no affordance.
+
+If the interface ever needs genuine client-side state, revisit ADR-004 rather than accumulating
+JavaScript.
+
+'''
+
+== Density and width
+
+Vortex is a desktop tool, targeted at roughly 1280–1800px. Layouts degrade responsibly below that;
+they are not compromised for phones.
+
+Width is a property of the content, not something each page re-decides in a style attribute. Cards
+are one tool, not the design system: a card drawn around a single sentence is a box for its own
+sake, and a column of them is how a profile turns back into a settings page. Facts are rows.

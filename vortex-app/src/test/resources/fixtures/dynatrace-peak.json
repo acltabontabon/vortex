@@ -1,0 +1,17 @@
+{
+  "totalCount": 1,
+  "resolution": "1h",
+  "result": [
+    {
+      "metricId": "builtin:service.requestCount.total:max",
+      "data": [
+        {
+          "dimensions": [],
+          "dimensionMap": {},
+          "timestamps": [1755769200000, 1755772800000],
+          "values": [null, 656640]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+= ADR-013: The core has no framework dependencies
+
+== Status
+
+Accepted
+
+== Context
+
+The domain could reasonably depend on `spring-context` for `@Service`, Jackson for serialisation
+contracts, and `jakarta.validation` for constraints. Each seems harmless; together they turn a
+domain model into a framework metadata model.
+
+== Decision
+
+`vortex-core` declares *zero* compile-scope dependencies. Maven's banned-dependencies rule
+enforces it.
+
+----
+domain      = Java
+application = Java + ports
+adapters    = frameworks
+----
+
+Wiring is explicit in `CoreConfiguration`. Invariants live in record compact constructors and
+factory methods, not annotations. Bean Validation applies only at the configuration-binding boundary.
+Canonical serialisation for fingerprinting uses a small hand-written JSON writer.
+
+== Consequences
+
+*Gained:* the domain is ordinary Java — instantiable with `new`, testable without a container,
+impossible to accidentally couple to a framework. A Spring major version is an adapter concern.
+Native compilation has one less reflection surface.
+
+*Cost:* a few dozen lines of explicit wiring, and Jackson needs to be taught about sealed
+hierarchies and typed map keys from outside (`VortexJacksonModule`).
+
+*Worth it:* the constraint is checked by the compiler, so it cannot erode gradually. Adding a
+dependency requires an ADR, not an import.

@@ -1,0 +1,25 @@
+{
+  "totalCount": 2,
+  "resolution": "1m",
+  "result": [
+    {
+      "metricId": "builtin:service.response.time:percentile(95):splitBy(\"dt.entity.service\")",
+      "data": [
+        {
+          "dimensions": ["SERVICE-PAYMENTS"],
+          "dimensionMap": { "dt.entity.service": "SERVICE-PAYMENTS",
+                            "dt.entity.service.name": "payments-service" },
+          "timestamps": [1755772800000, 1755772860000],
+          "values": [180.0, 4120.5]
+        },
+        {
+          "dimensions": ["SERVICE-INVENTORY"],
+          "dimensionMap": { "dt.entity.service": "SERVICE-INVENTORY",
+                            "dt.entity.service.name": "inventory-service" },
+          "timestamps": [1755772800000, 1755772860000],
+          "values": [42.0, 51.0]
+        }
+      ]
+    }
+  ]
+}

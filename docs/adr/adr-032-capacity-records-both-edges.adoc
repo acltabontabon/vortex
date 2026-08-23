@@ -1,0 +1,116 @@
+= ADR-032: Capacity records both edges, and says whether they form a boundary
+
+== Status
+
+Accepted.
+
+== Context
+
+A `CapacityObservation` recorded the highest level at which a run met every objective. That is the
+more quotable half of the evidence and the less useful one. "The service sustained 400 requests/sec"
+invites the obvious follow-up — _and what happened at 450?_ — and a run that measured the answer and
+discarded it has kept the wrong half. Whether latency doubled at the next level up or errors went to
+40% are different situations calling for different work.
+
+Two other things were left to be recomputed from a report afterwards: which resources were near their
+limit where the degradation appeared, and how well the boundary was established at all. Recomputing
+evidence from whatever the current code believes is not history, and a capacity observation is
+history — it is compared against later runs and quoted months afterwards.
+
+And there was a hole underneath all of it. `highestCompliantLevel` took the maximum compliant stage
+with no check that compliance had moved in one direction. A run reading:
+
+----
+100 req/s  PASS
+200 req/s  FAIL
+300 req/s  PASS
+----
+
+would have recorded 300 as tested capacity. That is arithmetic dressed as evidence: something in that
+run was not stable, and the honest answer is that no boundary was established.
+
+== Decision
+
+=== Both edges
+
+`CapacityObservation` gains `firstNonCompliant` — a `BoundaryEdge` carrying the level, its latency,
+its error rate, the objectives it violated and the signals observed there. Null when nothing was
+violated, which is a real outcome and a different one from failing at the first level tested.
+
+=== A boundary that says whether it is one
+
+`BoundaryStatus` is `ESTABLISHED`, `FAR_EDGE_NOT_REACHED`, `UNSTABLE` or `NOT_EVALUATED`, computed by
+sorting stages on load and asking whether compliance fell away once and stayed away. Anything
+compliant above the first failure is `UNSTABLE`.
+
+This is a monotonicity check and deliberately nothing more. Vortex is not modelling the distribution
+of a stage's results or deciding how much variance is acceptable; it is asking whether compliance
+moved in one direction with load, which is the minimum "boundary" has to mean.
+
+An unstable run is still recorded — evidence accumulates rather than being discarded (ADR-017) — but
+it is not quotable, and `HeadroomCalculator` gains a refusal for it. Headroom is exactly the figure
+that ends up on a slide with none of its conditions attached, and one divided out of a level whose
+compliance did not move consistently with load would be a confident number resting on noise.
+
+=== Strength that is scoped to what it describes
+
+The field is `boundaryStrength`, never a bare `strength`. It says how well *the boundary* is
+established and nothing about any constraint candidate recorded beside it. A renderer showing
+"strength: HIGH" next to a CPU figure would invite exactly the reading "CPU is the cause, with high
+confidence" — a claim no run supports. Candidate strength is per candidate and separate, and the
+Capacity page keeps them visually apart for the same reason.
+
+=== Constraint candidates, stored and correlated
+
+`ConstraintCandidate` records a resource that was near its limit where objectives stopped being met.
+It is derived from the same `ResourcePressure` rule the finding detector uses, from the one place
+that rule lives, so a report and the stored observation cannot name different candidates for the same
+run. Its `describe()` states the correlation and refuses the causal reading, so every renderer says
+the same careful thing rather than each inventing its own sentence.
+
+Per ADR-033, a candidate observed in a stage whose boundaries Vortex *computed* cannot reach the
+highest strength.
+
+=== Fixed vocabulary
+
+Three phrases, used by the Capacity page, the result page, all three exporters and the docs:
+
+* *Tested SLO-compliant capacity* — the highest compliant edge.
+* *First observed non-compliant load* — the failing edge.
+* *Tested capacity boundary* — the pair, rendered `400 requests/sec compliant → 450 requests/sec
+  non-compliant`, always followed by its conditions.
+
+`CapacityObservation.boundary()` renders the sentence, rather than each template composing its own.
+One sentence is easier to keep honest than six, and nothing anywhere may imply Vortex discovered the
+service's maximum.
+
+=== Headroom cannot be omitted
+
+Headroom was a parameter on `assemble(...)` that all four call sites passed `null` for, so a figure
+that had been calculated correctly for months appeared nowhere. It is now resolved *before* assembly
+into an `EvidenceContext`, which requires a `HeadroomCalculator.Result` — either a value or a stated
+reason. The parameter is gone, so a fifth call site cannot repeat the mistake, and a report never goes
+quiet where a number was expected.
+
+The lookup lives in an application-layer factory rather than inside `RunEvidenceService`, which stays
+a deterministic transformation from inputs to evidence rather than a service that queries the database
+halfway through building a report.
+
+== Consequences
+
+*Gained.* A capacity figure arrives with the level it stopped working at, what that looked like, and
+what was near its limit there. A run that did not establish a boundary says so instead of quoting its
+luckiest stage. Headroom is either a number or an explanation, everywhere. History is queryable per
+service version, which is what a later regression verdict needs to exist before it can be trusted.
+
+*Cost.* A migration and four more fields on an aggregate that was already wide. Some runs that
+previously produced a capacity figure now produce a refusal, which will read as a regression to
+anyone who preferred the number — and occasionally it will be a genuine annoyance, because a run can
+be non-monotonic for reasons that have nothing to do with the service. Rows written before the
+migration default to `NOT_EVALUATED`, so historical observations are excluded from headroom until
+they are re-established; that is honest and it is also a loss.
+
+*Trade accepted.* Vortex could have kept taking the maximum compliant stage and said nothing. It
+would have produced a capacity number for every run, which is what most tools do, and some of those
+numbers would have been noise presented with the same confidence as the rest. Refusing in that case
+costs a figure on a slide and buys the thing the figure was supposed to be worth.

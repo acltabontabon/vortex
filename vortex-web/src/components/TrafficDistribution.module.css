@@ -1,0 +1,91 @@
+.mix {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'label value'
+    'bar   bar';
+  gap: 3px var(--mantine-spacing-md);
+  align-items: baseline;
+}
+
+.label {
+  grid-area: label;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-family: var(--mantine-font-family-monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.method {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}
+
+.path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * The reason the test will not run, stated on the row that causes it. Warn rather than fail: the
+ * configuration is fixable, nothing has gone wrong yet.
+ */
+.unknown {
+  flex-shrink: 0;
+  font-family: var(--mantine-font-family);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--mantine-color-warn-6);
+}
+
+.value {
+  grid-area: value;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dim {
+  color: var(--mantine-color-dimmed);
+}
+
+.editValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar {
+  grid-area: bar;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mantine-color-default-border);
+  overflow: hidden;
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  background: light-dark(#8d9a93, #56635b);
+}
+
+.drift {
+  margin: 2px 0 0;
+  font-size: 0.76rem;
+  color: var(--mantine-color-dimmed);
+  max-width: 68ch;
+}

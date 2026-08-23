@@ -1,0 +1,1114 @@
+= Execution and evidence
+:toc:
+:toclevels: 3
+
+== Execution lifecycle
+
+[source,mermaid]
+----
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> VALIDATING
+    VALIDATING --> READY
+    READY --> STARTING
+    STARTING --> RUNNING
+    RUNNING --> COLLECTING
+    COLLECTING --> EVALUATING
+    EVALUATING --> COMPLETED
+    COMPLETED --> [*]
+
+    CREATED --> FAILED
+    VALIDATING --> FAILED
+    READY --> FAILED
+    STARTING --> FAILED
+    RUNNING --> FAILED
+    COLLECTING --> FAILED
+    EVALUATING --> FAILED
+
+    CREATED --> CANCELLED
+    VALIDATING --> CANCELLED
+    READY --> CANCELLED
+    STARTING --> CANCELLED
+    RUNNING --> CANCELLED
+    COLLECTING --> CANCELLED
+
+    FAILED --> [*]
+    CANCELLED --> [*]
+----
+
+=== The states
+
+[cols="1,4", options="header"]
+|===
+| State
+| What is happening
+
+| `CREATED`
+| Requested. The resolved plan has been snapshotted to `plan.json`. Nothing has been sent anywhere.
+
+| `VALIDATING`
+| Preflight: configuration, engine availability, workload validity, target reachability, safety policy.
+
+| `READY`
+| Preflight passed.
+
+| `STARTING`
+| The engine process is being launched. Tool versions are recorded.
+
+| `RUNNING`
+| Traffic is being generated. Telemetry sampling is active. Progress streams in five-second buckets.
+
+| `COLLECTING`
+| Traffic has stopped. Results, artifacts and the final telemetry are gathered.
+
+| `EVALUATING`
+| Thresholds, breakpoints and the deterministic summary are computed.
+
+| `COMPLETED`
+| Finished with a verdict. *Measurements are now immutable.*
+
+| `FAILED`
+| Could not complete. The reason and its remedy are recorded.
+
+| `CANCELLED`
+| Stopped by a person. Partial artifacts kept; no verdict.
+|===
+
+Invalid transitions throw. `ExecutionState.canTransitionTo` is exhaustively tested, including that
+every terminal state accepts nothing further and every non-terminal state can fail.
+
+=== There is no ANALYZING state
+
+Deliberately. AI interpretation is a separate resource with its own lifecycle
+(`NOT_REQUESTED → PENDING → RUNNING → COMPLETED/FAILED`) that only starts once a run already has a
+verdict. See xref:ai-analysis.adoc[] and
+xref:../adr/adr-015-separate-execution-and-analysis-lifecycles.adoc[ADR-015].
+
+=== Where telemetry fits
+
+Sampling of the service's own metrics starts *before* `RUNNING` and finishes during `COLLECTING`.
+The placement matters: most measurements that explain a bottleneck are instantaneous gauges, and
+reading them after the load stops reports a service sitting idle. A pool saturated for four minutes
+would show 0% utilisation — not merely uninformative but actively misleading in a report about
+saturation.
+
+Samples are taken every five seconds and the *peak* is kept, because the peak is what caused the
+queueing.
+
+=== Restart behaviour
+
+Vortex does not adopt orphaned engine processes. On startup, executions found in a non-terminal
+state are marked `FAILED` with reason `INTERRUPTED`:
+
+[quote]
+____
+Vortex stopped while this run was in progress. Vortex does not adopt orphaned engine processes on
+restart, so this run was marked failed rather than left pending.
+____
+
+Two reasons. History that shows a run apparently still going when nothing is running it is
+untrustworthy. And silently resuming risks a second load generator pointed at somebody's
+environment.
+
+*Documented limitation:* if Vortex is closed mid-run, the k6 process may keep running until it
+finishes on its own. Vortex's cancellation is cooperative and requires Vortex to be alive.
+
+=== Cancellation
+
+Cooperative. The flag is polled between aggregation buckets; the process is asked to stop, then
+killed after ten seconds if it has not. Partial artifacts are kept — a cancelled run produced no
+verdict, and there is nothing to conclude from an interrupted measurement.
+
+=== Threading
+
+The run happens on a virtual thread. Two more carry the output pumps, one the sample aggregator, one
+the telemetry sampler. All are almost entirely blocked on I/O, so a fifteen-minute test holds no
+platform thread and the interface stays responsive throughout.
+
+=== Failure reasons
+
+Each carries what to do about it:
+
+[cols="1,3", options="header"]
+|===
+| Reason
+| Guidance
+
+| `PREFLIGHT_FAILED`
+| The preflight report lists which check failed and what to do
+
+| `ENGINE_UNAVAILABLE`
+| Install k6, or configure its location
+
+| `ENGINE_FAILED`
+| Captured standard error is attached to the execution
+
+| `TARGET_UNREACHABLE`
+| Check the service is running and the address is right
+
+| `RESULTS_UNREADABLE`
+| Raw artifacts preserved so nothing is lost
+
+| `INTERRUPTED`
+| Vortex stopped mid-run
+
+| `INTERNAL_ERROR`
+| Details in the application log
+|===
+
+Remote execution will need reasons of its own — infrastructure that failed to provision or produced
+no evidence is not the same fact as a target that failed under load, and must not collapse into it.
+Which reason codes those are is not decided here; see
+xref:../02-architecture/architecture.adoc#remote-execution[remote and distributed execution] for the
+principle (`Kubernetes Job FAILED` is not `TARGET_PERFORMANCE_FAILURE`) and the roadmap for staging.
+
+== Evidence model
+
+One of the most important concepts in Vortex, and the reason its conclusions can be checked.
+
+=== Four tiers
+
+----
+┌─────────────────────────────────────────────────────────────┐
+│ RAW EVIDENCE                                                │
+│ k6 sample stream · service telemetry · process output       │
+│ Kept on disk, compressed. Never discarded after summarising.│
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ NORMALIZED MEASUREMENTS                                     │
+│ throughput · latency percentiles · errors · utilisation     │
+│ MeasuredResults — engine-independent, provenance attached.  │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ DETERMINISTIC FINDINGS                                      │
+│ threshold results · SLO breakpoint · saturation · headroom  │
+│ Pure functions. Same input, same output, always.            │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ INTERPRETATION                                              │
+│ correlations · hypotheses · recommendations · next test     │
+│ A language model. Must cite the tier above.                 │
+└─────────────────────────────────────────────────────────────┘
+----
+
+Each tier is derived only from the one above. Interpretation cannot reach past findings to raw
+evidence, which is exactly the constraint that makes citation-checking possible.
+
+=== Provenance
+
+Every measurement carries where it came from:
+
+[source,java]
+----
+MetricObservation(
+    id,           // metric:checkout.pool.utilization — how a finding cites it
+    name,         // checkout.pool.utilization
+    source,       // ACTUATOR | K6 | PROMETHEUS | DYNATRACE | USER_PROVIDED | DERIVED
+    unit,         // PERCENT | MILLISECONDS | BYTES | ...
+    aggregation,  // MAX | MEAN | P95 | LAST | ...
+    value,
+    window,       // the interval it covers
+    dimensions,
+    provenance,   // the query that produced it, and where to check it — null when unknown
+    trace)        // start → peak → end across the run — null when sampled once
+----
+
+No anonymous doubles. "CPU remained below 58%" is only worth something if it is knowable which
+provider measured it, over what window, and how it was reduced — a maximum and a mean over the same
+window can differ by an order of magnitude.
+
+`DERIVED` marks values Vortex computed from others, such as heap utilisation from used and maximum,
+so a reader can trace them back.
+
+[[evidence-identifiers]]
+=== Evidence identifiers
+
+Every citable measurement has a stable name:
+
+----
+metric:http.rate.achieved
+metric:http.latency.p95
+metric:http.errorRate
+metric:checkout.pool.pending
+threshold:latency.p95
+delta:latency.p95
+----
+
+`delta:` identifies a computed difference between two executions — the citable unit a comparison
+interpretation may reference, the same way `metric:` and `threshold:` are the citable units a
+single-run interpretation may reference.
+
+`EvidenceIds` is the *single* definition of that set. It exists because the definition was briefly
+written twice — once where the evidence package is assembled and once where citations are checked —
+and the two drifted immediately: the assistant was shown measurements it was then told it could not
+cite, and good findings about real measurements were discarded as unsupported.
+
+A validator and the thing it validates cannot each keep their own list.
+
+=== Confidence applies to deterministic findings too
+
+`EvidenceStrength` is not an AI concept:
+
+----
+SLO breakpoint        High         from 8 traffic levels
+System saturation     Low          two corroborating signals
+----
+
+Identical arithmetic can rest on very different evidence. A breakpoint bracketed by twelve stages is
+a firmer statement than one bracketed by two, and reporting both with equal confidence would be
+misleading.
+
+An AI finding carries a third, related but distinct axis: `FindingType`
+(`OBSERVATION`/`CORRELATION`/`HYPOTHESIS`/`LIMITATION`), which bounds how much `Confidence` the
+finding may claim. Keep the three straight — `FindingLevel` grades a *deterministic* finding's
+severity (fail/warning/observation/pass), `EvidenceStrength` grades how well corroborated a
+deterministic breakpoint is, and `FindingType` grades what *kind* of claim an AI finding is making.
+All three exist because "confidence" and "severity" are not one concept wearing different names —
+each answers a different question, at a different tier.
+
+A fourth axis sits underneath all three: `RunQuality`, which asks whether the experiment was carried
+out as specified at all. It is kept deliberately apart from `Verdict`, because a run can meet every
+objective and still be invalid — and a stress test that breaks the service is `VALID` and the
+healthiest artefact in the product. Both appear on every result, and neither is derived from the
+other.
+
+It has three assessed grades — `VALID`, `DEGRADED`, `INVALID` — plus `NOT_ASSESSED`, which is not a
+grade at all: it describes a run recorded before the axis existed, carries no reason codes and
+therefore withholds nothing. Each grade is computed from a list of findings, and every finding cites
+a measurement Vortex actually collects and names the threshold it crossed. There is no scoring, no
+weighting and no blended confidence figure. See
+xref:../adr/adr-038-run-quality-grades-the-experiment.adoc[ADR-038].
+
+An invalid run stores and renders exactly what a valid one does — the raw stream, the percentiles,
+the telemetry, the artifacts. What changes is what Vortex is willing to *state*: capacity is not
+quoted, headroom is refused with its reason, no capacity observation enters the record, and the run
+is not offered as a regression baseline. A pipeline sees exit code `5`. Degradation does not change
+the exit code; the verdict decides it and the qualification is printed beside it.
+
+=== Execution environment, a future provenance extension
+
+Provenance today answers *what was measured, by what, over what window*. It does not yet answer
+*where the generator that produced the load actually ran* — local process, or remote worker, and if
+remote, what shape. That is a planned extension, not a present-tense one: the roadmap's remote and
+distributed execution direction
+(xref:../01-product/roadmap.adoc[roadmap], Phase 5) needs a result to state execution mode, provider,
+worker count and shape and the generator's own tool versions alongside everything `EvidenceProvenance`
+already records, the same way it needs
+<<fingerprint-included,the plan fingerprint>> to already state what test ran.
+
+For a run distributed across several workers, the same discipline this section already applies to
+one generator has to apply per worker: a worker's delivered rate, resource pressure and reason codes
+are that worker's evidence, never blended into an average that hides which one actually saturated.
+`EvidenceIds` would grow worker-scoped identifiers the same way it grew operation-scoped ones,
+not a second, parallel evidence model. See
+xref:../02-architecture/architecture.adoc#remote-execution[remote and distributed execution] for the
+architectural shape and the
+xref:../01-product/roadmap.adoc#runquality[`RunQuality` roadmap slice] for the reason-code discipline
+this extends.
+
+=== Absent telemetry: a known limitation
+
+`EvidenceAssembler.getAbsentTelemetry` reports what was asked for and not collected — CPU, memory,
+connection pools, downstream dependency latency and errors, queue depth, thread-pool occupancy —
+by consulting both the collector-reported `TelemetryGap`s (which carry a precise cause) and, for
+signals nobody even asked for, a category check. It does *not* report GC pause/count or container
+(cgroup) CPU throttling as absent, because nothing in this codebase collects either today —
+inventing an "absent" line for a category no collector could ever supply would itself be a small
+fabrication. Adding a real collector for either is future work; until then, the honest statement is
+silence rather than a category that always reads as missing.
+
+The deeper limitation underneath it is that a telemetry signal is a *named number*: the domain knows
+where a measurement came from and not what kind of resource it describes, whose system it describes,
+or what limit it approaches. `ResourcePressure` therefore decides "near its limit" from a unit and a
+constant rather than from a resource and its limit. Fixing that is
+xref:../adr/adr-037-resource-observation-is-typed.adoc[ADR-037]; the shape of the model it produces
+is in <<system-telemetry,System telemetry>>, below.
+
+=== Language
+
+Enforced in prompts, templates and code:
+
+[cols="1,1", options="header"]
+|===
+| Say
+| Not
+
+| correlated strongly with
+| caused by
+
+| the likely limiting factor
+| the bottleneck is
+
+| the strongest hypothesis
+| we found that
+
+| not established by this test
+| approximately N
+
+| tested SLO-compliant capacity
+| maximum throughput
+
+| not evaluated
+| passed
+|===
+
+A load test observes association. The step from association to cause requires context a test run
+does not have, and language that skips it will eventually be quoted as if it had not.
+
+=== Export
+
+The four tiers describe how a conclusion is derived. `RunEvidence` is how it leaves the machine.
+
+----
+Workload → Execution → Run result → RunEvidence → ┌─ result page
+                                                   ├─ printable report
+                                                   ├─ JSON   (vortex.evidence/2)
+                                                   ├─ Markdown
+                                                   └─ PDF
+----
+
+One aggregate, assembled once per completed run, handed to every renderer including the two web
+pages. Nothing downstream reaches back into the execution or the plan, which is what makes
+sanitisation a single choke point rather than a habit each renderer has to keep.
+
+The tiers survive the journey. Measurements, deterministic findings and interpretation are separate
+fields, and every renderer fences the last one and names the model that produced it — a reader has to
+be able to tell a measurement from an opinion at a glance, and an export flattens nothing.
+
+==== Deterministic findings, as sentences
+
+The third tier gained a way to be said out loud. `DeterministicFinding` carries a level, a headline,
+the evidence identifiers it rests on, and its `EvidenceStrength`. It is derived by a pure function
+and cites `EvidenceIds`, checked in the constructor: a finding that can cite nothing is an opinion,
+and is rejected rather than shown.
+
+The language table above is binding on these. A finding says *coincided with*; it never says *caused
+by*. A test asserts the forbidden phrasings appear in no generated finding across every fixture.
+
+==== Where a request's values came from
+
+What a request sent is a condition the result was measured under, in the same way the environment
+and the dependency mode are. A capacity figure produced by replaying one account id ten thousand
+times and one produced from a dataset of ten thousand distinct accounts are different results, and
+evidence that cannot tell them apart is not evidence.
+
+So `OperationEvidence` carries a `RequestValueOrigin` per configured value, and every renderer shows
+it:
+
+----
+Request data
+
+customerId          dataset: customers / customerId
+productCode         fixed: CREDIT_CARD
+x-idempotency-key   generated: UUID (every request)
+Authorization       environment: API_TOKEN
+----
+
+*Sources, never values.* A generated value's output is not recorded — it differs on every request,
+by design, and keeping every one would be an audit trail of traffic rather than an explanation. A
+dataset contributes its name, record count and content hash, not its rows. An environment value
+contributes its reference; the resolved secret exists only inside the engine's process.
+
+A fixed literal is the one source whose content is arbitrary user text, so it is the one that could
+contain a credential somebody pasted into the wrong field — it goes through `EvidenceSanitizer` on
+the way out, like everything else. The other three cannot carry one.
+
+The dataset's content hash is also part of experiment identity, so two runs of the same workload
+across an edit to the CSV are reported as not comparable rather than as a regression.
+
+==== Where an observation came from
+
+`ObservationProvenance` carries the provider, the query as issued, the entity it was scoped to and a
+link to check it. `ObservationTrace` carries the same measurement at three moments, so a rise is
+visible rather than inferred — "heap at 73%" and "heap rose from 58% to 73% and did not recover" are
+different statements, and only the second is evidence about a workload.
+
+Both are provider-neutral and both are optional. A PromQL expression, a Dynatrace metric selector
+with its entity, and an Actuator metric name are all just "the query that was issued" to a renderer,
+which is what lets the reporting layer stay ignorant of where evidence came from while still being
+able to attribute it. The Actuator provider supplies a query and a link and no entity; a provider
+that supplies none of it produces observations that render without them, and no renderer invents
+what is missing.
+
+==== The published contract
+
+The JSON export is a hand-written envelope tagged `vortex.evidence/2`, not a serialisation of the
+domain. The stored shape carries type discriminators for sealed hierarchies and changes whenever a
+record changes; publishing it would make every internal rename a breaking change for anybody parsing
+an export. The mapping is an explicit function, so a domain change stops it compiling and somebody
+decides what the contract should do. The machine-readable shape of that contract is
+xref:../schema/vortex-evidence-v1.schema.json[the evidence schema].
+
+An absent measurement is an absent key, never `null`. A consumer should not have to distinguish
+"Vortex did not measure this" from "Vortex measured it as nothing".
+
+=== Raw evidence is kept
+
+----
+~/.vortex/executions/<id>/
+├── plan.json               the effective plan — secret references, never values
+├── evidence.json           the run's evidence, in the published schema
+├── report.md               the same, as a document
+├── generated-test.js       the workload as executed
+├── k6-summary.json         the engine's own summary
+├── raw-metrics.json.gz     the full sample stream, compressed
+├── stdout.log stderr.log
+└── report.html
+----
+
+A summary answers the questions someone thought to ask when they wrote it. The raw stream answers
+the one that comes up six months later.
+
+It is compressed because it is large — roughly 3.5 KB per request across all metrics, approaching a
+gigabyte for a long run at high rates — and highly repetitive, so it compresses by about an order of
+magnitude. Keeping it is what makes the evidence claim real rather than aspirational.
+
+[[system-telemetry]]
+== System telemetry
+
+How Vortex observes the system while it is under load, and why the model is deliberately not shaped
+like any one monitoring product.
+
+CPU, memory and process telemetry are not an afterthought bolted onto an HTTP tool — they are
+becoming part of the performance model itself, at the same standing as latency and throughput.
+
+=== Protocol independence
+
+Nothing in this model mentions HTTP. A resource signal describes a system under load; it does not
+know what kind of work arrived. The layering the domain is heading towards keeps it that way:
+
+----
+Workload → Load model → Execution → Measurements
+                                          ↓
+                                   System telemetry
+                                          ↓
+                        Objectives → Evidence → Capacity conclusion
+----
+
+Only *Measurements* is transport-shaped — requests, statuses, latency percentiles for HTTP; arrival
+rate, backlog and consumer lag for a queue (xref:../01-product/roadmap.adoc[Phase 7]). Telemetry,
+resource observation, experiment validity, saturation, capacity, provenance and regression analysis
+sit below the transport and should survive it unchanged.
+
+That is the test to apply to any addition in this area: *would this concept still be true if the work
+arrived from a queue instead of a socket?* If the answer is no, it belongs in the measurement layer,
+not here.
+
+=== The question this exists to answer
+
+Not "what did CPU do?" — a dashboard answers that, and answers it better. The capability is
+*correlating workload behaviour with system behaviour inside the exact experiment window*, so a run
+can answer questions a chart cannot:
+
+* What happened to CPU as offered load increased?
+* Did memory stabilise, or grow for the whole run and not recover?
+* When p95 crossed its objective, what was constrained?
+* Did achieved throughput flatten before errors appeared, or after?
+* Was the load generator or the target the limiting system?
+* Which measurement supports the claimed breakpoint?
+
+If an implementation produces CPU and memory charts but cannot answer those, it is incomplete. The
+charts are a rendering of the evidence; the evidence is the capability.
+
+=== What exists today
+
+Telemetry collection is already timeline-aligned, sampled, and honest about absence.
+
+[cols="1,3", options="header"]
+|===
+| Piece | What it does
+
+| `ObservabilityProvider`
+| A port. Three adapters: Actuator (the service's own metrics endpoint), Prometheus, Dynatrace. Each
+  declares its default metrics, whether it is reachable, and returns measurements *and* gaps together
+
+| `TelemetryCollector`
+| Starts a session when a run starts, samples every provider on a fixed interval for the life of the
+  run, and returns run-level and per-stage telemetry when it finishes
+
+| `MetricObservation`
+| One measurement: id, name, source, unit, aggregation, value, window, dimensions, `ObservationProvenance`
+  (the query as issued, and a link to check it) and `ObservationTrace` (start → peak → end)
+
+| `StageTelemetry`
+| Observations bucketed into the workload's stages, each carrying a `StageWindowBasis` saying whether
+  the boundary was measured or computed from planned durations
+  (xref:../adr/adr-033-derived-evidence-is-labelled.adoc[ADR-033])
+
+| `TelemetryGap`
+| Why a measurement is missing: `NO_DATA`, `UNSUPPORTED`, `UNREACHABLE`, `UNAUTHORIZED`, `MALFORMED`
+
+| `ConstraintCandidate`
+| Resources near their limit where objectives broke — recorded as correlated, never causal
+
+| `ResourceSignal` / `ResourceKind` / `ResourceScope` / `ResourceLimit`
+| A measurement classified as a resource — what kind, whose it is, and what it's measured against.
+  Built per xref:../adr/adr-037-resource-observation-is-typed.adoc[ADR-037]; see below
+
+| `ResourceSample` / resource-telemetry artifact
+| Every sample a session takes, streamed to that execution's own artifact as it is taken rather than
+  collapsed to start/peak/end alone. Built per xref:../adr/adr-041-run-scoped-resource-telemetry.adoc[ADR-041];
+  see "Run-scoped raw retention" below
+|===
+
+That is a stronger starting point than the phrase "add CPU monitoring" suggests. Sampling, stage
+alignment, provenance, rise-and-recovery traces and explained absence are the hard parts, and they
+are done — and, per ADR-037 and ADR-041, so is classification and bounded run-scoped retention.
+
+=== A typed resource signal (ADR-037)
+
+Before this, every measurement was *a named number*, and nothing in the domain knew which named
+numbers were resources, which system each one described, or what limit any of them was approaching.
+The clearest symptom was the old `ResourcePressure.isUnderPressure`, which decided a signal was near
+its limit whenever its unit was percent and its value was at least ninety — a rule about a unit, not
+about a resource: an error rate of 92% satisfied it and a heap at 3.9 GB of 4 GB did not.
+
+ADR-037 adds classification *around* the existing measurement rather than replacing it:
+
+----
+ResourceSignal
+  observation   MetricObservation      unchanged — id, provenance, trace, window
+  kind          ResourceKind           CPU | MEMORY | NETWORK | DISK
+                                       | RUNTIME_MEMORY | RUNTIME_PAUSE
+                                       | POOL | QUEUE | THREADS
+  scope         ResourceScope          SYSTEM_UNDER_TEST | LOAD_GENERATOR | DEPENDENCY
+  limit         ResourceLimit          what the value is relative to — absent when unpublished
+----
+
+Three rules hold the abstraction in place:
+
+*Classification lives in the adapter.* The provider knows that `system.cpu.utilization` is CPU and
+that `jvm.memory.utilization` is runtime memory. `vortex-core` reasons over `ResourceKind` and never
+over a metric name — the same arrangement that already lets the core know a measurement came from
+Prometheus without knowing what PromQL is.
+
+*Scope is not optional.* CPU at 95% on the service and CPU at 95% on the machine generating traffic
+lead to opposite actions, and telling them apart is what
+xref:../adr/adr-038-run-quality-grades-the-experiment.adoc[run quality] rests on.
+
+*An unclassified signal stays evidence.* It is collected, aligned, cited, exported and rendered as it
+always was. What it cannot do is become a limiting-resource claim. Nothing is promoted for looking
+like a resource.
+
+==== Runtime telemetry is a kind, not a special case
+
+JVM heap, non-heap, GC pause duration and frequency, thread counts, executor saturation and
+connection-pool utilisation are ordinary signals of kind `RUNTIME_MEMORY`, `RUNTIME_PAUSE`,
+`THREADS` and `POOL`. A Go, Node, Python, .NET or native service publishing its own runtime metrics
+would land in the same kinds through its own adapter — none exists yet beyond the JVM-shaped ones
+Actuator already classifies.
+
+There is no JVM package and no `if (isSpringBoot)`. A service that publishes none of it produces a
+run with no signals of those kinds — an absence with a cause, exactly like a service that publishes
+no CPU. *Missing runtime telemetry does not invalidate an otherwise valid HTTP test*, unless an
+objective explicitly required it.
+
+==== Providers are adapters, and there is no plugin framework
+
+Prometheus, Dynatrace and Actuator exist because someone runs them, alongside a fourth adapter
+(`LoadGeneratorObservabilityProvider`) that needs no configuration and is always sampled: host CPU
+and memory from the JDK's `OperatingSystemMXBean` (container-aware, so a Vortex under a cgroup quota
+reports the quota), and the k6 child process's own CPU cost. It supplies signals scoped
+`LOAD_GENERATOR` only, and nothing about it constrains what Vortex can test — telemetry for the
+*service under test* stays provider-neutral and language-neutral.
+
+Kubernetes/container metrics are the most likely further addition. The discipline from
+xref:../adr/adr-031-production-observation-has-its-own-port.adoc[ADR-031] holds: adapters are written
+against systems that exist, not against an imagined set. The abstraction is proven by real
+implementations, not by a registry with names in it.
+
+=== Alignment is the whole point
+
+A resource measurement that cannot be placed on the execution timeline is decoration. Three
+mechanisms keep telemetry attached to the experiment:
+
+*The sampling session* runs for the life of the execution and stops when it stops, so the collected
+window is the run's window rather than a range someone typed.
+
+*Stage bucketing* assigns each sample to the workload stage in effect, and carries whether that
+boundary was observed or derived. A derived boundary can still correlate and can never strengthen a
+finding.
+
+*The trace* keeps start, peak and end for every signal. "Heap at 73%" and "heap rose from 58% to 73%
+and did not recover" are different statements, and only the second is evidence about a workload.
+
+Turning aligned signals into an answer about *which* resource, at *which* level, against *what*
+limit is ADR-037 plus xref:../adr/adr-039-four-limits-not-one.adoc[ADR-039], both built.
+
+=== Run-scoped raw retention (ADR-041)
+
+The trace above answers "how much"; it cannot answer "when did CPU start climbing relative to the
+breakpoint", because only three points per signal survive a run. ADR-041 keeps every sample instead
+of collapsing straight to the trace, without turning Vortex into an observability platform:
+
+* *The online peak/first/last computation is unchanged.* `ObservabilityTelemetryCollector.Readings`
+  still tracks the trace in constant memory, independent of whether the raw series can be persisted
+  at all — a disk failure degrades the raw series, never the summary a report already depends on.
+* *Every sample is also handed to a `ResourceSampleSink`*, which the collector knows nothing else
+  about — not the execution id, not the artifact name, not JSON. One implementation streams each
+  sample as a JSON line to that execution's own `resource-telemetry.jsonl` artifact, flushed
+  immediately (process-crash tolerant, not disk-synced — no fsync per sample).
+* *Completeness is a first-class question, not inferred from presence.* A `TelemetryCompleteness` of
+  `COMPLETE`, `PARTIAL` or `UNAVAILABLE` is read back from whether the artifact carries a proper
+  closing record — a writer that failed twenty minutes into an hour-long run still leaves a file that
+  opens cleanly, and the evidence must say so rather than presenting a partial series as the whole
+  run.
+* *The execution's own lifecycle owns the session's lifetime*, not a duration estimate: telemetry
+  starts when the execution does and stops in the same `finally` that guarantees every exit path —
+  success, cancellation, failure — closes it exactly once. A ceiling derived from the plan's declared
+  duration exists only as a backstop for a session whose owner hangs and never reaches that `finally`.
+* *A bounded number of distinct signals are retained* (64, the same bound `K6RawMetricsAggregator`
+  already trusts for distinct HTTP status codes) — a safety mechanism against a badly configured or
+  high-cardinality provider, not a normal operating constraint. Overflow is reported, not silently
+  dropped.
+* *A chart projects, it does not deserialize the whole series.* `ResourceSeriesProjection` bounds a
+  signal's raw series to a few hundred points via time-bucketed min/max pairs — never naive
+  every-Nth-point thinning, which can drop a brief saturation spike entirely — plus forced anchor
+  points at the run's start, end, and any stage boundary or breakpoint instant.
+
+Historical executions recorded before this shipped have no `resource-telemetry.jsonl` artifact and
+read as `UNAVAILABLE`; their trace-only evidence renders exactly as it always did. A time series is
+never synthesized from three points.
+
+=== Absence stays explicit
+
+Vortex must never produce a conclusion from telemetry it does not have. Where the limiting resource
+cannot be identified, the correct output is a sentence, not a guess:
+
+----
+CPU telemetry        observed
+Memory telemetry     observed
+GC telemetry         not published by this service
+Network telemetry    not collected
+
+No resource limit can be identified from the available telemetry.
+----
+
+This integrates with the AI layer unchanged. An interpretation may cite the signals that were
+collected and the gaps that were recorded; it may not manufacture a cause from a category nobody
+measured, and the citation validator already discards findings that cite what does not exist. See
+xref:ai-analysis.adoc[].
+
+== Reproducibility
+
+A performance claim is worth what its reproducibility is worth.
+
+=== Three artefacts, never conflated
+
+[cols="1,2,2", options="header"]
+|===
+| Artefact
+| Role
+| Lives where
+
+| `vortex.yaml`
+| *User intent* — portable, reviewable, editable
+| your service's repository
+
+| Effective test plan
+| *Fully resolved* — what will actually happen
+| snapshotted per execution
+
+| Execution artifacts
+| *Evidence* — immutable
+| `~/.vortex/executions/<id>/`
+|===
+
+The database is a local index of the first: everything needed to *re-run* a test — the workload, the
+operations, the environment, the objectives — is in `vortex.yaml` and, fully resolved, in
+`plan.json`.
+
+This used to be true of what was asked for but not of what happened: the tool versions listed under
+<<what-is-recorded-per-execution>>, the timestamps and the deterministic conclusion were held on the
+execution record and nowhere else, so a copied or archived `~/.vortex/executions/<id>/` could not say
+which k6 carried the run out or what Vortex concluded.
+
+Every completed run now writes `evidence.json` and `report.md` into its own directory, beside
+`plan.json`. Both carry the verdict, the objective-by-objective results, the tool versions, the
+timestamps and the plan fingerprint. The directory is self-describing, and the database is an index
+over it rather than the only copy of it.
+
+=== Configuration versus plan
+
+[source,yaml]
+----
+# vortex.yaml — intent
+workloads:
+  production-peak:
+    type: STRESS
+    workload:
+      model: arrival-rate
+      rate: 120          # requests per second, total across every operation
+      duration: 30m
+    operations:
+      createOrder: 15
+      getOrder: 25
+      getOrderStatus: 55
+      cancelOrder: 5
+----
+
+resolves to:
+
+----
+Effective test plan
+  target            http://localhost:8080  (effective, after any runner rewrite)
+  environment       local · Local (isolated)
+  classification    Isolated performance test
+  workload model    Arrival rate
+  total rate        120 requests/sec
+  allocated         18 createOrder · 30 getOrder · 66 getOrderStatus · 6 cancelOrder
+  workload keys     createorder · getorder · getorderstatus · cancelorder
+  stages            120 requests/sec for 30m
+  objectives        p95 < 500ms, p99 < 1s, errors < 1%
+  runner            Local k6 binary
+  safety decisions  (none required)
+  fingerprint       a1b2c3d4…
+----
+
+For what each of these keys means, see xref:../04-reference/configuration.adoc[].
+
+Resolution *never writes back* into configuration. The allocated 18/30/66/6 belongs to this run; the
+configuration continues to say "120 requests/sec, 15/25/55/5", which is what a human wrote and will
+want to edit next week.
+
+The k6 scenario keys are assigned here too, once. They are how measurements are attributed back to
+operations after the run, and reading them from the plan rather than re-deriving them from a tag is
+what stops two similarly-named operations swapping their latencies — see
+xref:../adr/adr-026-generated-k6-uses-native-primitives.adoc[ADR-026].
+
+=== The fingerprint
+
+A SHA-256 over a canonical rendering of the resolved plan.
+
+Hashing the file's text does not work — these are the same plan and would hash differently:
+
+[source,yaml]
+----
+rate: 20             duration: 10m
+duration: 10m        rate: 20
+----
+
+So Vortex hashes a *canonical form* with fixed rules:
+
+* object keys sorted by code point
+* no insignificant whitespace
+* numbers in plain notation, trailing zeros stripped
+* strings normalised to Unicode NFC, minimally escaped
+* `null` values omitted, so adding an unset optional field does not change an existing fingerprint
+
+[[fingerprint-included]]
+==== Included
+
+Everything defining _what test this is_: test type, workload model, peak level *and its unit*,
+stages, operations with their shares, expectations and headers, thresholds, environment and its
+type, target, dependency mode, classification, headers as written, any raw k6 overrides, and the
+script source.
+
+The full contract, including what is deliberately left out and why, is in
+<<experiment-identity,Experiment identity>>, below.
+
+The unit is included deliberately. Two runs at "50" are the same test only if both counted the same
+thing; an arrival-rate run and a concurrency run must not share a fingerprint.
+
+==== Excluded, and why
+
+[cols="1,2", options="header"]
+|===
+| Excluded
+| Because
+
+| *Secret values*
+| Never present anywhere; only the reference name participates
+
+| Identifiers and timestamps
+| Two runs of the same test are the same test
+
+| *Release under test*
+| The thing a regression comparison exists to vary. Including it would make every release its own
+  incomparable experiment
+
+| Workload name, project name, intent
+| Labels, not conditions — renaming a workload must not sever its comparison history
+
+| Tool versions
+| A k6 upgrade changes what carried the test out, not what was asked for
+
+| Runner selection
+| Ditto
+
+| k6 scenario keys
+| They describe how measurements are emitted, not what test this is
+
+| Safety confirmations
+| A property of one run, not of the test
+|===
+
+Two executions with the same fingerprint tested the same experiment. That is what
+`vortex compare --previous` looks up, and what the result page's "Compare with previous run" resolves
+to — the fingerprint column is indexed, so finding a baseline is a query rather than a scan.
+
+The release under test travels *beside* the fingerprint rather than inside it, which is what makes
+release-over-release comparison expressible at all.
+
+[#what-is-recorded-per-execution]
+=== What is recorded per execution
+
+----
+Vortex version       0.1.0-SNAPSHOT
+Engine version       k6 v2.2.0 (commit/devel, go1.26.5, darwin/arm64)
+Runtime              OpenJDK 64-Bit Server VM 25.0.3
+Container image      grafana/k6:1.3.0   (when the Docker runner was used)
+Plan fingerprint     a1b2c3d4…
+Requested / started / finished
+Artifact directory
+----
+
+Tool versions live on the *execution*; AI provider, model and prompt version live on the
+*analysis*. That split is deliberate: measured truth stays valid when an interpretation is redone
+with a different model.
+
+==== What it does not yet record
+
+The list above says which software carried the run out and omits the machine it ran on. A capacity
+figure produced on an eight-core workstation and one produced in a two-core CI container are
+different results, and nothing in the record distinguishes them. Neither does it say which telemetry
+providers were consulted, what they could not supply, or how good the run itself was — so a reader
+six months later can see the number and not what it is worth.
+
+Closing that gap — machine shape, provider availability, and a run-quality grade on the record — is
+tracked in xref:../01-product/roadmap.adoc[the roadmap]; it will land as a new, explicitly versioned
+export contract rather than a silent addition to `vortex.evidence/2`.
+
+A further gap the same roadmap work anticipates: if a run's dependencies are ever simulated from
+observed production characteristics rather than run against the real thing, the record would need to
+say which profile, from what observation window and source, and under what simulation configuration —
+without that, a capacity figure produced under simulation is exactly the unexplained number this
+section exists to prevent. See
+xref:../01-product/roadmap.adoc[production-informed dependency simulation].
+
+=== Secrets never resolve into artefacts
+
+Configuration, plans, reports and history all carry `Authorization: ${VORTEX_AUTH_TOKEN}`. Never
+`Bearer eyJ…`.
+
+The value exists only in the engine process's environment, for as long as that process runs.
+`K6PerformanceEngine.secretEnvironment` is the single place a resolved secret is read, and it is read
+at launch. Masking is applied to logs, process-command metadata, the interface and AI prompts, with
+dedicated tests.
+
+=== Running the same test elsewhere
+
+Because the definition is a file:
+
+[source,bash]
+----
+git clone your-service && cd your-service
+vortex validate
+vortex run peak . --service-version "$GIT_SHA" --headless
+----
+
+No export, no database, no UI state. The report will say which Vortex and which k6 produced it, so a
+difference in results can be attributed rather than argued about.
+
+[[experiment-identity]]
+== Experiment identity
+
+What makes two runs comparable, and why Vortex refuses when they are not.
+
+=== Three identities, deliberately not one
+
+A run carries three kinds of identity, and collapsing any two of them breaks something.
+
+[cols="1,2,2", options="header"]
+|===
+| Identity
+| Answers
+| Example
+
+| *Execution*
+| Which physical run was this?
+| `969e6a952cca414e…`
+
+| *Release*
+| Which build of the service was tested?
+| `3f97a82`
+
+| *Experiment*
+| Under what conditions was it tested?
+| a SHA-256 over the conditions below
+|===
+
+Two runs of the same experiment against the same release measure noise; against different releases,
+they measure a change in the service — expressible only because release identity is kept out of
+experiment identity.
+
+=== The question identity answers
+
+[quote]
+____
+Would these two runs be expected to produce comparable evidence if the service implementation were
+unchanged?
+____
+
+Everything that would change the answer belongs in the identity. Nothing else does.
+
+=== What participates, and why
+
+Which conditions participate, and why the release under test deliberately does not, is a decision
+recorded in xref:../adr/adr-027-release-identity-is-not-experiment-identity.adoc[ADR-027] rather than
+restated here: test type, workload model, peak level and its unit, stage shape, operations with
+their shares and expectations, objectives, environment, target, headers as written and any raw
+engine options all participate; release identity, labels (workload name, project name, stated
+intent), identifiers, timestamps, tool versions and safety confirmations do not, and derived values
+such as the allocated per-operation rates are deliberately excluded because they would report one
+change of offered load twice. Any dimension that differs makes a pair incompatible — Vortex would
+rather decline a verdict it could have given than give one it cannot support.
+
+==== Two things identity does not yet ask
+
+*Was each run valid?* Identity asks whether two runs tested the same thing, never whether either one
+carried its test out correctly. A baseline whose offered load was never generated is a perfectly
+compatible experiment and a useless comparison. See <<is-this-run-valid,Is this run valid?>>, below.
+
+*Did both runs see the same amount?* Two runs of one experiment, one with resource telemetry and one
+without, are compatible by every dimension above and are not equally informative. Telemetry
+availability does not belong *in* the fingerprint — a monitoring outage must not sever a service's
+comparison history — but it belongs beside it, as a qualifier on what the comparison may conclude.
+An efficiency delta between a run that measured CPU and a run that did not is not a small delta; it
+is not a delta at all.
+
+=== One list, two consumers
+
+`ExperimentIdentity` holds an ordered list of dimensions. Each knows three things: its canonical
+key, how to extract a comparable value from a plan, and how to phrase a difference in plain English.
+
+* `canonicalForm(plan)` walks the list to build what gets hashed.
+* `compare(a, b)` walks the same list to explain what differs.
+
+So the invariant
+
+----
+compare(a, b).compatible()  ⟺  fingerprintOf(a).equals(fingerprintOf(b))
+----
+
+holds *by construction* rather than by discipline, and is asserted on every case in
+`ExperimentIdentityTest`.
+
+That structure exists because the alternative was tried and failed. Vortex previously had a content
+fingerprint and a separate field-by-field equivalence check in `RegressionEvaluator`. They drifted
+immediately: the fingerprint covered stage shape and the target URL, the equivalence check did not,
+and two plans with different fingerprints could still be declared comparable.
+
+=== Differences are sentences, not diffs
+
+A user is never shown "fingerprint mismatch". The fingerprint is an implementation mechanism; what
+an engineer needs is which condition moved:
+
+----
+Experiment compatibility
+  Not comparable
+    • offered load changed from 100 requests/sec to 150 requests/sec
+    • getOrder share changed from 30% to 45%
+    • target changed from http://localhost:8080 to https://staging.example.com
+----
+
+=== Changing the contract
+
+The canonical form carries an explicit schema tag, currently `vortex.experiment/1`. Bumping
+`ExperimentIdentity.SCHEMA` is the entire procedure:
+`ExecutionService.reconcileExperimentIdentity()` re-derives every execution's identity from its
+stored plan at the next start-up and rewrites the lookup column wherever the two disagree. Only the
+lookup column changes — `plan_json` and each execution's `plan.json` keep the fingerprint that was
+true when they ran, because evidence is not edited to match a later opinion, which is also why
+comparison derives identity fresh from each plan rather than trusting a stored hash. The reasoning
+for making reconciliation self-detecting rather than migration-driven is in
+xref:../adr/adr-027-release-identity-is-not-experiment-identity.adoc[ADR-027].
+
+=== Where it lives
+
+[cols="1,2", options="header"]
+|===
+| Type
+| Role
+
+| `ExperimentIdentity`
+| The dimensions. Canonical form, fingerprint, and comparison
+
+| `ExperimentCompatibility`
+| Compatible, plus the differences when not
+
+| `PlanFingerprint`
+| The SHA-256 of a canonical form, and how runs are indexed
+
+| `ComparisonService`
+| Finding the previous compatible run, and comparing against it
+
+| `RegressionEvaluator`
+| The layer identity cannot express: a run that measured nothing, and a metric that moved away from
+  zero
+|===
+
+[[is-this-run-valid]]
+== Is this run valid?
+
+Whether the run measured what it claims to have measured — asked before anything is concluded from
+it.
+
+=== The failure this exists to catch
+
+A workload asks for 1,000 requests/sec. The machine running k6 cannot produce it — too few cores, an
+exhausted file-descriptor limit, a laptop throttling on battery — and generates 720. The service is
+comfortable at 720 and everything downstream is arithmetically correct:
+
+----
+Achieved throughput   720 requests/sec
+p95 latency           180 ms
+Error rate            0.04%
+Verdict               PASS
+Tested capacity       720 requests/sec
+----
+
+Read together, that page says the service demonstrated 720 requests/sec inside its objectives. What
+the run demonstrated is that *Vortex's own machine* could produce 720 requests/sec. The service's
+limit was never approached, and the most quotable number on the page is a measurement of the wrong
+computer.
+
+Nothing on that page is false, which is exactly why it is dangerous. A tool that reports only what it
+measured leaves this to the engineer's judgement — and the engineer who knows to check
+`dropped_iterations` did not need the tool.
+
+=== A fourth axis
+
+Vortex already grades three things and keeps them apart:
+
+[cols="1,3", options="header"]
+|===
+| Axis | Question
+
+| `Verdict`
+| Were the objectives met?
+
+| `BoundaryStatus`
+| Did the tested levels form a capacity boundary at all?
+
+| `EvidenceStrength`
+| How well corroborated is this deterministic finding?
+|===
+
+Vortex does not yet grade whether a run was carried out as specified — see
+xref:../01-product/roadmap.adoc[the roadmap]'s current-validity work.
+
+=== What this is not
+
+*Not a heuristic health score.* No blended number, no percentage, no letter grade. Three states and a
+list of reasons, each pointing at a measurement.
+
+*Not a replacement for the verdict.* Validity says whether the experiment happened correctly.
+The verdict says whether the service met its objectives. Both appear; neither is derived from the
+other.
+
+*Not a way to hide bad results.* A service that failed under valid conditions failed. Validity exists
+to stop Vortex claiming something the run did not show — in either direction.

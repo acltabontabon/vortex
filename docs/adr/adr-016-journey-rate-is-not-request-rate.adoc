@@ -1,0 +1,55 @@
+= ADR-016: Journey rate and HTTP request rate are distinct types
+
+== Status
+
+Superseded by xref:adr-024-service-level-workload-modelling.adoc[ADR-024].
+
+[NOTE]
+====
+*Why it was superseded.* This ADR was right about the danger and right about the fix, given the model
+it was defending. What it could not see is that the ambiguity was _manufactured by the journey
+abstraction itself_: a rate needed two names only because one journey arrival was several requests.
+With Operation as the workload unit, one arrival is one request, and there is a single rate to name.
+The type separation this ADR introduced was therefore removed — not because the reasoning was wrong,
+but because the problem it solved no longer exists.
+
+The other half of this ADR — _a total is divided, never repeated_ — survives unchanged and is
+restated in ADR-024. It is still enforced by `RateAllocator` and `AllocatedRate`.
+
+A sharper version of the distinction now lives in
+xref:adr-025-open-and-closed-workload-models.adoc[ADR-025]: `RequestsPerSecond` and `Concurrency`
+really are different quantities, and no latency-free conversion exists between them.
+
+The original decision follows, kept for the record.
+====
+
+== Context
+
+A three-step journey at 100 journeys/sec produces roughly 300 HTTP requests/sec. Both get called
+"100 TPS" and "300 TPS" by different people in the same meeting, and a capacity plan ends up
+wrong by a factor of three.
+
+This is the most common way performance numbers become misleading.
+
+== Decision
+
+`JourneysPerSecond` and `RequestsPerSecond` are distinct types with no implicit conversion.
+Passing one where the other belongs does not compile.
+
+"TPS" does not appear in the product unless the transaction boundary is stated in the same phrase.
+Both rates are reported separately everywhere, along with the observed ratio.
+
+Relatedly, a workload carries one *total* arrival rate. Per-journey rates are `AllocatedRate`,
+whose constructor is package-private and which only `RateAllocator` can produce — so "each journey
+runs at the total rate" is inexpressible rather than merely discouraged.
+
+== Consequences
+
+*Gained:* the most damaging modelling error in this domain is prevented by the type system.
+
+*Cost:* slightly more verbose signatures, and conversions must be written deliberately.
+
+*Note:* `requestsPerJourney` divides by journeys *started*, not completed. Dividing by
+completions inflates the figure exactly when a run is going badly — a two-step journey with a 30%
+failure rate would report four requests per journey. Fixed after being observed in a real run, and
+now tested.

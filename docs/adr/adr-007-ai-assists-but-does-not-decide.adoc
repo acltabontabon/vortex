@@ -1,0 +1,42 @@
+= ADR-007: AI assists but does not determine performance truth
+
+== Status
+
+Accepted
+
+== Context
+
+A language model could plausibly compute a threshold verdict, a breakpoint, or a headroom figure.
+It would often be right.
+
+== Decision
+
+*Deterministic code computes; the model interprets.*
+
+Measurements, threshold verdicts, breakpoints, capacity, headroom, regression deltas and calibration
+arithmetic are pure functions in `vortex-core`. The model receives figures that have already been
+calculated.
+
+Every finding must cite evidence by identifier, and citations are resolved against measurements that
+exist. Unresolvable findings are discarded and the gap is reported as missing telemetry. A
+recommendation is held to the same rule: one with no resolvable citation is discarded, which is why
+"optimise the application" cannot survive as advice on its own.
+
+A finding is also typed as an `OBSERVATION`, `CORRELATION`, `HYPOTHESIS` or `LIMITATION`, and its
+type bounds how much confidence it may claim — a hypothesis cannot carry `HIGH` confidence merely
+because two figures moved together. This is enforced by validation after generation
+(`EpistemicIntegrityValidator`), not only by prompt instruction: the model's output is treated as
+untrusted input, checked for contradiction with the verdict and any established breakpoint, and
+corrected or discarded rather than trusted at face value.
+
+The model cannot start a test.
+
+== Consequences
+
+*Gained:* verdicts are reproducible on any machine, with or without a model. AI failure is
+contained. Fabricated conclusions are structurally prevented rather than discouraged.
+
+*Cost:* more code than asking a model, and the evidence package must be assembled deliberately.
+
+*Non-negotiable:* there is no configuration that lets a model produce a verdict. A number that
+might come out differently on a second attempt has no place in capacity planning.

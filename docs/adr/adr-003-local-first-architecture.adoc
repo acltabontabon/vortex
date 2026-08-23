@@ -1,0 +1,31 @@
+= ADR-003: Local-first application architecture
+
+== Status
+
+Accepted
+
+== Context
+
+Performance testing tools are usually hosted: an account, a cluster, a control plane. That places a
+procurement conversation between an engineer and their first test.
+
+== Decision
+
+Vortex runs on the engineer's machine. A native executable starts an embedded Spring Boot
+application and opens the system browser at a loopback address.
+
+The default experience requires no cloud account, no Kubernetes, no central server, no external
+database and no SaaS. Vortex plus k6 plus the service under test is enough. Ollama is optional.
+Docker is optional.
+
+== Consequences
+
+*Gained:* an engineer can learn performance testing in an afternoon with no permission from
+anyone. Data stays on the machine. AI runs locally.
+
+*Cost:* no shared history across a team yet, and no multi-user features. Portable configuration and
+headless execution are the bridge — a definition committed to a repository is shared by being
+committed.
+
+*Explicitly deferred:* server mode, accounts, RBAC, central storage. See
+xref:adr-018-no-authentication-in-the-local-mvp.adoc[ADR-018].

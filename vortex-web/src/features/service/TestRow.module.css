@@ -1,0 +1,228 @@
+/*
+ * A first-class object — GitHub-issue-row / Linear territory, not a stock Mantine Card — but not
+ * itself a button: `Run`, the kebab menu, and the expand control inside it are each their own
+ * interactive element, so the row only ever needs to look inspectable, not pressable. A background
+ * one shade off the page and a border faint enough to disappear until it needs to earn its keep are
+ * what say that. Rows separate from each other with the gap the parent `.tests` stack already
+ * applies — no line needed.
+ */
+.row {
+  display: block;
+  width: 100%;
+  background: light-dark(var(--mantine-color-neutral-0), var(--mantine-color-neutral-9));
+  border: 1px solid light-dark(var(--mantine-color-neutral-1), var(--mantine-color-neutral-8));
+  border-radius: var(--mantine-radius-md);
+  padding: 1rem 1.2rem;
+  transition: background-color 150ms ease-out, border-color 150ms ease-out;
+}
+
+/* Legible without being alarmist: the configuration is fixable, nothing has gone wrong. */
+.blocked {
+  background: light-dark(var(--mantine-color-warn-0), var(--mantine-color-warn-9));
+  border-color: light-dark(var(--mantine-color-warn-1), var(--mantine-color-warn-8));
+}
+
+.blocked:hover {
+  background: light-dark(var(--mantine-color-warn-1), var(--mantine-color-warn-9));
+  border-color: light-dark(var(--mantine-color-warn-2), var(--mantine-color-warn-7));
+}
+
+/*
+ * A narrow accent edge, not a second border style — deterministic and legible without the glow or
+ * scale change a "look at me" selection state would use. Layered on top of .row's own border-color
+ * transition rather than declaring a new one, so the edge fades in with everything else already
+ * animating on this element.
+ */
+.selected {
+  border-left: 2px solid var(--mantine-color-brand-6);
+  padding-left: calc(1.2rem - 1px);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-sm);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-family: var(--mantine-font-family-monospace);
+}
+
+.type {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+
+.cannotRun {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--mantine-color-warn-6);
+}
+
+/* The one control that expands or collapses this row — pushed to its far edge, and the only part of
+   the row that is itself a button, now that Run/the kebab/this live inside a non-interactive
+   container. A real hit target (not a bare icon) so it's as easy to aim at as any other control
+   here. */
+.expandButton {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--mantine-radius-sm);
+  background: transparent;
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.expandButton:hover {
+  background: light-dark(rgba(0, 0, 0, 0.045), rgba(255, 255, 255, 0.06));
+  color: var(--mantine-color-text);
+}
+
+.expandButton:focus-visible {
+  outline: 2px solid var(--mantine-color-brand-6);
+  outline-offset: 1px;
+}
+
+/* Rotates rather than swapping icons, so reduced-motion users still get the state from its resting
+   orientation alone. */
+.chevron {
+  transition: transform 150ms ease-out;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
+
+/* The one place a saturating test's honest FAIL badge is paired with the domain's own boundary
+   sentence — deliberately calm, page-text colour, never fail-red, since this is not a warning. Always
+   visible (not gated behind expanding), because it is what stops the badge below from reading as
+   "something broke" when the search actually found what it was looking for. */
+.boundaryFound,
+.boundaryNote {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: var(--mantine-color-text);
+  max-width: 78ch;
+}
+
+.question {
+  margin: 5px 0 0;
+  font-size: 0.86rem;
+  max-width: 78ch;
+}
+
+.facts {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 1.4rem;
+  margin: 8px 0 0;
+}
+
+.fact {
+  font-size: 0.82rem;
+  font-family: var(--mantine-font-family-monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+.problems {
+  margin: 8px 0 0;
+  padding-left: 1.05rem;
+  font-size: 0.8rem;
+  color: var(--mantine-color-text);
+  max-width: 78ch;
+}
+
+.drift {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-body);
+  max-width: 78ch;
+}
+
+.driftStatement {
+  font-size: 0.8rem;
+}
+
+.driftWorking {
+  margin-top: 3px;
+  font-size: 0.76rem;
+  font-family: var(--mantine-font-family-monospace);
+  color: var(--mantine-color-dimmed);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-lg);
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.latest {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.latest:hover .when {
+  text-decoration: underline;
+}
+
+/* The same shape as .latest, deliberately not a link: while this test is running, its previous
+   result is about to be superseded within minutes and shouldn't invite a click toward it. */
+.previousResult {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.when,
+.count,
+.never {
+  font-size: 0.78rem;
+  color: var(--mantine-color-dimmed);
+}
+
+/* Not a disabled button — plain text explaining why nothing is offered right now. */
+.waitingForRun {
+  font-size: 0.78rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  flex-shrink: 0;
+  /* .foot's space-between only distributes space between siblings — while a run is active, the
+     latest-run slot on the left is hidden entirely, leaving .actions as .foot's only child. The
+     auto margin keeps it pinned right in that case too, and is a no-op when both slots render. */
+  margin-left: auto;
+}

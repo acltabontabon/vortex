@@ -1,0 +1,81 @@
+/* No max-width: the figure is meant to use the entire column it's given, not sit at a fixed size
+   inside whatever width the workspace happens to have. `viewBox` itself is recomputed to the
+   wrapper's real measured width (see `useElementSize` in the component), so this scaling is exactly
+   1:1 — width fills the column, height stays put at the geometry constant, never proportionally
+   enlarged the way a plain CSS stretch of a fixed-aspect-ratio `viewBox` would. */
+.wrapper {
+  width: 100%;
+}
+
+.figure {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.track {
+  stroke: var(--mantine-color-default-border);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* The open end: nothing was violated up to here, so the axis does not stop. */
+.open {
+  fill: var(--mantine-color-default-border);
+}
+
+.mark {
+  stroke: var(--mantine-color-body);
+  stroke-width: 2;
+}
+
+/*
+ * Production is neutral. Traffic production sends neither passed nor failed anything, and a verdict
+ * hue on it would assert a judgement no rule in Vortex computes.
+ */
+.production {
+  fill: light-dark(#56635b, #a1aea7);
+}
+
+.capacity {
+  fill: var(--mantine-color-pass-6);
+}
+
+.failing {
+  fill: var(--mantine-color-fail-6);
+}
+
+.value {
+  fill: var(--mantine-color-text);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  fill: var(--mantine-color-dimmed);
+  font-family: var(--mantine-font-family);
+  font-size: 11px;
+}
+
+/* Breakpoint's own distinguishing touch: the mark the whole test exists to find gets a visible ring
+   around it and heavier text, so the boundary reads as the point of the figure rather than one of
+   three equal dots — the same three dots Stress draws with no ring at all, since pressure
+   progressing through stages is *its* story, not the boundary alone. */
+.emphasisRing {
+  fill: none;
+  stroke: var(--mantine-color-fail-6);
+  stroke-width: 1.5;
+  opacity: 0.5;
+}
+
+.emphasisValue {
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.emphasisLabel {
+  fill: var(--mantine-color-fail-6);
+  font-weight: 650;
+}

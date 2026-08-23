@@ -1,0 +1,58 @@
+.card {
+  flex: 0 0 auto;
+  width: 264px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  padding: var(--mantine-spacing-md);
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: transparent;
+  color: var(--mantine-color-dimmed);
+  text-decoration: none;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.card:hover {
+  border-color: light-dark(#00a05a, #34d68c);
+  background: light-dark(#e6f6ee, #10241a);
+  color: light-dark(#008a4d, #34d68c);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--mantine-color-brand-6);
+  outline-offset: 2px;
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px dashed var(--mantine-color-default-border);
+  font-size: 1.1rem;
+  line-height: 1;
+  margin-bottom: 4px;
+  transition: border-color 120ms ease-out;
+}
+
+.card:hover .icon {
+  border-color: var(--mantine-color-brand-6);
+}
+
+.title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--mantine-color-text);
+}
+
+.subtitle {
+  font-size: 0.78rem;
+  max-width: 20ch;
+}

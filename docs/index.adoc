@@ -1,0 +1,65 @@
+= Vortex Documentation
+:toc:
+:toclevels: 2
+
+Vortex is a local-first performance engineering workbench. It turns an OpenAPI description and a
+stated traffic goal into a k6 workload, runs it, and produces deterministic pass/fail evidence —
+thresholds, breakpoints, headroom — with an optional local-AI interpretation layered on top, never
+the other way around. See the top-level link:../README.md[README] for a hands-on introduction.
+
+This page is the map. Each section links to the document that answers one question about the
+project.
+
+== Start here
+
+* xref:01-product/overview.adoc[Product overview] — what Vortex is for, the problem it exists to
+  solve, the rules it holds itself to, what it deliberately does not do, and its vocabulary
+* xref:01-product/roadmap.adoc[Roadmap] — where it is going, and what today's gaps actually are
+* xref:02-architecture/architecture.adoc[Architecture] — the shape, the modules, the domain model,
+  local execution, and runtime status
+* xref:03-performance-model/experiments.adoc[Experiments] — what makes a run trustworthy: isolated
+  versus integrated tests, breakpoints, capacity and headroom
+* xref:04-reference/configuration.adoc[Configuration reference] — every key in `vortex.yaml`
+
+New to Vortex? Read the product overview's Vision and Problem statement sections, then the
+architecture overview. About to interpret a result?
+Start with xref:03-performance-model/interpreting-results.adoc[interpreting a Vortex result]. About
+to change how something works? Read the relevant xref:adr/index.adoc[ADR] before you do.
+
+== Architecture
+
+How Vortex is built, and how a run turns into evidence.
+
+* xref:02-architecture/architecture.adoc[Architecture] — the shape, the modules and the rule that
+  bounds them, the domain model, local dependency execution, and GraalVM native-image status
+* xref:02-architecture/execution-and-evidence.adoc[Execution and evidence] — the execution lifecycle,
+  the evidence model, system telemetry, reproducibility, experiment identity, and what makes a run
+  valid
+* xref:02-architecture/ai-analysis.adoc[AI analysis] — the analysis lifecycle and how the assistant is
+  bounded, cited and kept honest
+* xref:02-architecture/interface.adoc[The interface] — the vocabulary the UI uses, the governing
+  design rule, and the claims it refuses to make
+* xref:02-architecture/security.adoc[Security] — threat model and safeguards
+
+== Performance model
+
+The ideas that determine whether a result can be trusted, independent of any one module.
+
+* xref:03-performance-model/experiments.adoc[Experiments] — is this run valid, isolated versus
+  integrated tests, and breakpoints, capacity and headroom
+* xref:03-performance-model/workloads.adoc[Workloads] — arrival rate versus concurrency, composition
+  versus sequence, and test data
+* xref:03-performance-model/interpreting-results.adoc[Interpreting a Vortex result] — every number on
+  a result page, explained
+
+== Reference
+
+* xref:04-reference/configuration.adoc[Configuration reference] — every key in `vortex.yaml`, and
+  what it means
+* xref:schema/vortex-evidence-v2.schema.json[Evidence schema] — the machine-readable `vortex.evidence/2`
+  contract a run's export conforms to
+
+== Decisions
+
+* xref:adr/index.adoc[Architecture Decision Records] — the consequential calls, and what each one
+  cost

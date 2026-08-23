@@ -1,0 +1,237 @@
+.neverRun {
+  margin-top: 4px;
+}
+
+.result {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid light-dark(var(--mantine-color-neutral-2), var(--mantine-color-neutral-7));
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 0.7rem;
+}
+
+.heading {
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.provenance {
+  font-size: 0.78rem;
+  font-family: var(--mantine-font-family-monospace);
+  color: var(--mantine-color-dimmed);
+}
+
+/* Mirrors OverviewPage.module.css's own `.more` — the established quiet-link idiom. */
+.viewFull {
+  margin-left: auto;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  text-decoration: none;
+  padding: 2px 7px;
+  border-radius: var(--mantine-radius-sm);
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.viewFull:hover {
+  background: light-dark(rgba(0, 0, 0, 0.045), rgba(255, 255, 255, 0.06));
+  color: var(--mantine-color-text);
+}
+
+/* The verdict and its one-sentence answer — the same pairing the full report opens with, so this
+   reads as that report's own gist rather than a different, competing summary of the same run. */
+.answerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.answer {
+  min-width: 0;
+}
+
+/*
+ * The instrument's own resting surface — deliberately not the row's. A test row is a commandable
+ * object: bordered, lifts on hover. A result is read, not pressed, so it gets a flat tinted panel
+ * with no border and no hover state at all.
+ *
+ * <p>`container-type: inline-size` turns this panel into the sizing reference for `.objectives`'
+ * own container query below — its *own* rendered width, not the viewport's. A plain `@media` query
+ * would get this wrong on a wide screen where Tests still shares the row with Recent Runs: the page
+ * is wide, but this panel isn't, and a viewport-width check has no way to know that.
+ */
+.instrument {
+  container-type: inline-size;
+  background: light-dark(var(--mantine-color-neutral-0), var(--mantine-color-neutral-9));
+  border-radius: var(--mantine-radius-md);
+  padding: 1.25rem 1.4rem;
+}
+
+.saturatingFigure {
+  margin-bottom: 0.5rem;
+}
+
+.timelineFigure {
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+/*
+ * Stacked by default — the metrics table, then the objectives table beneath it — switching to side
+ * by side only inside the `@container` query near the bottom of this file, once `.instrument` (the
+ * query container — see its `container-type` above) is definitely wide enough for both to read
+ * comfortably at once. Mobile-first rather than the reverse: a single deterministic switch, driven
+ * by this panel's own measured width, beats layering a second, content-driven flexbox-wrap threshold
+ * on top that can disagree with it at some in-between width neither rule owns.
+ */
+.details {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 1.1rem;
+}
+
+/* The handful of numbers that give the graph above its context — never a repeat of it, since the
+   graph already states the level and the comparison; these are what the graph can't: how long it
+   took, how it felt (latency), and how much room is left above production. One column per figure,
+   each with its own label directly above its value — genuinely tabular, so a real table rather than
+   a row of labelled `<div>`s. */
+.metrics {
+  max-width: 100%;
+  /* A safety net, not the primary layout mechanism: its values never wrap (`white-space: nowrap`
+     below), so on a genuinely narrow phone this scrolls within its own box rather than forcing the
+     whole page wider — never actually needed at the widths `.details`' own container query targets,
+     but cheap insurance below that. */
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.metrics th,
+.metrics td {
+  text-align: left;
+  padding: 0 1.75rem 0 0;
+  font-weight: 400;
+}
+
+.metrics th:last-child,
+.metrics td:last-child {
+  padding-right: 0;
+}
+
+.metrics th {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  padding-bottom: 3px;
+}
+
+.metrics td {
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+/* Stacked (the default): a plain block below the metrics table, separated by a hairline above it
+   rather than beside it — see the `@container` query for its side-by-side form instead. */
+.objectivesCol {
+  margin-top: 1.1rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid light-dark(var(--mantine-color-neutral-1), var(--mantine-color-neutral-8));
+}
+
+/* Per-objective breakdown — arrives once the full evidence fetch resolves, so it is absent, not
+   loading, for the instant before that. A real table, same as `.metrics` beside it: one row per
+   objective, its own verdict dot (the same subtle-text convention as a column of several verdicts in
+   a row elsewhere — the row's own footer, Recent Runs) in its own column rather than beside the text
+   in a single cell, so the eye can scan verdicts straight down without reading each row's prose
+   first.
+   <p>`table-layout: fixed` plus the `<colgroup>` percentages in the markup — not content — decide
+   each column's width, so this table's rendered size is exactly `.objectivesCol`'s width, always,
+   never a content-driven minimum that could force the row wider than its container (the trap a
+   default `auto` table layout falls into once cell text stops being short enough to never wrap). */
+.objectives {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.objectiveVerdictCol {
+  width: 18%;
+}
+
+.objectiveDescribeCol {
+  width: 52%;
+}
+
+.objectiveObservedCol {
+  width: 30%;
+}
+
+.objectives th,
+.objectives td {
+  text-align: left;
+  padding: 3px 1.4rem 3px 0;
+  font-weight: 400;
+  vertical-align: baseline;
+}
+
+.objectives th:last-child,
+.objectives td:last-child {
+  padding-right: 0;
+}
+
+.objectives th {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  padding-bottom: 5px;
+}
+
+.objectives td {
+  font-size: 0.86rem;
+}
+
+.objectiveNote {
+  color: var(--mantine-color-dimmed);
+  font-size: 0.8rem;
+}
+
+/*
+ * Side by side, once `.instrument` (see its `container-type` above) is genuinely wide enough for
+ * both to read comfortably at once — keyed off this panel's own rendered width, not the viewport's,
+ * since a wide *page* doesn't imply a wide Result panel: Tests can still share the row with Recent
+ * Runs at a mid-width breakpoint that counts as "side by side" for the page's own Grid. 50rem is
+ * `.metrics`' own widest realistic content (six columns, the longest being "Production headroom")
+ * plus the divider plus enough room for `.objectivesCol` to stay legible rather than a sliver.
+ */
+@container (min-width: 50rem) {
+  .details {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .metrics {
+    flex-shrink: 0;
+  }
+
+  .objectivesCol {
+    flex: 1 1 260px;
+    min-width: 0;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+    margin-left: 2.5rem;
+    padding-left: 2.5rem;
+    border-left: 1px solid light-dark(var(--mantine-color-neutral-1), var(--mantine-color-neutral-8));
+  }
+}

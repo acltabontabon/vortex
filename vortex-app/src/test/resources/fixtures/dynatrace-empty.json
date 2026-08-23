@@ -1,0 +1,7 @@
+{
+  "totalCount": 0,
+  "resolution": "1h",
+  "result": [
+    { "metricId": "builtin:service.requestCount.total:max", "data": [] }
+  ]
+}

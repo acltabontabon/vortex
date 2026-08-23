@@ -1,0 +1,33 @@
+= ADR-002: Vortex is not a load-generation engine
+
+== Status
+
+Accepted
+
+== Context
+
+Every tool in this space drifts towards reimplementing load generation. It is the visible part, it
+feels like the core, and each individual addition seems reasonable.
+
+== Decision
+
+Vortex will not implement HTTP load generation, virtual users, arrival-rate scheduling, metric
+aggregation at the sample level, threshold evaluation inside the engine, or distributed execution.
+
+[quote]
+____
+Adopt the ecosystem. Own the engineering workflow and organisational conventions.
+____
+
+The intellectual property is onboarding, workload modelling, conventions, developer experience,
+calibration, orchestration, analysis, capacity interpretation, repeatability, history, reporting,
+safety and AI-assisted interpretation. The engine is commodity infrastructure.
+
+== Consequences
+
+*Gained:* effort goes where nothing else is solving the problem.
+
+*Cost:* feature requests that amount to "add this k6 feature to Vortex" are declined; the answer
+is usually to import a k6 script.
+
+*Enforced by:* ArchUnit — the domain must not depend on any engine type.

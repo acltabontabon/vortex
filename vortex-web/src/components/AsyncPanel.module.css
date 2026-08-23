@@ -1,0 +1,10 @@
+.panel {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  padding: 1rem 1.25rem;
+}
+
+.header {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}

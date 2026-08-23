@@ -1,0 +1,62 @@
+import { Menu, UnstyledButton } from '@mantine/core';
+import { useLocation } from 'react-router-dom';
+import { useServicesQuery } from './api';
+import classes from './Topbar.module.css';
+
+/**
+ * A menu to reach a service, not a navigation destination in its own right — "the list of
+ * services" is a way of getting somewhere, not a place anyone wants to linger. Mirrors the old
+ * `<details class="switcher">` in shape, just as a Mantine Menu.
+ *
+ * <p>Doubles as the breadcrumb once you're inside one: `Vortex / checkout-service ▾` says where you
+ * are, not just where you could go, which the permanent `Vortex / Services` it replaces never did.
+ * The service name comes from the same list this menu already fetches for its own entries — no
+ * second request, just a lookup against the route's own `:id`.
+ *
+ * <p>Every entry still points at a Thymeleaf-rendered page (only "/" is React-owned so far), so
+ * these stay plain anchors — a full navigation — rather than router Links, matching how every
+ * other still-unmigrated link in the app behaves today.
+ */
+export function ServiceSwitcher() {
+  const { data: services } = useServicesQuery();
+  const { pathname } = useLocation();
+  // A plain regex rather than useMatch('/services/:id/*'): splat-matching an id with nothing
+  // after it (the index route, no trailing segment) is exactly the ambiguous case worth not
+  // relying on. "/services/new" matches too, with id "new" — harmless, since no real service ever
+  // has that id, so the lookup below just falls through to the generic label.
+  const currentId = pathname.match(/^\/services\/([^/]+)/)?.[1];
+  const current = services?.find((service) => service.id === currentId);
+
+  if (!services || services.length === 0) return null;
+
+  return (
+    <Menu shadow="md" width={220} position="bottom-start">
+      <Menu.Target>
+        <UnstyledButton className={classes.brand} style={{ fontWeight: 500 }}>
+          <span aria-hidden="true" style={{ opacity: 0.6 }}>
+            /
+          </span>
+          {current ? current.name : 'Services'}
+          <span aria-hidden="true" style={{ fontSize: '0.7em', opacity: 0.6 }}>
+            ▾
+          </span>
+        </UnstyledButton>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>Services</Menu.Label>
+        {services.map((service) => (
+          <Menu.Item key={service.id} component="a" href={`/services/${service.id}`}>
+            {service.name}
+          </Menu.Item>
+        ))}
+        <Menu.Divider />
+        <Menu.Item component="a" href="/services/new">
+          Add a service…
+        </Menu.Item>
+        <Menu.Item component="a" href="/runs">
+          All evidence
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
+}

@@ -1,0 +1,480 @@
+= Experiments
+:toc:
+:toclevels: 3
+
+Whether a run measured what it claims to have measured, what kind of claim it is even entitled to
+make, and how much room the service has above the traffic it actually sees.
+
+== Is this run valid?
+
+A workload asks for 1,000 requests/sec. The machine running k6 cannot produce it — too few cores, an
+exhausted file-descriptor limit, a laptop throttling on battery — and generates 720. The service is
+comfortable at 720 and everything downstream is arithmetically correct:
+
+----
+Achieved throughput   720 requests/sec
+p95 latency           180 ms
+Error rate            0.04%
+Verdict               PASS
+Tested capacity       720 requests/sec
+----
+
+Read together, that page says the service demonstrated 720 requests/sec inside its objectives. What
+the run demonstrated is that *Vortex's own machine* could produce 720 requests/sec. The service's
+limit was never approached, and the most quotable number on the page is a measurement of the wrong
+computer.
+
+Nothing on that page is false, which is exactly why it is dangerous. A tool that reports only what it
+measured leaves this to the engineer's judgement — and the engineer who knows to check
+`dropped_iterations` did not need the tool.
+
+Vortex already grades three separate things about a run, and keeps them apart:
+
+[cols="1,3", options="header"]
+|===
+| Axis | Question
+
+| `Verdict`
+| Were the objectives met?
+
+| `BoundaryStatus`
+| Did the tested levels form a capacity boundary at all?
+
+| `EvidenceStrength`
+| How well corroborated is this deterministic finding?
+|===
+
+None of these three asks whether the experiment itself was carried out as specified — whether the
+load generator actually produced the traffic it was asked to, whether the run lasted long enough to
+be quotable, whether telemetry covered the stages a conclusion rests on. A capacity figure of 720
+requests/sec is not a fact about the service if the load generator could only produce 720, and today
+nothing on the result page says so. Vortex does not yet grade whether the run itself was carried out
+as specified — see xref:../01-product/roadmap.adoc[the roadmap]'s current work on run validity, and
+xref:../adr/adr-038-run-quality-grades-the-experiment.adoc[ADR-038] for the design commitments that
+work is held to.
+
+Whatever form that grading takes, three things about it are already settled:
+
+*Not a heuristic health score.* No blended number, no percentage, no letter grade — a small set of
+distinct states, each pointing at a measurement, not an opinion smoothed across several.
+
+*Not a replacement for the verdict.* Validity says whether the experiment happened correctly. The
+verdict says whether the service met its objectives. Both must appear; neither is derived from the
+other. A run can meet every objective and still be invalid; a run can miss every objective and be
+perfectly valid — a stress test that breaks the service is the healthiest artefact in the product.
+
+*Not a way to hide bad results.* A service that failed under valid conditions failed. Validity exists
+to stop Vortex claiming something the run did not show — in either direction, not just the flattering
+one.
+
+== Isolated versus integrated tests
+
+The distinction that determines what a result is allowed to claim.
+
+=== Two different questions
+
+==== Isolated performance test
+
+[quote]
+____
+How does this application behave when its external dependencies are controlled or simulated?
+____
+
+Good evidence for:
+
+* Application bottlenecks
+* Internal concurrency and thread pools
+* JVM behaviour
+* Connection pools
+* Serialisation costs
+* Obvious saturation points
+* *Regressions between versions* — often the highest-value use, because both sides are equally
+  isolated
+
+*It does not establish production capacity.* The network is absent, dependency latency is invented,
+the database is small, and platform limits do not apply.
+
+==== Integrated performance test
+
+[quote]
+____
+How does the deployed service behave together with production-like dependencies and infrastructure?
+____
+
+Good evidence for:
+
+* Realistic capacity
+* Network effects
+* Real dependency latency and its variance
+* Platform limits
+* Autoscaling behaviour
+* Managed-service quotas
+* Real integration constraints
+
+Capacity evidence from an integrated test applies to *the environment and dependency configuration
+recorded with it*, and to no other.
+
+=== How Vortex decides
+
+Not from the environment's name. From what you declare about it:
+
+[source,yaml]
+----
+environments:
+  local:
+    type: LOCAL_ISOLATED
+    dependencies: MOCKED
+    capabilities:
+      productionLikeInfrastructure: false
+----
+
+A run is *integrated* only when dependencies are `REAL` _and_ the infrastructure is declared
+production-like _and_ nothing is simulated. Everything else is *isolated*, however remote the
+machine.
+
+That is a deliberately conservative rule. The failure mode it prevents — an isolated result quoted
+as production capacity — is much more damaging than the reverse.
+
+=== Why the labelling is so insistent
+
+Because of this conversation, which happens in every organisation:
+
+[quote]
+____
+"We load-tested it. It does 1000 TPS."
+
+_Against what?_
+
+"WireMock."
+____
+
+Vortex is built so that number cannot easily travel without its caveat:
+
+* The classification banner sits directly beneath the verdict on the result page
+* It appears again on the report, above the measurements
+* Capacity observations store the classification, and are labelled _tested SLO-compliant capacity_
+* `HeadroomCalculator` *refuses* to compare isolated capacity with production traffic, and returns
+  the reason instead of a number
+
+That last one is the sharpest edge. Asking for headroom from an isolated test does not produce a
+lower number — it produces no number, and an explanation.
+
+=== What to do with each
+
+*Start isolated.* It is fast, free, safe, and it catches most application-level problems. Run it in
+CI. Compare releases with it.
+
+*Go integrated for capacity claims.* When someone needs to know whether the service survives Black
+Friday, the answer has to come from somewhere that resembles production.
+
+*Never mix the two in one comparison.* Vortex's regression evaluator treats a change of
+classification as making two runs incomparable, and says so rather than producing a percentage.
+
+=== Fidelity is not classification
+
+A future capability — reproducing a dependency's _observed_ production latency, jitter and failure
+characteristics during a local run rather than inventing them — is documented in
+xref:../01-product/roadmap.adoc[the roadmap]. It does not change anything in this section. The rule
+above is unconditional: a run is integrated only when dependencies are real and the infrastructure is
+production-like. A dependency simulated from real production statistics is still simulated, so a run
+built on it is still isolated, and `HeadroomCalculator` still refuses to compare it against a
+production peak. What changes is how much an isolated result is worth reading — not what it is allowed
+to claim.
+
+== Breakpoints, capacity and headroom
+
+Where a service stops meeting its objectives, where it stops coping, and how much room it has.
+
+=== Two different breakpoints
+
+A stress test can reveal two things, and confusing them is a mistake worth avoiding.
+
+==== SLO breakpoint — deterministic
+
+[quote]
+____
+The traffic level at which an agreed objective was first violated.
+____
+
+----
+p95 exceeded 500 ms at 212 requests/sec
+----
+
+Vortex computes this by taking the first workload stage, in increasing order of offered traffic,
+whose measurements violated a threshold. No curve fitting, no inference — the definition of "stopped
+meeting the objective" is exactly the objective you wrote down.
+
+*It is a statement about an agreement, not about the machine.* Raise the objective from 500 ms to
+800 ms and this number moves while the service behaves identically.
+
+==== System breakpoint — contextual, and usually not established
+
+[quote]
+____
+The traffic level at which the system itself stopped coping.
+____
+
+----
+System saturation observed approximately 260–280 requests/sec
+----
+
+or, far more often:
+
+----
+System saturation not established by this test
+----
+
+The signals are indirect and individually unreliable:
+
+* Achieved rate falling materially below the offered rate
+* Error rate running away
+* Timeout-class errors appearing
+* Resource saturation in the service's own telemetry
+* Latency growing without bound
+
+Any one of them has innocent explanations: a garbage collection pause, a busy laptop, a cold cache
+on the first request of a stage.
+
+So Vortex requires *at least two independent signals* before reporting anything, and reports a
+*bounded range* rather than a point. A precise-looking "267 requests/sec" derived from one noisy
+heuristic would be the most confidently wrong number in the product.
+
+*"Not established" is a correct and useful answer.* It means: the service absorbed everything this
+run offered, so its limit is above the range tested. Run a longer or higher ramp.
+
+=== Evidence strength
+
+Both findings carry a strength, because identical arithmetic can rest on very different evidence:
+
+[cols="1,3", options="header"]
+|===
+| Strength
+| What it means
+
+| High
+| Multiple independent observations support this
+
+| Medium
+| Supported, but corroboration is limited
+
+| Low
+| Consistent with the observations, weakly supported
+
+| Insufficient
+| Not enough evidence to state at all
+|===
+
+For an SLO breakpoint, strength comes from how tightly it is bracketed. Two stages locate it very
+loosely; ten locate it well. A stage with almost no samples weakens the finding regardless of how
+many stages there were.
+
+This is not an AI concept. It applies to deterministic findings because deterministic findings vary
+in how much they are worth.
+
+=== Capacity
+
+==== Why it is called an observation
+
+Vortex records a *capacity observation*, not a capacity baseline.
+
+"Baseline" implies a property of the service — a number you look up. It is not. Tested capacity
+moves with:
+
+* the version
+* the configuration
+* the infrastructure
+* the dependencies
+* the traffic mix
+* the shape and size of the data
+* the runtime configuration
+
+Calling it an observation keeps it honest: this was measured, once, under conditions recorded
+alongside it. Observations accumulate as history rather than overwriting one another.
+
+==== It is never stored without its conditions
+
+----
+Tested SLO-compliant capacity    212 requests/sec
+
+Service version    2.17.0
+Environment        performance (Integrated performance test)
+Dependencies       Real
+Traffic mix        60% accountLookup, 30% repayment, 10% cancellation
+Workload           capacity
+Objectives         p95 below 500 ms, p99 below 1 s, error rate below 1%
+Sustained for      5m
+----
+
+The number and its conditions are rendered together, deliberately making a decontextualised
+screenshot awkward to take.
+
+==== Both edges of the boundary
+
+The highest passing level is the more quotable half of the evidence and the less useful one.
+"The service sustained 400 requests/sec" invites the obvious follow-up — _and what happened at 450?_ —
+and a run that measured the answer and threw it away kept the wrong half. Whether latency doubled at
+the next level up or errors went to 40% are different situations calling for different work.
+
+So a capacity observation records both, and what the service looked like at the failing one:
+
+----
+Tested capacity boundary
+400 requests/sec compliant → 450 requests/sec non-compliant
+  · p95 1.2 s · 4% errors at 450
+----
+
+==== Whether the two edges form a boundary at all
+
+Consider a run that reads:
+
+----
+100 req/s  PASS
+200 req/s  FAIL
+300 req/s  PASS
+----
+
+Taking the highest passing level would record 300 as tested capacity. That is arithmetic dressed as
+evidence: something in that run was not stable — a noisy neighbour, a cold cache, a dependency that
+recovered — and the honest answer is that no boundary was established.
+
+Vortex therefore classifies the result:
+
+[cols="1,3", options="header"]
+|===
+| Status | What it means
+
+| Established | Compliance fell away once, at one level, and stayed away
+| Far edge not reached | Nothing was violated; the boundary is above what this run tested
+| Not established — not monotonic | Compliance came back at a higher level than it failed at
+| Not established — not evaluated | Objectives could not be evaluated
+
+|===
+
+An unstable run is still recorded — evidence accumulates — but its level is not quotable as a
+capacity, and headroom is refused against it.
+
+This is a monotonicity check and deliberately nothing more. Vortex is not modelling the distribution
+of a stage's results or deciding how much variance is acceptable. It is asking whether compliance
+moved in one direction with load, which is the minimum the word "boundary" has to mean.
+
+==== Constraint candidates
+
+Where the service stopped meeting its objectives, Vortex records the resources that were near their
+limit — a connection pool at 98%, a heap at 94% — as *candidates*.
+
+The word is the whole point. A pool at 98% at the level where latency breached its objective has been
+_correlated_ with that breach. It might be the constraint. It might be a symptom of a slow dependency
+behind it, holding connections open. It might be unrelated and merely busy at the same time.
+Separating those needs context a load test does not contain.
+
+Each candidate carries its own evidence strength, kept deliberately apart from how well the
+_boundary_ is established. "Boundary strength: high" beside a CPU figure would read as "CPU is the
+cause, with high confidence", and that is not a claim any run supports.
+
+==== The language
+
+Vortex says:
+
+* _Tested SLO-compliant capacity_ — the highest compliant edge
+* _First observed non-compliant load_ — the failing edge
+* _Tested capacity boundary_ — the pair
+
+Vortex does not say:
+
+* [line-through]#Maximum throughput#
+* [line-through]#Guaranteed capacity#
+* [line-through]#Certified capacity#
+
+A test provides evidence under documented conditions. It does not provide a guarantee, and language
+that implies one will eventually be quoted as if it did.
+
+=== Headroom
+
+----
+headroom = tested SLO-compliant capacity ÷ observed production peak
+----
+
+----
+Observed production peak    120 requests/sec
+Tested compliant capacity  212 requests/sec
+Headroom                   1.76×
+----
+
+Computed by ordinary arithmetic. The interesting part is not the division — it is the refusal.
+
+Vortex declines to compute headroom when:
+
+* *The capacity came from an isolated test.* Comparing capacity measured against simulated
+  dependencies with real production traffic overstates headroom, sometimes enormously.
+* *No production observation exists.* There is nothing to compare against.
+* *The observed peak is zero.*
+* *The run did not establish a stable boundary.* A multiple divided out of a level whose compliance
+  did not move consistently with load would be a confident number resting on noise — and headroom is
+  exactly the figure that ends up on a slide with none of its conditions attached.
+
+In each case it returns the reason instead of a number:
+
+[quote]
+____
+This capacity was measured in an isolated test, where dependencies were simulated or controlled.
+Comparing it with production traffic would overstate the headroom the service actually has. Run an
+integrated test against production-like dependencies to establish comparable capacity.
+____
+
+A wrong headroom figure is worse than none, because it looks exactly like a right one.
+
+And a reason is always given. A report that goes quiet where a number was expected reads as a tool
+that forgot rather than one that declined, so every result page and every export states either the
+multiple or why there isn't one — alongside the facts that say how far the production baseline behind
+it can be trusted: where it came from, over what window, at what sample resolution, and how much of
+production its operation mix accounted for.
+
+=== Regression versus comparison
+
+Two different operations, kept apart on purpose.
+
+*Comparison is permissive.* Vortex will show any two runs side by side and list what differs. An
+engineer looking at two dissimilar runs is doing something legitimate.
+
+*Regression evaluation is strict.* A formal verdict requires that the runs tested the same thing:
+
+* same operation mix and weights
+* same environment and classification
+* same dependency mode
+* same test type
+* same workload model — *and therefore the same quantity*
+* same offered level
+* same objectives
+* comparable duration
+
+Otherwise:
+
+[quote]
+____
+These executions are not directly comparable, so Vortex will not calculate a regression verdict.
+
+* environment changed from local to performance
+* GET /orders/{id}/status share changed from 30% to 45%
+____
+
+Matching levels are *not* enough, for two separate reasons.
+
+A run at 100 requests/sec held in steady state and one stage of a stress ramp passing through 100
+requests/sec are different experiments: one held that rate from the start, the other arrived there
+with an already-loaded system.
+
+And "100" under an arrival-rate workload and "100" under a concurrency workload are not even the same
+quantity. One offered 100 requests every second whatever the service did; the other held 100 clients
+that waited for it. Declaring a regression between those would be arithmetic dressed up as evidence.
+
+Differences below 10% are treated as run-to-run variance rather than regressions. Local performance
+runs are noisy — scheduling, JIT warm-up and background processes move p95 by a few percent between
+identical runs — and reporting every wobble would make the signal useless.
+
+=== Looking ahead
+
+The two breakpoints above are two of four things a run can find; the other two — a throughput
+ceiling and a typed resource limit — are not yet computed, and tested capacity is not yet
+distinguished from a stricter *sustainable capacity* that would become the headline figure headroom
+is computed from. See xref:../01-product/roadmap.adoc[] for the current shape of that work, and
+xref:../adr/adr-039-four-limits-not-one.adoc[ADR-039] for why four limits rather than one.

@@ -1,0 +1,39 @@
+= ADR-015: Separate execution and analysis lifecycles
+
+== Status
+
+Accepted
+
+== Context
+
+The obvious design puts `ANALYZING` between `EVALUATING` and `COMPLETED`. It reads naturally
+and is wrong.
+
+It means an inference timeout can turn a successful measurement into a failed test, a pipeline needs
+an inference service to decide whether a build passed, and a run cannot be re-analysed later without
+mutating a completed execution.
+
+== Decision
+
+Two lifecycles.
+
+----
+Execution  CREATED → VALIDATING → READY → STARTING → RUNNING → COLLECTING → EVALUATING → COMPLETED
+Analysis   NOT_REQUESTED → PENDING → RUNNING → COMPLETED | FAILED
+----
+
+`Analysis` is its own aggregate with many-per-execution cardinality. Measurements are immutable;
+interpretations are versioned and additive.
+
+== Consequences
+
+*Gained:* a run is complete and has a verdict before any model is consulted. `vortex run peak
+--headless` finishes deterministically. A March run can be re-interpreted in September by a better
+model without disturbing what was measured.
+
+*Cost:* two lifecycles to reason about, and the interface must show "analysis pending" as a state
+distinct from "execution running".
+
+*Reinforced by a real bug:* an early version forced a failed assistant result to `COMPLETED`,
+recording "the model rejected the request" as "the model had nothing to say". Now covered by a
+test.

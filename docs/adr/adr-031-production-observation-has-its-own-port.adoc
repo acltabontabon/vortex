@@ -1,0 +1,105 @@
+= ADR-031: Production observation has its own port
+
+== Status
+
+Accepted.
+
+== Context
+
+Vortex could already turn observed production traffic into proposed workloads. What it could not do
+was obtain the observation: somebody had to read a dashboard and type the numbers in, and the
+operation composition — the part Vortex refuses to guess at — could not be entered through the
+interface at all, only by hand-editing `vortex.yaml`.
+
+The obvious place to put retrieval was `ObservabilityProvider`. It already talks to monitoring
+systems, already returns measurements with provenance, and Prometheus and Dynatrace were named in its
+Javadoc as the planned implementations. Adding a second method to it would have been a small change.
+
+It would also have been wrong. The two questions differ in almost every respect that matters:
+
+[cols="1,2,2", options="header"]
+|===
+| | `ObservabilityProvider` | Retrieving a production observation
+
+| Which deployment | the service under test | production
+| Window | minutes, live | weeks, historical
+| Cadence | sampled every few seconds throughout a run | once, before any test exists
+| Asked by | the execution lifecycle | a person, or a pipeline calibrating
+| A failure means | this run reports less | there is nothing to calibrate from
+|===
+
+One interface covering both would give every implementation two jobs and every caller a parameter it
+does not use.
+
+== Decision
+
+A separate port, `ProductionObservationSource`, in `dev.vortex.core.port`.
+
+=== The query language stops at the adapter
+
+The caller names operations by `OperationId`, HTTP method and path template. The adapter translates
+that into PromQL or a Dynatrace metric selector, and translates the answer back into a
+`ProductionObservation` keyed by the same `OperationId` values. Nothing downstream can tell which
+system replied.
+
+This is what keeps a PromQL expression off a `Workload`. The expression lives on the observation's
+`ObservationProvenance`, where a reader can check the figure — a calibrated workload reads identically
+to a hand-written one, and an engineer editing a rate cannot accidentally destroy the record of where
+it came from.
+
+=== Two adapters, not an extension point
+
+Prometheus and Dynatrace, both plain `RestClient` plus Jackson. Per ADR-014 they are packages inside
+`vortex-app` rather than modules — the same precedent the Actuator client set, since neither pulls in
+a substantial dependency to quarantine.
+
+The abstraction is deliberately allowed to be asymmetric. Prometheus takes an expression over
+configurable labels; Dynatrace takes a metric selector scoped to an entity and aggregates server-side.
+Flattening the two into a common query shape would mean reimplementing one of them badly. What the
+port abstracts is the question, not the dialect.
+
+OpenTelemetry is not a third source. It is how a service emits telemetry, not something Vortex
+queries.
+
+=== Coverage is retained rather than normalised away
+
+An operation mix normalises its weights — that is what a mix is. If Vortex matched 80 of every 100
+production requests to a known operation, renormalising the survivors to 100% would silently turn a
+partial view of production into the definition of it.
+
+So `OperationMixCoverage` keeps the two raw counts beside the mix, calibration says so in every
+derivation it writes, and `--apply` refuses below 80%. The unmatched share never becomes a synthetic
+"other" operation: Vortex can only issue requests against catalogued operations, so an invented entry
+would produce a workload it cannot run while implying the traffic had been understood.
+
+*Narrowing the evidence is acceptable. Overstating its completeness is not.*
+
+=== Retrieval never writes
+
+`Retrieval` is a sealed `Retrieved`/`NotRetrieved` pair, and `NotRetrieved` carries what happened,
+why, and what to do next. Neither `vortex calibrate` nor the web *Fetch* button records anything: the
+numbers are shown for review, and the existing explicit save remains the only thing that writes to
+`vortex.yaml`.
+
+== Consequences
+
+*Gained.* An observation can be fetched rather than remembered, and carries the window, the sample
+resolution, the query as issued and the mix coverage — enough for an engineer to judge how far to
+trust the baseline it produces, and to check any figure against the system that measured it. The
+operation composition is enterable through the interface at last, so the interface can finish its own
+job. `ObservabilityProvider` keeps one job.
+
+*Cost.* Two adapters to keep working against APIs Vortex does not control, and a second port that
+looks superficially like the first — a reader who skims will wonder why there are two. The port
+carries three methods rather than two: `verify` exists so the interface can test a configuration
+somebody is still typing, and a cheap dedicated query is the only honest way to do that — reusing
+`retrieve` would demand an imported API description before it could answer, which is precisely the
+moment a newcomer needs the test most. The Dynatrace
+adapter is covered only by recorded fixtures; no live tenant is exercised in this build, so its
+behaviour against a real Dynatrace rests on those fixtures being faithful.
+
+*Trade accepted.* A single generalised "ask a monitoring system something" port would be fewer
+interfaces and less code. It would also be an interface whose implementations each answered half of
+it, and whose callers passed a window that meant something different depending on which method they
+called. Two small ports that each answer one question are worth more than one large one that answers
+neither cleanly.

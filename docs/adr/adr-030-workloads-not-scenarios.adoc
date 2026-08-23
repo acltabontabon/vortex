@@ -1,0 +1,90 @@
+= ADR-030: Workloads, not scenarios
+
+== Status
+
+Accepted. Refines the vocabulary established by
+xref:adr-024-service-level-workload-modelling.adoc[ADR-024]; the model itself is unchanged.
+
+== Context
+
+ADR-024 settled the model — one service, its operations, a reusable traffic condition, a question,
+a run, evidence — and named the reusable traffic condition a *scenario*. That name turned out to be
+the single largest source of misunderstanding in the product.
+
+Observed directly: a backend engineer, reading the project page, could not say what a scenario was.
+Two wrong readings were available, and both are reasonable readings of the English word.
+
+*A scenario sounds like a business flow.* "Scenario" is the standard word for a user story or a test
+case in almost every other tool an engineer has used. ADR-024 removed journeys precisely because an
+ordered flow says something different from an aggregate traffic mix — and then kept a name that
+invites exactly that reading. The class javadoc had to open by saying what it is *not*, which is
+what a badly chosen name forces documentation to do.
+
+*A scenario sounds like a k6 scenario.* k6 has its own `scenarios` block, and Vortex compiles one of
+its objects into several of k6's. Two different things, one level apart in the stack, sharing a
+name — with the generated script visible to the user, and the k6 `scenario` tag appearing in the
+evidence.
+
+There was also a plain interface failure on top of the naming one. Because a run required a scenario
+to be chosen by name, and the performance question was merely a field *on* that scenario, there was
+no path from "can this survive peak?" to a run. The user had to already know the answer to navigate
+to it. Nothing in the interface explained that Vortex could resolve a workload from the question.
+
+== Decision
+
+*The reusable traffic condition is a `Workload`.* It is what the service experiences: a total load
+level, distributed across an operation mix, held in some shape for some duration, judged against
+objectives. It is named, reusable, and lives in version control.
+
+*The traffic shape it contains is a `LoadShape`.* The name `Workload` was already taken by the
+open/closed model plus level plus duration plus stages. That type describes *how traffic is
+produced*; it is a component of a workload, not the thing itself, and users rarely need to name it.
+
+*The kind of question is surfaced as an `Evaluation`.* The domain type stays `TestType` — it is
+accurate, and ADR-024's reasoning about test types being intent-only still holds — but the interface
+uses one word for it, always presented with the question it answers. Previously the same concept
+appeared as an `Asks` column, as "What are you trying to find out?", and as "<X> test", and was never
+named consistently anywhere.
+
+The resulting vocabulary:
+
+....
+Service  →  Workload  →  Evaluation  →  Run  →  Evidence
+....
+
+with operations composing the workload.
+
+*Configuration restarts at `version: 1`.* The YAML key becomes `workloads:`, and the traffic-shape
+block inside each one becomes `shape:`.
+
+*Two things are deliberately not renamed.* `k6ScenarioKey` and the `scenario` tag emitted into
+generated scripts refer to k6's own object model. Renaming them would break metric attribution and
+misdescribe the tool underneath. Where Vortex talks about k6, it uses k6's words.
+
+== Refusing rather than migrating
+
+A file that still says `scenarios:` is rejected, with the required edit spelled out, rather than
+being silently accepted or rewritten.
+
+Renaming the key automatically would be trivial — unlike the journey migration ADR-024 refused,
+there is no ambiguity about what it means. It is still the wrong behaviour. Someone whose file says
+`scenario` is thinking in the old model, and a silent rewrite would leave them reading one
+vocabulary in the interface and a different one in their editor, which is the confusion this ADR
+exists to end. The rejection message is where the new model gets taught.
+
+== Cost
+
+*A breaking configuration change with no migration path.* Every committed `vortex.yaml` needs a
+two-key edit. The population is small and the edit is mechanical, which is the only reason this is
+acceptable; the same change after wide adoption would not be.
+
+*Local databases must be recreated.* The baseline migration was edited in place rather than
+extended, so `executions.scenario_name` became `workload_name` without a `V2`. Existing local
+databases fail Flyway validation and have to be removed.
+
+*The word "workload" now carries two related senses* — the reusable object, and the traffic it
+applies. Context disambiguates in practice, and `LoadShape` exists for the cases where it does not.
+
+*ADR-024's diagram is now stale in its own text.* It is left as written: an accepted ADR is a record
+of what was decided at the time, and rewriting history to match today's vocabulary would defeat the
+point of keeping them.

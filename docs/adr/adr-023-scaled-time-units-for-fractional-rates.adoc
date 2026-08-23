@@ -1,0 +1,40 @@
+= ADR-023: Scaled time units for fractional arrival rates
+
+== Status
+
+Accepted
+
+== Context
+
+A 70/30 operation mix at 67 requests/sec allocates 46.9 and 20.1. Neither is a whole number, and
+fractional rates are the normal case rather than an edge case.
+
+k6 requires whole-number arrival rates. `rate: 40.2` and `target: 42.5` are rejected outright:
+_cannot unmarshal number 42.5 into Go struct field of type int64_.
+
+== Decision
+
+Vortex expresses fractional rates by scaling the time unit, which is k6's documented idiom:
+
+[source,javascript]
+----
+{ rate: 469, timeUnit: '10s' }   // 46.9 requests/sec
+----
+
+`TimeUnitScale` finds the *smallest* unit from 1s, 10s, 100s, 1000s that makes every rate in the
+plan whole — smallest because the executor spreads arrivals evenly across the unit, and a needlessly
+coarse unit makes traffic lumpier than the user asked for.
+
+Per-stage per-operation rates come from `RateAllocator`, so the parts still sum to the whole after
+rounding. Applies to arrival-rate executors only: virtual users are whole numbers by construction.
+
+== Consequences
+
+*Gained:* any traffic mix at any total rate is expressible, and the parts always sum to the total.
+
+*Cost:* generated scenarios sometimes use a time unit other than one second, which looks unusual to
+someone reading the script. The header comment states the per-second rate alongside it.
+
+*Found by preflight.* `k6 inspect` rejected the scenario before any traffic was generated —
+exactly what preflight is for. Now covered by unit tests and by an integration test that validates a
+fractional-rate plan against the real binary.

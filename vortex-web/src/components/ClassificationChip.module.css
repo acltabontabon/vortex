@@ -1,0 +1,23 @@
+/*
+ * The single most important honesty mechanism in Vortex, so it is legible without being loud.
+ * Isolated and integrated differ in weight rather than in alarm: neither is a warning, and neither
+ * is a reassurance.
+ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--mantine-color-default-border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--mantine-color-dimmed);
+}
+
+.integrated {
+  color: var(--mantine-color-text);
+  border-color: light-dark(var(--mantine-color-neutral-4), var(--mantine-color-neutral-6));
+}

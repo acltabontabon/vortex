@@ -1,0 +1,17 @@
+{
+  "totalCount": 1,
+  "resolution": "1m",
+  "result": [
+    {
+      "metricId": "builtin:tech.jvm.connectionPool.utilization:max",
+      "data": [
+        {
+          "dimensions": [],
+          "dimensionMap": {},
+          "timestamps": [1755772800000, 1755772860000, 1755772920000],
+          "values": [null, 97.5, null]
+        }
+      ]
+    }
+  ]
+}

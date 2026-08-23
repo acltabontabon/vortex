@@ -1,0 +1,48 @@
+= ADR-010: k6 Operator for future distributed execution
+
+== Status
+
+Superseded by xref:adr-040-vortex-coordinator-for-remote-execution.adoc[ADR-040] — distributed
+execution no longer routes through the k6 Operator. Kept as the historical record of the decision
+this project actually weighed at the time: build a scheduler, or adopt one.
+
+== Context
+
+Local execution cannot generate enough load for large-scale capacity testing. Distributed execution
+is needed eventually.
+
+== Decision
+
+When it arrives, it will go through the
+https://github.com/grafana/k6-operator[k6 Operator]: Vortex generates a `TestRun` manifest and
+the operator schedules distributed workers.
+
+Vortex will not build a distributed scheduler.
+
+For this release: the abstraction exists (`PerformanceEngine`), the path is documented, and no live
+Kubernetes is required.
+
+== Consequences
+
+*Gained:* a clear direction without speculative implementation.
+
+*Cost:* Vortex is currently limited by one machine's capacity — enough for most services and all
+regression testing.
+
+*Deliberately not done:* no empty operator adapter, no unused manifest generator. An abstraction
+with one real implementation is more honest than one with a real implementation and a stub.
+
+== Superseded (ADR-040): the Coordinator talks to Kubernetes directly
+
+The product direction grew a requirement this ADR did not anticipate: a controlled, disposable
+remote execution environment for a *single* run, not only more load generators for a distributed
+one. A `TestRun` has no smaller shape than a distributed run for the Operator to shard, and whatever
+it produced would still need to be watched and reconciled into an execution Vortex's own evidence
+model could render, compare and grade — work that does not disappear by handing scheduling to the
+Operator, it just moves to a thinner layer with less control over the object being read back.
+
+xref:adr-040-vortex-coordinator-for-remote-execution.adoc[ADR-040] keeps this ADR's actual decision
+— Vortex will not build a distributed scheduler — and replaces only the mechanism: a Vortex
+Coordinator now talks to the Kubernetes API directly and creates one ephemeral Job per worker,
+running a purpose-built Vortex Runner, instead of generating a `TestRun` for the Operator to
+interpret. Kubernetes remains the scheduler either way.

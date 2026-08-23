@@ -1,0 +1,15 @@
+/*
+ * Pinned to the bottom of the drawer's own scroll viewport rather than scrolling away with the
+ * content above it — Preflight can run long (checks, safety findings, success criteria), and Run
+ * should stay reachable without hunting for it. `position: sticky` against the drawer's internal
+ * scroll area does this without fighting Mantine's own header/body composition.
+ */
+.footer {
+  position: sticky;
+  bottom: calc(-1 * var(--mantine-spacing-xl));
+  margin: var(--mantine-spacing-lg) calc(-1 * var(--mantine-spacing-xl))
+    calc(-1 * var(--mantine-spacing-xl));
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-xl);
+  background: var(--mantine-color-body);
+  border-top: 1px solid var(--mantine-color-default-border);
+}

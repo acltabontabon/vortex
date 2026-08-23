@@ -1,0 +1,31 @@
+= ADR-001: Use k6 as the primary performance engine
+
+== Status
+
+Accepted
+
+== Context
+
+Vortex needs to generate HTTP load: virtual users, arrival-rate scheduling, metric collection,
+threshold evaluation, and eventually distributed execution.
+
+Building that is a multi-year project that has already been done well several times over.
+
+== Decision
+
+Use https://k6.io[Grafana k6] as the execution engine, behind a `PerformanceEngine` port.
+
+Vortex generates a k6 scenario from its own domain model, runs the process, and normalises the
+output into engine-independent `MeasuredResults`. Nothing above the adapter deals in k6 concepts.
+
+== Consequences
+
+*Gained:* a mature, well-documented, actively maintained engine with an ecosystem, and a clear
+statement of what Vortex is for.
+
+*Cost:* k6 must be installed, and Vortex is constrained by what it can express — arrival rates
+must be whole numbers, for instance, which required
+xref:adr-023-scaled-time-units-for-fractional-rates.adoc[ADR-023].
+
+*Accepted:* the constraint is far cheaper than the alternative. Contract tests run against real k6
+output, and `k6 inspect` validates every generated scenario before traffic is sent.

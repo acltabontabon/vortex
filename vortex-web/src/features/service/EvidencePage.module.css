@@ -1,0 +1,160 @@
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  margin-bottom: var(--mantine-spacing-sm);
+}
+
+.disclosure summary {
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--mantine-color-dimmed);
+}
+
+.disclosure + .disclosure {
+  margin-top: 6px;
+}
+
+.disclosureBody {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conditions {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--mantine-color-dimmed);
+}
+
+/*
+ * Deliberately no boundary-confidence label anywhere near this list. "High" beside a CPU figure
+ * would read as "CPU is the cause, with high confidence" — a claim no run supports.
+ */
+.candidates {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+}
+
+.candidateSupport {
+  color: var(--mantine-color-dimmed);
+  font-size: 0.78rem;
+}
+
+.history {
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.historyRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-lg);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.historyVersion {
+  flex: 0 0 10rem;
+  font-family: var(--mantine-font-family-monospace);
+  font-weight: 650;
+  font-size: 0.84rem;
+}
+
+.currentTag {
+  margin-left: 6px;
+  font-family: var(--mantine-font-family);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.historyObservations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-md);
+}
+
+.historyObservation {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-decoration: none;
+  color: inherit;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.historyObservation:hover {
+  text-decoration: underline;
+}
+
+.historyWhen {
+  font-size: 0.72rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.runs {
+  display: flex;
+  flex-direction: column;
+}
+
+.run {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-md);
+  padding: 7px 0;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.run:first-child {
+  border-top: none;
+}
+
+.runLink {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.runLink:hover .runName {
+  text-decoration: underline;
+}
+
+.runName {
+  font-family: var(--mantine-font-family-monospace);
+  font-weight: 600;
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runLevel,
+.runWhen {
+  font-size: 0.78rem;
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.more {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--mantine-color-brand-7);
+  text-decoration: none;
+}
+
+.more:hover {
+  text-decoration: underline;
+}

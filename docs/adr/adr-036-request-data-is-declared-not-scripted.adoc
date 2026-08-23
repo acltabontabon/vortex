@@ -1,0 +1,251 @@
+= ADR-036: Request data is declared, not scripted
+
+== Status
+
+Accepted
+
+== Context
+
+Vortex could send exactly one frozen value per request field. An operation's binding held
+`Map<String, String>` for path values, query values and headers, plus a single body string, so every
+virtual user on every iteration sent the same URL and the same payload.
+
+Real services do not accept that. An idempotency key that repeats makes every request after the
+first a duplicate submission, which a correct service rejects — producing a run that measured the
+rejection path and reported it as throughput. A lookup needs an id that exists. A partner API needs
+a token nobody should write down.
+
+The pressure this creates is the one worth avoiding. A developer who needs a unique key per request
+has no path through Vortex, so they leave and write a k6 script by hand — which is the outcome this
+product exists to prevent. Vortex's claim is that you should not have to become a load-testing
+specialist to get defensible evidence, and a gap this common makes that claim false.
+
+The obvious answer — a small template or expression language — is the wrong one. It converts a
+configuration file a person can review in a pull request into a program somebody has to debug, and
+it does so one reasonable-looking feature at a time.
+
+== Decision
+
+*A request value declares where it comes from. Vortex decides how to supply it.*
+
+One sealed set, applied wherever a value can sit — header, path parameter, query parameter, body
+field:
+
+[cols="1,3", options="header"]
+|===
+| Source | What it means
+
+| `FixedValue`
+| A literal the user supplied. The default, and what Vortex has always done.
+
+| `GeneratedValue`
+| Vortex produces it, from a closed enum of generators: UUID, timestamp, date, random integer,
+random string, email, phone, sequence.
+
+| `DatasetValue`
+| A field of the current row of an uploaded CSV or JSON dataset.
+
+| `EnvironmentValue`
+| Resolved from the process environment when the load generator is launched, and nowhere else.
+|===
+
+There is deliberately *one* abstraction rather than a `DynamicHeader` beside a
+`DynamicQueryParameter`: four implementations of one idea is three chances for the fourth to behave
+differently from the first.
+
+=== Request data belongs to the operation, not the test
+
+An operation sends what it sends, and every workload that exercises it inherits that. A workload
+names operations by identifier and answers _how much traffic_; the binding answers _what gets sent_.
+Attaching request data to a test would mean restating the account id in every workload that touches
+the endpoint.
+
+This is the right default rather than the last word. A workload built to exercise a rejection path
+may one day want to override a single field. The shape is what makes that additive: a layer is a
+`RequestData`, layering is one function (`layeredOver`), and `PlanResolver` folds a list of layers —
+today the specification's implications and the human's decisions. A workload-scoped layer would be
+one more element in that list. No value type changes, and nothing downstream of the resolved plan
+could tell the difference.
+
+=== Generation lifecycle is named for what it means
+
+The constant is `PER_OPERATION_EXECUTION`, not `PER_REQUEST`. "Per request" is ambiguous in exactly
+the way that matters: it does not say whether the value is produced once and used wherever it
+appears, or produced afresh at every point it is read. Vortex means the first. The generated script
+makes it visible by binding each value to a constant at the top of the operation's function, so a
+reader can see that the idempotency key in the header and the one in the body are the same key.
+
+The interface says "every request", because that is what it means to a person configuring one.
+
+`PER_VU` is the second lifecycle, and corresponds to k6's init context. A third — once per run,
+shared across every virtual user — is *not* implemented, because it needs somewhere to execute
+before the workload starts, which is k6's `setup()`. That is the same seam a captured prerequisite
+value needs, and building it for one generator would be a workflow engine with a single feature.
+
+=== Dataset semantics are fixed, not configured
+
+Rows are consumed in order, without reuse, until the dataset is exhausted; then the sequence wraps.
+The row is chosen by the position of the operation's execution within its k6 scenario, which k6
+numbers uniquely across every virtual user — so two executions in flight at the same moment never
+read the same row, and a re-run reads the same rows in the same order.
+
+*One row per operation execution.* Every value drawn from a given dataset during a single execution
+comes from the same row: a customer id and the mobile number beside it belong to the same customer,
+which is the only behaviour that makes a realistic dataset worth having.
+
+Vortex compiles one k6 scenario per operation (xref:adr-026-generated-k6-uses-native-primitives.adoc[ADR-026]),
+and iteration counters are per scenario. A consequence, not a design goal: two operations reading the
+same dataset advance through it on separate counters. The semantics above are stated in terms of an
+operation execution rather than a counter precisely so that a future execution model putting two
+operations in one scenario has a defined answer — they would share an iteration, and therefore a row.
+
+Nothing here is configurable. A user should not have to choose a partitioning strategy to run a test.
+
+=== Datasets have a scope, and local is the default
+
+`LOCAL` datasets live in the workspace on one machine. `PORTABLE` datasets are committed beside
+`vortex.yaml` and travel with the service.
+
+An upload lands locally. Making a dataset portable is a separate, explicit action that names the
+file it will write first, because test data that turns out to be real customer data is not a mistake
+anyone should be able to make by dragging a file into a browser. There is no code path that writes
+into a repository as a side effect of anything else.
+
+The scope is written on the value that reads the dataset, so resolving one never depends on an
+undocumented precedence rule. Two datasets called `customers` — one local, one committed — are
+different datasets, and a run that silently picked the wrong one would be reporting evidence about
+data nobody chose.
+
+=== Secrets reuse the mechanism that exists
+
+`EnvironmentValue` is not a second secret store. It is the same `${NAME}` reference environment
+headers have always used, the same parser, and the same resolution: once, into the environment of
+the engine subprocess. What changes is that the reference is now explicit and selectable in the
+interface, and that preflight checks references from every request value rather than only from
+headers — a token binds to a query parameter as easily as to a header.
+
+=== Body fields are mapped by name, and the grammar is written down
+
+....
+path    ::= segment ( '.' segment )*
+segment ::= [A-Za-z_] [A-Za-z0-9_]*
+....
+
+At most eight levels deep. That is the entire language, and it is written down so that growing it is
+a decision rather than a drift. There are no array indices, no wildcards, no filters, no predicates,
+no functions and no root symbol — each individually defensible, and collectively JSONPath. A body
+that genuinely needs an array element addressed should be supplied whole, with the varying scalars
+bound around it.
+
+=== Schema hints are suggestions, never defaults
+
+The OpenAPI importer keeps `format` and `enum` instead of discarding them after generating a sample.
+A `format: uuid` field is offered as *Generated · UUID*, with the reason stated in the
+specification's own terms.
+
+It is never applied. A schema says how a value _looks_, not what it _means_: a UUID-shaped
+`customerId` could need to be freshly generated, drawn from a dataset of customers who already
+exist, or held constant across a run. Those are three different tests and the schema distinguishes
+none of them. Silence is the common answer — a field declared only `type: string` gets no
+suggestion, because offering "Random string" for every untyped field would devalue the ones worth
+accepting.
+
+=== Validation is per destination
+
+A newline is a paragraph in a body field and a request-splitting vector in a header. So datasets are
+read faithfully, and each value is judged against the position it is bound to: a fixed header value
+containing a line break is refused, a dataset column bound to a header is scanned row by row with
+the offending row named, and the same content passes untouched into a body. Only columns that
+actually reach a header are read.
+
+=== Evidence records sources, never values
+
+What a request sent is a condition the result was measured under, like the environment and the
+dependency mode: a capacity figure produced by replaying one account id and one produced from a
+dataset of ten thousand distinct accounts are different results. So per-operation provenance travels
+into every export.
+
+Sources only. A generated value's output is not recorded — it differs on every request by design —
+and a dataset contributes its name, size and content hash rather than its rows. The purpose is
+reproducibility and explanation, not an audit trail of traffic; keeping every value of every run
+forever would be a different product with a different privacy story.
+
+Request data participates in *experiment identity* in full, not merely in shape. Version 1 of that
+contract recorded only whether an operation _had_ a body, so two runs submitting `CREDIT_CARD` and
+`PERSONAL_LOAN` fingerprinted identically and a change of test data reported itself as a change in
+the service. Fixed values contribute their literal, generators their configuration and never their
+output, datasets their content hash, environment values their reference and never the resolved
+secret. The contract is now `vortex.experiment/2`.
+
+== Consequences
+
+*Gained.* The common case is a source selector and one control. A developer describes an endpoint
+rather than programming a load test, and the thing they describe is reviewable in a pull request.
+Datasets make realistic input a product feature instead of a reason to leave. `PayloadProvenance.DATASET_SUPPLIED`,
+declared since the first release and never produced, finally means something.
+
+*The generated script stays plain k6.* An operation whose values are all fixed compiles to
+byte-identical output — no `SharedArray`, no helpers, no preamble. Vortex normalises CSV to JSON
+when staging, so the script needs no CSV parser and no remote jslib import whatever the source
+format was, and `k6 run generated-test.js` in the execution directory still reproduces a run with
+Vortex uninstalled.
+
+*Cost — the value model is now load-bearing.* Four sources appear in the domain, in `vortex.yaml`,
+in the plan snapshot, in the generated script, in preflight, in evidence and in the interface.
+Adding a fifth is a change in seven places, which is the point: it should be a decision, taken in
+the open.
+
+*Cost — every existing fingerprint changed.* Widening experiment identity necessarily re-hashes every
+plan. Executions are re-indexed on startup; comparisons made under the old contract are not
+retro-actively corrected, because the plans they were made from are what they are.
+
+*Cost — a portable configuration can now depend on something local.* A `vortex.yaml` referencing a
+local dataset cannot run on another machine. Vortex says so, in the same way it already reports an
+unresolvable API description, rather than guessing — but the gap is real and is the price of not
+writing files into repositories by default.
+
+*Cost — a CSV parser is now a dependency.* Apache Commons CSV, quarantined in the persistence
+adapter. Hand-rolling one looked like fifty lines until it met a quoted field containing a newline,
+and a parser that gets that wrong corrupts somebody's test data quietly.
+
+== How captured values would extend this
+
+The use case is real:
+
+....
+POST /oauth/token  →  capture access_token  →  POST /applications
+                                                Authorization: Bearer {{accessToken}}
+....
+
+A fifth case, `CapturedValue`, slots into the sealed hierarchy without disturbing the other four. It
+needs three things Vortex does not have:
+
+. *A place to run before the workload starts.* k6's `setup()`, whose return value is passed to every
+  exec function. The same seam the `PER_RUN` lifecycle needs — which is why neither is built alone.
+. *A response field to extract.* The narrowest thing that works is a body field path, the same
+  grammar body mapping already uses. Not JSONPath.
+. *`discardResponseBodies` relaxed* for the setup request only. The generated script sets it
+  globally today, and a captured value needs the body it reads.
+
+What would deliberately *not* follow: arbitrary JavaScript hooks, a chain of dependent requests, a
+retry policy, conditional flow, or a visual designer. The constrained model is one setup request,
+one captured field, one named variable, used by the main request. If that proves insufficient, the
+answer is another ADR — not a quiet generalisation.
+
+== Alternatives considered
+
+*A template language in the value.* `{{uuid}}`, `${dataset[__VU].customerId}`. Rejected: it is an
+expression language with a modest starting vocabulary, and every addition to it is individually
+reasonable. It also puts indexing arithmetic in a configuration file, where it is wrong in a way
+nobody notices for a month.
+
+*Request data on the workload rather than the operation.* Rejected: it would mean restating an
+endpoint's values in every workload that touches it, and it inverts the relationship — a workload
+describes traffic, not payloads. The layering seam leaves the door open for overrides.
+
+*Datasets committed by default.* Rejected: the first person to upload a production extract would
+commit it, and there is no undo for that in a shared repository.
+
+*Reading datasets from a path the user types.* Rejected: Vortex is reachable over HTTP, and an
+endpoint that reads an arbitrary filesystem path on request is a local-file-read primitive with a
+friendly name. Being a local tool is a reason to be careful about that, not a licence to skip it.

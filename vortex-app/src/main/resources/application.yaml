@@ -1,0 +1,110 @@
+spring:
+  application:
+    name: vortex
+  config:
+    # The one user-editable setting — which AI model to use — lives in ~/.vortex/config.yaml,
+    # written by Settings → Local AI. Imported documents take precedence over this file, so that
+    # page is still the single source of truth for vortex.ai.model; it is just no longer this file.
+    import: "optional:file:${user.home}/.vortex/config.yaml"
+  threads:
+    virtual:
+      # A test run blocks for its whole duration while the load generator works. Virtual threads
+      # make that a non-event: the interface stays responsive, progress keeps streaming, and no
+      # platform thread is tied up for fifteen minutes.
+      enabled: true
+  mvc:
+    problemdetails:
+      enabled: true
+  ai:
+    ollama:
+      # Driven from vortex.ai.* below, so there is exactly one place a user configures the
+      # assistant. Two sources of truth for "which model" would eventually disagree, and the
+      # settings page would then be showing something other than what runs.
+      base-url: ${vortex.ai.base-url}
+      chat:
+        options:
+          model: ${vortex.ai.model}
+          # Low temperature: this is analysis of measured data, not creative writing. The same
+          # evidence should produce broadly the same interpretation.
+          temperature: 0.2
+      init:
+        # Vortex never downloads a multi-gigabyte model on someone's behalf. A missing model is
+        # reported with the exact command to pull it, and the user decides.
+        pull-model-strategy: never
+
+  # Vortex manages its own SQLite DataSource and Flyway instance, because the workspace location is
+  # a user setting rather than a static URL.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration
+
+server:
+  # Loopback only.
+  #
+  # Vortex generates traffic against services on the user's behalf and has no authentication. It is
+  # a local developer tool, and making it reachable from the network should be a deliberate act with
+  # a security review behind it, not a default. See docs/02-architecture/security.adoc.
+  address: 127.0.0.1
+  port: 7717
+  error:
+    whitelabel:
+      enabled: false
+
+vortex:
+  version: 0.1.0-SNAPSHOT
+
+  workspace:
+    # Defaults to ~/.vortex
+    directory: ""
+
+  engine:
+    # 'local' uses a k6 executable on this machine; 'docker' uses the k6 container image.
+    runner: local
+    executable: k6
+    docker-executable: docker
+    docker-image: grafana/k6:1.3.0
+    # The raw sample stream is large and highly compressible. Compressing it keeps the source
+    # evidence without leaving hundreds of megabytes per run in the workspace.
+    compress-raw-metrics: true
+    # How long a local lab's Compose command may take. Generous, because the first run pulls
+    # images before it starts anything, and the command never holds a request open.
+    compose-timeout: 15m
+
+  ai:
+    # Entirely optional. Vortex onboards, configures, executes, evaluates and reports without it.
+    provider: ollama
+    base-url: http://localhost:11434
+    # Not defaulted to any particular model: the right choice depends on the machine and on what
+    # the user has already pulled.
+    model: ""
+    timeout: 3m
+    # Prompts contain the service's own operation names, descriptions and measurements, so they are
+    # not logged unless someone asks for them.
+    log-prompts: false
+
+  safety:
+    max-duration: 4h
+    # When non-empty, the only hosts Vortex will send traffic to.
+    allowed-hosts: []
+    # Per-environment ceilings, as TYPE=rate. Defaults come from the environment type itself.
+    rate-ceilings: []
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Narrow on purpose. This is a local tool; a broad management surface would be convenient
+        # and wrong.
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: INFO
+    dev.vortex: INFO
+    org.springframework.jdbc: WARN
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level %-40.40logger{39} : %msg%n"

@@ -1,0 +1,26 @@
+= ADR-008: SQLite for local persistence
+
+== Status
+
+Accepted
+
+== Context
+
+Vortex needs local storage for projects, configuration, executions, analyses and capacity
+observations. Requiring a database server would contradict local-first.
+
+== Decision
+
+SQLite at `~/.vortex/vortex.db`, in write-ahead-logging mode, with Flyway migrations.
+
+Summaries and metadata go in the database; large artifacts go on the filesystem with a reference.
+
+== Consequences
+
+*Gained:* zero setup, a single portable file, inspectable with ordinary tools.
+
+*Cost:* single-writer. Irrelevant here — the metadata workload is a handful of statements per
+second even mid-test.
+
+*Pool sizing:* WAL supports concurrent readers alongside one writer. A small pool with a generous
+busy timeout was chosen and exercised under a real run with live reads. Not asserted from theory.

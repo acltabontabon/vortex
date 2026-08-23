@@ -1,0 +1,47 @@
+= ADR-014: Seven modules, not eight
+
+== Status
+
+Accepted; amended by xref:adr-029-openpdf-quarantined-in-a-report-module.adoc[ADR-029]
+
+== Context
+
+An eighth module, `vortex-lab`, was planned for Docker orchestration and observability
+collection. Symmetry argued for it.
+
+== Decision
+
+Dropped. The rule applied instead:
+
+[quote]
+____
+A module exists to quarantine a substantial external dependency or enforce a real dependency
+direction.
+____
+
+Docker detection is a few `ProcessBuilder` calls; the Actuator client is one `RestClient`.
+Neither quarantines anything substantial. They live as adapter packages inside `vortex-app`, with
+ArchUnit ensuring nothing in the domain reaches them.
+
+Seven modules: core, openapi, k6, ai, persistence, app, demo-service.
+
+== Consequences
+
+*Gained:* less build ceremony, fewer POMs, fewer cross-module edits for a small change.
+
+*Cost:* the direction rule for those two adapters is enforced by test rather than by the compiler.
+
+*Reversible:* if either grows enough to justify its own dependency set, promoting it to a module
+is mechanical.
+
+== Amendment (ADR-029)
+
+Eight modules. `vortex-report` was added to quarantine OpenPDF.
+
+The rule above was applied, not broken. `vortex-lab` was dropped because a `RestClient` and some
+`ProcessBuilder` calls quarantine nothing; a third-party PDF rendering engine with a distinctive
+licence is precisely the case the rule was written for. The "reversible" note above anticipated
+this: promoting something to a module when it grows enough to justify its own dependency set is
+mechanical, and this was that promotion.
+
+Eight modules: core, openapi, k6, ai, persistence, report, app, demo-service.

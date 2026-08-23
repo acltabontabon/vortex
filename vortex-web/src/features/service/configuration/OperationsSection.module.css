@@ -1,0 +1,22 @@
+/*
+  An operation is an inspectable object: clicking it opens what that endpoint sends. Styled as a
+  hover affordance rather than a button, because the row is a fact first and a control second.
+*/
+.operation {
+  cursor: pointer;
+  border-radius: var(--mantine-radius-sm);
+  padding-inline: 6px;
+  margin-inline: -6px;
+  transition: background-color var(--mantine-transition-duration, 120ms) ease;
+}
+
+.operation:hover,
+.operation:focus-visible {
+  background-color: light-dark(var(--mantine-color-neutral-0), var(--mantine-color-dark-6));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .operation {
+    transition: none;
+  }
+}

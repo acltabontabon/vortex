@@ -1,0 +1,33 @@
+= ADR-011: k6 Studio is complementary, not a competitor
+
+== Status
+
+Accepted
+
+== Context
+
+https://grafana.com/docs/k6-studio/[k6 Studio] already does browser recording, proxy recording,
+HAR import and visual script authoring — well, and as open source.
+
+== Decision
+
+Vortex does not recreate any of it. The integration path is:
+
+----
+Complex flow → k6 Studio (record · generate · debug) → k6 script
+                                                          ↓
+                                    Import into Vortex → workload profile
+                                                       → execute → analyse
+----
+
+Vortex's value begins above generic script creation.
+
+== Consequences
+
+*Gained:* no wasted effort, and a genuinely better experience for complex flows than either tool
+alone.
+
+*Cost:* capturing a complex flow means using a second tool. That is the correct trade.
+
+*Consequence:* imported scripts are executed unmodified. Per-operation introspection is unavailable
+for them, which is documented rather than worked around.

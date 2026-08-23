@@ -1,0 +1,99 @@
+= ADR-029: OpenPDF, quarantined in a report module
+
+== Status
+
+Accepted
+
+Amends xref:adr-014-seven-modules-not-eight.adoc[ADR-014].
+
+== Context
+
+A Vortex result could not leave the machine. PDF export had been an ongoing roadmap item since
+0.1.0, and the post-implementation audit files the gap as a P1: you cannot attach a Vortex result to
+a merge request or an incident review without a running Vortex and its workspace.
+
+Producing a PDF needs a library. Vortex had none, and adding one requires an ADR rather than an
+import.
+
+== Decision
+
+`com.github.librepdf:openpdf`, used only inside `dev.vortex.report.pdf`, in a new module
+`vortex-report`.
+
+=== Why a module
+
+ADR-014 dropped a proposed eighth module and stated the rule that replaced it: *a module exists to
+quarantine a substantial external dependency or enforce a real dependency direction*. `vortex-lab`
+was dropped because a `RestClient` and some `ProcessBuilder` calls quarantine nothing.
+
+A third-party rendering engine with a distinctive licence is the case that rule was written for. The
+rule is applied here, not broken. ADR-014 itself notes that promoting something to a module is
+mechanical, and this is that promotion.
+
+=== Why OpenPDF and not the alternatives
+
+*PDFBox* is Apache-2.0, which would have fitted the dependency policy without amendment. It has no
+table support: every column position, page break and repeated header row would have been ours to
+compute. A report is mostly tables, and hand-rolling a table engine to avoid a licence conversation
+is a poor trade.
+
+*A headless browser* rendering the existing HTML was rejected on two grounds. A browser is a larger
+and far more fragile dependency than a PDF library, and it would end the native-image ambition of
+xref:adr-020-native-image-is-a-quality-attribute.adoc[ADR-020]. It would also produce a screenshot of
+a web page rather than a document laid out to be printed and read.
+
+*Batik or FOP*, to render the existing SVG charts into the PDF, was rejected for size: it is a much
+larger dependency than the PDF library, acquired for one polyline. Charts are redrawn with PDF line
+primitives instead, from the same geometry the SVG uses — see
+xref:adr-021-server-rendered-svg-charts.adoc[ADR-021].
+
+=== The licence, stated plainly
+
+OpenPDF is dual-licensed LGPL-2.1 *or* MPL-2.0. `THIRD_PARTY_NOTICES.md` previously said every
+dependency was Apache-2.0, MIT, BSD, EPL, UPL or public domain, and that sentence is no longer true.
+It has been amended rather than quietly bypassed.
+
+Vortex links against an unmodified release and distributes it unchanged, which both licences permit
+without conditions on the surrounding work. The file already carried the same reasoning for Logback,
+which is dual EPL-1.0/LGPL-2.1. Modifying OpenPDF, or vendoring parts of it, would change that
+analysis and is out of bounds without revisiting this decision.
+
+=== Determinism
+
+The same evidence produces byte-identical output. Three things had to be closed for that: the
+creation date and the modification date, which default to the current time, and the trailer's file
+identifier, which the library fills with a hash of the clock and some memory addresses and does not
+expose a setter for. The identifier is rewritten after rendering, length-preserving so the
+cross-reference table stays valid, from a hash of the plan fingerprint, the run and the generation
+timestamp.
+
+Randomness would have been wrong here regardless. A PDF's `/ID` identifies a particular file, and
+two exports of one finished run are not two files in any sense that matters — measurements are
+immutable once a run completes. A report regenerated in a pipeline is now identical to the last one
+rather than looking like a change.
+
+== Consequences
+
+*Gained.* A run's evidence can be handed to somebody who has never installed Vortex, and it reads as
+an engineering record rather than a printed dashboard. Tables repeat their headers across pages, so a
+forty-operation breakdown stays readable. The document is reproducible.
+
+*Cost.* An eighth module, a 2.1 MB dependency, and a licence that needed the policy amended. The
+dependency is unusually clean — all four of OpenPDF's own runtime dependencies are optional, so it
+brings no transitives — but it is still a rendering engine in a product that had none.
+
+*Cost.* Base-14 fonts only, so the document is limited to WinAnsi. Every string is transliterated on
+the way in, because an unmapped glyph is silently dropped rather than substituted, and a report about
+missing measurements that quietly loses characters would be a poor joke. Accented Latin is folded and
+kept legible; anything with no Latin equivalent becomes a visible `?` rather than nothing. Nothing in
+the product is localised, and embedding a font is a separate decision about licensing, size and
+subsetting.
+
+*Enforced by.* Maven's banned-dependencies rule in `vortex-report/pom.xml`, and an ArchUnit rule
+asserting that `com.lowagie..` is visible only inside `dev.vortex.report.pdf..`. The PDF exporter
+lives in that package for exactly this reason.
+
+*Not done.* PDF/A-3 with `plan.json` embedded as an attachment is the natural sequel for archival
+evidence, and needs XMP metadata, colour profiles and conformance testing. Charts are not emitted
+into the Markdown export: data tables and a block-character sparkline instead, because the appeal of
+that format is that it is text.

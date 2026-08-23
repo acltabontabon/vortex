@@ -1,0 +1,90 @@
+= ADR-026: Generated k6 uses native primitives only
+
+== Status
+
+Accepted
+
+== Context
+
+The previous generator declared three custom metrics (`vortex_journey_duration`,
+`vortex_journey_completed`, `vortex_journey_failed`) and tagged every request and scenario with
+`vortex_journey`. It had to: a journey issued several requests, so k6's per-request metrics could not
+describe a journey, and nothing in k6's own output named one.
+
+With one operation per iteration that reason evaporates. k6's built-in `http_reqs`,
+`http_req_duration` and `http_req_failed` describe exactly the unit Vortex now works in.
+
+== Decision
+
+The generated script declares *no custom metrics and adds no custom tags*.
+
+One Vortex scenario compiles into one k6 scenario _per operation_, so k6's own `scenario` system tag
+— present on every sample by default — already identifies the operation that produced it. Everything
+Vortex needs is then a native primitive:
+
+[cols="2,3", options="header"]
+|===
+| Evidence needed | k6 primitive
+
+| per-operation throughput, latency, errors
+| `http_reqs`, `http_req_duration`, `http_req_failed`, filtered by the built-in `scenario` tag
+
+| per-operation objectives
+| submetric thresholds — `'http_req_duration{scenario:createOrder}': ['p(95)<500']`
+
+| response expectations
+| `http.expectedStatuses()` as a per-request `responseCallback`, plus a named `check()`
+
+| overall objectives
+| unscoped `http_req_duration` / `http_req_failed`
+
+| which plan produced this
+| a header comment, and `plan.json` beside the results
+|===
+
+=== The mapping is recorded, never inferred
+
+Scenario keys are sanitised renderings of operation ids, and sanitising is lossy: `get-order` and
+`get_order` both reduce to `get_order`. `OperationKeys` disambiguates with a suffix, and the result is
+assigned *once, during plan resolution*, and stored on each `PlannedOperation`.
+
+The generator emits that stored key verbatim. `K6RawMetricsAggregator` resolves a `scenario` tag back
+to an operation through `EffectiveTestPlan.operationsByScenarioKey()` — never by re-sanitising the tag
+and comparing strings, which would attribute one operation's latency to another in exactly the case
+the suffix exists to prevent. A tag that is not in the map buckets as `unattributed` rather than being
+matched to the nearest-looking operation.
+
+The key is deliberately *excluded* from the plan fingerprint: it describes how measurements are
+emitted, not what test this is.
+
+== Consequences
+
+*Gained.* The generated script is plain k6. `k6 run generated-test.js` reproduces a Vortex run with
+Vortex uninstalled, and an engineer who has never heard of this product can read the file and know
+what it does — which is the whole basis for claiming Vortex complements k6 rather than wrapping it.
+Objectives appear in k6's own summary rather than only inside Vortex. The script is shorter, and the
+aggregator no longer depends on anything Vortex injected, so imported scripts degrade gracefully
+instead of specially.
+
+*Cost.* The one-scenario-per-operation mapping becomes load-bearing rather than incidental: a future
+workload that put two operations in one k6 scenario would lose attribution and would need a tag again.
+Imported scripts still yield aggregates only, because Vortex did not choose their keys and does not
+model their control flow.
+
+=== Expectations govern the error rate
+
+k6's `http_req_failed` defaults to "anything 400 or above". That is a reasonable default and
+frequently wrong: a lookup of generated test data that legitimately 404s pushes the error rate to
+100% and fails a run that told you nothing — while a service genuinely answering 404 to everything
+looks identical.
+
+So an operation's declared expectation becomes a `responseCallback` built with
+`http.expectedStatuses()`, which is k6's own mechanism for exactly this. The declaration does real
+work rather than sitting decoratively beside the result. A named `check()` is emitted alongside it, so
+the decision appears in k6's summary as "status is 200 or 201: 3 failures" rather than only as a
+moved error rate.
+
+Operations that declare nothing keep k6's default.
+
+*Trade accepted.* A custom `Trend` per operation would give slightly richer per-operation timing than
+`http_req_duration` filtered by tag. It is not worth a script that only Vortex can read.

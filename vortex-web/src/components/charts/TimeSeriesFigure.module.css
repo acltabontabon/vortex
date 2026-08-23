@@ -1,0 +1,10 @@
+.plots {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+  width: 100%;
+}
+
+.signals {
+  padding-top: 2px;
+}

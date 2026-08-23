@@ -1,0 +1,69 @@
+= ADR-035: React and Mantine as the interface, superseding ADR-004
+
+== Status
+
+Accepted
+
+== Context
+
+xref:adr-004-thymeleaf-and-htmx.adoc[ADR-004] rejected a Node build, a bundler and a second
+application to maintain, for an interface that was mostly text, tables and small charts. The
+interface's ambition has grown past that description, and the hand-written CSS design system it
+also chose had started producing pages that were structurally inconsistent by default — every new
+screen was its own small styling decision, made again from nothing, with no primitive holding
+buttons, cards, inputs or dialogs to one shape. Holding onto server rendering for its own sake at
+that point would mean every future screen re-argues a decision instead of building on one.
+
+== Decision
+
+React, TypeScript and Mantine, built by Vite, becomes the interface going forward. Spring Boot
+becomes a JSON API behind the pages that have migrated to it. Migration is deliberate and
+incremental, page by page, starting with the home page (`/`) only. Every other route stays exactly
+as it is today — Thymeleaf, htmx, `vortex.css`, `vortex.js` — governed by ADR-004 until it is
+individually migrated in its own change.
+
+The built SPA compiles into `vortex-app/src/main/resources/static/app/`, via
+`frontend-maven-plugin` bound to `mvn package`'s `generate-resources` phase, and ships inside the
+same jar `vortex-app` has always produced. There is still one deployable artifact; there is now
+also a Node toolchain involved in producing it.
+
+A migrated page keeps the top bar, service switcher, runtime menu and command palette exactly as
+`layout.html` already renders them for every page — only the content area becomes a React bundle,
+mounted into a `<div id="root">` that a small Thymeleaf template (`app.html`) provides in place of
+a full page of markup. Nothing about the shared chrome changes because a page migrates.
+
+== Consequences
+
+*Gained:* a real component model and design system — a Vortex theme (colors, spacing, radii,
+shadows, typography) translated deliberately from the existing tokens rather than accepted as
+Mantine's defaults — for screens where "another CSS experiment" was becoming the norm rather than
+the exception.
+
+*Cost:* a second build toolchain (npm/Vite) alongside Maven. JavaScript is now required to see a
+migrated page at all — `home.html`'s no-JS guarantee is gone for `/`, though every unmigrated page
+still works without it, exactly as ADR-004 describes. No longer "one language, one build", though
+still one deployable jar.
+
+*Watch for:* two styling systems existing at once for as long as the migration takes. Each page's
+Thymeleaf markup and its CSS are deleted from `vortex.css` in the same change that migrates it, so
+there is never a growing "both" on the same screen — only a shrinking "old" and a growing "new"
+across the app as a whole.
+
+== Relationship to other ADRs
+
+xref:adr-020-native-image-is-a-quality-attribute.adoc[ADR-020]'s native-image goal is unaffected:
+the frontend is pure static assets baked into the jar at build time. Nothing about it is
+reflective, and nothing about it runs Node at runtime.
+
+xref:adr-004-thymeleaf-and-htmx.adoc[ADR-004] governed every route not yet migrated, until the
+migration below reached the last of them.
+
+== Migration complete
+
+The page-by-page migration reached every route. `layout.html`, `fragments.html`, every page
+template, `GlobalModelAdvice` (the `@ControllerAdvice` that fed them their ambient state),
+`vortex.css` and `vortex.js` are deleted; every `vortex-app` controller that used to render a
+Thymeleaf view now either returns JSON or is gone. `spring-boot-starter-thymeleaf`, `htmx.org` and
+`webjars-locator-lite` are removed from `vortex-app/pom.xml` — Spring Boot is a JSON API only, with
+`SpaController` forwarding everything else to the SPA. The "two styling systems at once" cost this
+ADR called out under Watch for is retired along with it: there is exactly one now.

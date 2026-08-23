@@ -1,0 +1,76 @@
+= ADR-040: Vortex Coordinator and ephemeral Kubernetes Jobs, superseding ADR-010
+
+== Status
+
+Accepted
+
+== Context
+
+xref:adr-010-k6-operator-for-distributed-execution.adoc[ADR-010] committed distributed execution to
+generating a `TestRun` manifest for the https://github.com/grafana/k6-operator[k6 Operator], with
+Vortex explicitly declining to talk to Kubernetes itself. That was the right call against the
+alternative it was actually weighed against at the time — Vortex building its own scheduler — and
+nothing here reopens that question.
+
+What has changed is the shape of the problem. The product direction is no longer only "more load
+generators" — it now includes a controlled, disposable execution environment for a *single* remote
+run, before distribution ever enters the picture (see xref:../01-product/roadmap.adoc[roadmap],
+Phase 5). A `TestRun` is built for exactly one thing: a distributed k6 run the Operator shards and
+schedules. It has no smaller shape for "run this once, remotely, and hand the evidence back through
+Vortex's own model" — reaching for it for a single worker means adopting the Operator's distribution
+machinery to get an environment, not a shard count. And whatever `TestRun` produces still has to be
+watched, reconciled and translated into an execution Vortex can render, compare, export and grade
+with `RunQuality` — a responsibility that does not go away by handing scheduling to the Operator, it
+just moves to a thinner layer with less control over the object it is reading.
+
+== Decision
+
+Vortex introduces a *Vortex Coordinator* as the control plane for remote and distributed execution,
+and a *Vortex Runner* as the disposable worker it creates. The Coordinator talks to the Kubernetes
+API directly, through a `RemoteExecutionProvider` boundary with Kubernetes specifics confined to a
+`KubernetesExecutionProvider` adapter behind it, and creates one ephemeral Kubernetes Job — running
+the Runner, which in turn runs k6 — per worker, rather than a `TestRun` manifest handed to the
+Operator to schedule.
+
+xref:adr-002-vortex-is-not-a-load-generation-engine.adoc[ADR-002]'s underlying decision is
+unaffected: Kubernetes remains the scheduler either way, and Vortex still does not build one. What
+changes is which object represents one execution — a Job Vortex's own Coordinator creates and
+watches, instead of a CRD instance an external operator interprets. The Coordinator is the control
+plane *only* for remote execution. It is never inserted into local execution, which continues to be
+the Workbench driving k6 directly — see
+xref:../02-architecture/architecture.adoc#remote-execution[remote and distributed execution] for the
+full architectural shape, and xref:../01-product/roadmap.adoc[roadmap] Phase 5 for how it ships: one
+remote worker before several, deliberately boring before distributed.
+
+== Consequences
+
+*Gained:* evidence flows back through Vortex's own control plane and evidence model, not
+reconstructed from an Operator's status objects whose shape Vortex does not own. Remote execution and
+distributed execution become separable — a single-worker remote milestone is buildable and useful on
+its own, which a mechanism built around a distributed `TestRun` does not naturally offer. RBAC scopes
+to the Job/Pod resources the Coordinator itself creates, rather than to whatever the Operator's CRD
+requires.
+
+*Cost:* Vortex now owns a Kubernetes adapter and the RBAC/ServiceAccount surface that comes with
+creating and watching Jobs directly, instead of delegating that surface to a maintained, purpose-built
+operator. The k6 Operator's own distribution logic is not reused — if it already solves something the
+Coordinator's own worker partitioning needs, that has to be reimplemented deliberately, not inherited
+for free.
+
+*Deliberately not done:* no `KubernetesExecutionProvider` implementation, no Coordinator or Runner
+deployable, no live Kubernetes cluster required for this release. The same posture ADR-010 itself
+took — the abstraction is decided, nothing is built ahead of it — carries over to the new mechanism.
+
+== Relationship to other ADRs
+
+xref:adr-002-vortex-is-not-a-load-generation-engine.adoc[ADR-002] is unaffected, as above.
+
+xref:adr-003-local-first-architecture.adoc[ADR-003] is unaffected, and this decision reinforces it
+explicitly: local execution requires no Coordinator, no Kubernetes, no network connectivity to
+Vortex infrastructure and no remote authentication, ever.
+
+xref:adr-037-resource-observation-is-typed.adoc[ADR-037] and
+xref:adr-038-run-quality-grades-the-experiment.adoc[ADR-038] extend to a per-worker scope this
+decision introduces vocabulary for (`ExecutionPlan`, `ExecutionHandle`, `ExecutionEvidence`,
+`WorkerExecution`) but does not design in detail — that is future work, tracked in the roadmap, not
+decided here.

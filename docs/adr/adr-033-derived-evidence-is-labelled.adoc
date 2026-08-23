@@ -1,0 +1,98 @@
+= ADR-033: Derived evidence is labelled, and absence carries a cause
+
+== Status
+
+Accepted.
+
+== Context
+
+Joining the service's own telemetry to the load generator's view of each stage is what makes "what
+changed as load increased" answerable. Before it, a run produced one window and one peak per metric —
+enough to say the connection pool reached 98%, and not enough to say when.
+
+Doing the join raised two questions that are easy to answer badly.
+
+The first is *how Vortex knows when each stage was in effect*. The obvious method is a cumulative walk
+over the planned stage durations. It is usually right and occasionally not: a load generator that
+starts slowly, a stage that overruns, a machine that stalls, and the computed boundary drifts from the
+real one — while looking exactly as authoritative as a measured one.
+
+The second is *what to say when a provider does not answer*. Vortex already reported missing telemetry
+rather than defaulting it to zero, which is the more important half of being honest. But a report that
+says only "JVM memory telemetry unavailable" gives an engineer nothing to act on. Whether the query
+matched no series, the token was refused, or the host was unreachable are three different problems and
+three different afternoons.
+
+== Decision
+
+=== Stage alignment carries its basis
+
+`StageWindowBasis` is either `OBSERVED` or `DERIVED_FROM_PLAN`, and it travels on `StageTelemetry` and
+on `StageObservation` into every report and export.
+
+`OBSERVED` is reachable without touching the generated script. k6 already emits `vus` samples, which
+the aggregator previously discarded; for a concurrency-model workload those track the ramp it actually
+performed, so plateau boundaries can be measured. Reading a native primitive k6 already publishes is
+precisely what ADR-026 asks for — no custom tag, no custom metric.
+
+`DERIVED_FROM_PLAN` is the honest answer for arrival-rate workloads. k6 does not emit the configured
+target rate, so only the *anchor* is observed — the first sample the run produced — while the
+boundaries themselves come from planned durations. Since most calibrated workloads are arrival-rate,
+this is the common case, and saying so is the point.
+
+*The consequence is not cosmetic.* A signal aligned by a derived boundary may still be reported as
+correlated with a breakpoint, and never strengthens the finding. `ResourcePressure.strength` will not
+return `HIGH` on a derived alignment however well the timestamps line up: those timestamps are Vortex's
+own arithmetic, not independent corroboration, and letting them raise confidence would manufacture
+certainty rather than establish it.
+
+The cumulative walk itself now lives in one place, `StageWindows`. It previously existed in both the
+analyzer and the k6 aggregator, and two implementations of one rule is one more than the rule
+survives — they would eventually disagree about which stage a sample belonged to, and the
+disagreement would surface as a bottleneck attributed to the wrong level of load.
+
+=== Absence carries a cause
+
+`TelemetryAvailability` distinguishes `NO_DATA`, `UNSUPPORTED`, `UNREACHABLE`, `UNAUTHORIZED` and
+`MALFORMED`. `ObservabilityProvider.collect` returns observations *and* gaps together, so a provider
+that answered for eleven metrics and failed on the twelfth reports eleven measurements and one
+explained gap rather than forcing the caller to guess which happened.
+
+The reason survives ingestion into `ObservabilityEvidence.gaps`, and each gap carries a remedy. A
+provider that was asked and could not answer stays in `providersConsulted` with its reason: omitting
+it would leave the reader thinking nobody had looked there.
+
+Nothing here weakens the existing rule. A genuine absence still never becomes a numeric zero.
+
+=== Correlation markers are enrichment, never a precondition
+
+Dynatrace can be told a run is happening, which marks it on Dynatrace's own timeline. Reading metrics
+and ingesting events need *different* permissions, and a production tenant may grant the first and
+refuse the second.
+
+So marker creation is attempted and its failure changes nothing about the telemetry: the provider
+degrades to `CorrelationCapability.QUERY_ONLY`, records one gap saying the run is still findable by
+its window, and goes on collecting. A measurement is never downgraded to missing because a marker
+could not be written.
+
+`QUERY_ONLY` is also Prometheus's permanent answer, which is a fact about Prometheus rather than a
+shortfall in the integration.
+
+== Consequences
+
+*Gained.* A reader can tell a measured coincidence from a computed one, and the difference is enforced
+in the strength calculation rather than left to the reader's judgement. An engineer who notices a
+missing signal is told which of five quite different things went wrong, and what to do about it.
+Telemetry survives a permission Vortex was never granted. The stage walk has one home.
+
+*Cost.* Two more things to render and to explain, and evidence that frequently has to say "derived"
+where a reader wanted "measured" — most calibrated workloads are arrival-rate, so most stage
+alignments carry the weaker label. `MeasuredResults` grew two fields and `StageObservation` two more.
+A reader skimming the Dynatrace adapter will find marker handling that looks like dead weight until
+they hit a tenant that refuses it.
+
+*Trade accepted.* Vortex could have aligned stages from the plan, said nothing about how, and produced
+findings that read more confidently. Every one of those findings would have been a claim about
+timestamps Vortex generated itself, presented as though the service had corroborated it. A weaker
+statement that is true is worth more than a stronger one that is only usually true — particularly in
+the part of a report most likely to be quoted out of context.

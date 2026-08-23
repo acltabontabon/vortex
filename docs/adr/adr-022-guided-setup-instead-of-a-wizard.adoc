@@ -1,0 +1,61 @@
+= ADR-022: A guided setup page instead of a linear wizard
+
+== Status
+
+Accepted. The reasoning below still holds; the page it describes moved in
+xref:adr-034-the-service-workspace-is-the-product.adoc[ADR-034] — see the amendment at the end.
+
+== Context
+
+The obvious onboarding design is a multi-step wizard: create project, import API, review operations,
+define scenarios, configure environment, set thresholds, review.
+
+It is linear and fragile. A user who closes the tab at step six loses six steps of work, and an
+experienced user who wants to change one threshold walks past five screens they already know.
+
+== Decision
+
+The project page *is* the guided flow.
+
+A readiness checklist gives a newcomer the same ordered path a wizard would, with the next action
+always visible. Each step is a section on the page that expands into its form. Every step saves as
+it is completed.
+
+The flow is therefore resumable *by construction* rather than by maintaining draft state: someone
+returning tomorrow picks up exactly where they left off, because everything they did was saved when
+they did it.
+
+== Consequences
+
+*Gained:* resumability with no draft-state machinery. Experienced users edit anything in any
+order. One page to maintain rather than eight, and the checklist doubles as a project health view.
+
+*Cost:* a longer page. Progressive disclosure keeps completed sections collapsed.
+
+*Rejected alternative:* a wizard with persisted drafts. It would have solved resumability at the
+cost of a second representation of an incomplete project, and would still have forced experienced
+users through a linear path.
+
+== Amendment (ADR-034)
+
+The decision was right and the page it landed on was wrong.
+
+"The project page *is* the guided flow" became, over time, a 775-line Configuration tab holding seven
+unrelated concerns with every form permanently open — which is the cost this ADR predicted
+("*Cost:* a longer page") arriving in full, without the progressive disclosure that was supposed to
+offset it. The checklist itself had stopped being rendered anywhere at all, so the one thing that
+made the flow navigable was missing while the length remained.
+
+What changed:
+
+* The guided flow lives on *Understand*, whose resting state is a profile — what Vortex currently
+  knows about this service — with the forms behind disclosures. Reading is the common case; editing
+  is the occasional one, and it had been the other way round.
+* The checklist is rendered again, from `ProjectReadiness`, which computed it all along. It leads
+  with the single next action and keeps the full list one disclosure away, because a checklist at 6/7
+  is mostly a list of things somebody already did.
+* It collapses to one line when everything is satisfied. A finished checklist is not information.
+
+Everything this ADR actually decided is intact: no wizard, no draft state, resumable by
+construction, every step saved as it is completed, and experienced users free to edit anything in
+any order.

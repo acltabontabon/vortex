@@ -1,0 +1,92 @@
+= ADR-028: Run evidence is a first-class model
+
+== Status
+
+Accepted
+
+== Context
+
+Three surfaces rendered the same run. The result page reached into `TestExecution`, the printable
+report reached into it separately, and every new output would have reached into it again.
+`ReportController` carried a comment observing that "two renderers of the same data drift" while
+being, itself, the second renderer — it had its own markup for the same sections, and the two had
+already begun to diverge in what they showed.
+
+Adding JSON, Markdown and PDF exports would have made that four more places deciding independently
+what a section means, what counts as absent, and which caveats travel with which number.
+
+There was a second problem, quieter and worse. `EffectiveTestPlan` holds request headers, and those
+headers hold secret *references*. The property that a resolved credential never reaches a plan is
+maintained elsewhere in the product, and every renderer inherited it by luck rather than by check.
+A fourth renderer written by somebody who had not read that reasoning would inherit nothing.
+
+== Decision
+
+One presentation-neutral aggregate, `RunEvidence`, assembled once per completed run by
+`RunEvidenceService` and handed to every renderer.
+
+----
+execution → RunEvidence → { result page · printable report · JSON · Markdown · PDF }
+----
+
+Three rules make it hold:
+
+*An exporter sees a `RunEvidence` and nothing else.* Not the execution, not the plan, not a
+repository. `EvidenceExporter.export(RunEvidence)` has one argument, and an ArchUnit rule in
+`vortex-report` forbids reaching for `EffectiveTestPlan` or `TestExecution`.
+
+*Sanitisation happens inside assembly.* `EvidenceSanitizer` runs on the way out, so there is no such
+thing as an unsanitised `RunEvidence` and no exporter can opt out.
+
+*The web pages are renderers too.* `result.html` and `report.html` compose the same fragments from
+`evidence.html` over the same object. The claim that they cannot disagree is now structural rather
+than a comment.
+
+The model reuses existing domain types wherever they are already presentation-neutral —
+`MeasuredResults`, `ThresholdEvaluation`, `SloBreakpoint`, `LatencyPercentiles`,
+`ExecutionComparison`, `Headroom`. New records exist only where the shape genuinely did not:
+the configured-versus-achieved pairing, the deterministic findings, and the identity and provenance
+bundles.
+
+=== Evidence tiers survive into the model
+
+`RunEvidence.interpretation` is a separate, nullable field carrying the language model's reading,
+and every renderer fences it and names the model that produced it. Measurement, deterministic
+finding and interpretation stay distinguishable at a glance, which is what
+xref:../02-architecture/execution-and-evidence.adoc[the evidence model] requires and what the exports would
+otherwise have flattened.
+
+=== Deterministic findings are the third tier, made sayable
+
+`DeterministicFinding` is a pure derivation from measurements — `FindingDetector` has no clock, no
+randomness and no I/O — and every finding cites `EvidenceIds`, checked in the constructor. It is
+deliberately not `analysis.Finding`, which is the fourth tier and is produced by a model.
+
+The wording is part of the contract. A finding says *coincided with*, never *caused by*: a run
+observes association, and the step to cause takes context a load test does not contain. A test
+asserts that the forbidden phrases appear in no generated finding, across every fixture.
+
+== Consequences
+
+*Gained.* A new section is a change in one place. A new export format cannot forget to sanitise, and
+cannot show a number the page does not. Headroom, calculated correctly and displayed nowhere since it
+was written, has somewhere to appear. And the artifact directory is self-describing: `evidence.json`
+and `report.md` are written beside `plan.json` on every completed run, so a copied directory no
+longer needs the database that produced it.
+
+*Cost.* An extra hop between the execution and the screen, and an aggregate that has to be kept
+honest about optionality — every renderer must handle absent series, absent telemetry, absent
+objectives and absent comparison, because all four are the normal case for somebody's first run.
+Widening the model means touching the envelope mapping, which is a deliberate friction rather than
+an oversight: the mapping is an explicit function so a domain rename cannot silently change a
+published contract.
+
+*Cost.* Two things named "evidence" now sit in `core.application`. `EvidenceAssembler` builds the
+size-bounded context a local model reasons over; `RunEvidenceService` builds the whole document model
+for a reader. They were nearly merged, and should not be: merging them would mean either sending a
+whole report to a 7B model or publishing only what a prompt happened to need.
+
+*Enforced by.* ArchUnit in `vortex-report`; `EvidenceSanitizerTest` and `SecretsNeverExportTest`;
+`RunEvidenceServiceTest`, whose leak assertion once passed for the wrong reason because the headers
+it scanned for were not in the model at all, and which now checks that the haystack contains the
+needle's neighbourhood.

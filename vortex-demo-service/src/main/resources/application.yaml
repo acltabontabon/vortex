@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: checkout-service
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: 8080
+  tomcat:
+    threads:
+      max: 400
+
+checkout:
+  # The deliberate bottleneck. A pool of 6 workers each taking ~35 ms can serve roughly
+  # 170 requests/sec before requests begin to queue. See CheckoutProperties for the arithmetic,
+  # and docs/03-performance-model/interpreting-results.adoc for what that looks like in a Vortex report.
+  workers: 6
+  downstream-latency: 35ms
+  latency-jitter: 10ms
+  acquire-timeout: 5s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Deliberately narrow. Vortex only needs to read metrics; exposing more would be
+        # convenient and wrong, even in a sample.
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: checkout-service
+
+logging:
+  level:
+    root: INFO
+    dev.vortex.demo: INFO

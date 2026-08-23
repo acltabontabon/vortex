@@ -1,0 +1,1119 @@
+= Architecture
+:toc:
+:toclevels: 3
+
+== Shape
+
+Vortex is a *modular monolith*: one process, one executable, module boundaries that quarantine
+real dependencies. It is a local developer tool; distributing it across services would be
+architectural cosplay.
+
+[source,mermaid]
+----
+flowchart TB
+    UI[Web interface<br/>React · Mantine] --> CORE
+    CLI[Command line<br/>doctor · validate · run] --> CORE
+
+    CORE["<b>vortex-core</b><br/>domain · application services · ports<br/>deterministic calculators<br/><i>zero framework dependencies</i>"]
+
+    CORE --> OAI[vortex-openapi]
+    CORE --> K6A[vortex-k6]
+    CORE --> AIA[vortex-ai]
+    CORE --> PER[vortex-persistence]
+    CORE --> REP[vortex-report]
+    CORE --> ADP[app adapters<br/>Docker · Actuator · HTTP probe]
+
+    OAI --> SWAG[(swagger-parser)]
+    K6A --> K6[(k6)]
+    AIA --> OLL[(Ollama)]
+    PER --> DB[(SQLite + filesystem)]
+    REP --> PDFLIB[(OpenPDF)]
+    ADP --> DOCK[(Docker)]
+    ADP --> ACT[(Service metrics endpoint)]
+----
+
+This diagram is the *local* path, and it is the whole of it — no box on it is conditional on
+anything remote. Remote and distributed execution (<<remote-execution,below>>) is a second,
+separate path the Workbench can choose instead; it adds new components rather than extending this
+one, and none of them sit underneath local execution.
+
+Both front ends — the web UI and the CLI — call the same application services. That is not
+incidental: a tool whose CI mode is a separate implementation will eventually disagree with its
+interactive mode about whether a build passed, and by then nobody will trust either.
+
+Storage follows the same discipline as everything else here: `vortex.yaml` is the portable test
+intent and belongs in the service's own repository, `~/.vortex/vortex.db` is a local index, and
+`~/.vortex/executions/<id>/` holds the immutable evidence for one run. The database is never the
+source of truth for what to test, and nothing needed to reproduce a run lives only in it. The full
+reproducibility model — why the plan is snapshotted, what the three artefacts are for, how a run
+six months old still explains itself — is covered in xref:execution-and-evidence.adoc[].
+
+== Modules
+
+[[modules]]
+=== The rule
+
+[quote]
+____
+A Maven module exists to *quarantine a substantial external dependency* or *enforce a real
+dependency direction*.
+____
+
+Not for symmetry, not for architectural aesthetics. Eight modules where five would do is friction
+without benefit, and the friction is paid on every change forever.
+
+=== The modules
+
+[cols="1,3,2", options="header"]
+|===
+| Module
+| Responsibility
+| Quarantines
+
+| `vortex-core`
+| Domain, application services, ports, deterministic calculators
+| _nothing — JDK only_
+
+| `vortex-openapi`
+| OpenAPI import
+| swagger-parser
+
+| `vortex-k6`
+| Workload generation, process execution, output parsing
+| k6 wire formats, `ProcessBuilder`
+
+| `vortex-ai`
+| Assistant, prompts, response handling
+| Spring AI, Ollama
+
+| `vortex-persistence`
+| SQLite, migrations, repositories, artifacts, `vortex.yaml`
+| sqlite-jdbc, Flyway, YAML
+
+| `vortex-report`
+| Evidence exporters: JSON, Markdown, PDF
+| OpenPDF
+
+| `vortex-app`
+| Composition root, web UI, CLI, SSE, small adapters
+| Spring Boot
+
+| `vortex-demo-service`
+| Sample service with a deliberate bottleneck
+| — (independently runnable)
+|===
+
+Dependencies point one way, and no adapter depends on another adapter:
+
+----
+        vortex-app
+             │
+   ┌────┬────┼────┬────────┐
+   ▼    ▼    ▼    ▼        ▼
+ k6   ai  openapi persistence report
+   └────┴────┴────┼────────┘
+                  ▼
+             vortex-core
+----
+
+See xref:../adr/adr-014-seven-modules-not-eight.adoc[ADR-014] and its amendment in
+xref:../adr/adr-029-openpdf-quarantined-in-a-report-module.adoc[ADR-029], which added the eighth
+module under that same rule rather than in spite of it.
+
+=== What was dropped, and why
+
+A `vortex-lab` module was planned for Docker and observability. It failed the rule: Docker
+detection is a few `ProcessBuilder` calls and the Actuator client is one `RestClient`. Neither
+quarantines a substantial dependency.
+
+They live instead as adapter packages inside `vortex-app`, with ArchUnit enforcing that nothing in
+the domain reaches them, and they graduate to a module if they grow. See
+xref:../adr/adr-014-seven-modules-not-eight.adoc[ADR-014].
+
+`vortex-report` is what that graduation looks like. It was added later, under the same rule rather
+than in spite of it: a third-party PDF rendering engine with a distinctive licence is exactly the
+substantial dependency the rule contemplates, and `com.lowagie..` is confined to
+`dev.vortex.report.pdf..` by an ArchUnit rule so the quarantine is checked rather than intended.
+See xref:../adr/adr-029-openpdf-quarantined-in-a-report-module.adoc[ADR-029].
+
+=== The core's constraint
+
+`vortex-core` declares *zero* compile-scope dependencies — no Spring, no Jackson, no validation
+API, nothing but the JDK. The build enforces it with a banned-dependencies rule, which is stronger
+than any architecture test: a forbidden import does not compile.
+
+[source,xml]
+----
+<bannedDependencies>
+  <includes>
+    <include>*:*:*:*:compile</include>
+    <include>*:*:*:*:runtime</include>
+    <include>*:*:*:*:provided</include>
+  </includes>
+  <message>vortex-core must have no compile/runtime dependencies. domain = Java.</message>
+</bannedDependencies>
+----
+
+Adding one is a deliberate architectural decision requiring an ADR, not an import statement.
+
+----
+domain       = Java
+application  = Java + ports
+adapters     = frameworks
+----
+
+The consequence is that everything is wired explicitly in `CoreConfiguration`. That costs a few
+dozen lines of obvious wiring and buys a domain model that is ordinary Java: instantiable with
+`new`, free of container lifecycle, impossible to accidentally couple to a framework. See
+xref:../adr/adr-013-core-has-no-framework-dependencies.adoc[ADR-013].
+
+`CoreArchitectureTest` states the reasoning in code, and catches the case where someone relaxes
+the build before the design discussion has happened:
+
+* the domain must not depend on Spring
+* ...or Jackson
+* ...or JDBC, SQLite or Flyway
+* ...or k6
+* ...or Spring AI
+* ...or servlets or Thymeleaf
+* nothing outside `port` may read the clock directly — time is injected
+* nothing prints to the console — core communicates through return values
+
+=== Why not Spring Modulith
+
+Considered and declined. It verifies module boundaries within a single Maven module — useful when
+you have one. Vortex already has real Maven boundaries, enforced by the compiler rather than by a
+test, and adding Modulith would mean a second boundary mechanism describing the same structure.
+
+If Vortex ever consolidates into fewer Maven modules, Modulith becomes the right tool.
+
+=== Where things go
+
+[cols="2,3", options="header"]
+|===
+| Adding…
+| Goes in
+
+| A domain concept
+| `vortex-core`
+
+| A use case
+| `vortex-core/application`
+
+| A calculation over measurements
+| `vortex-core`, as a pure function
+
+| A new engine
+| new module, implementing `PerformanceEngine`
+
+| An export format
+| `vortex-report`, implementing `EvidenceExporter`
+
+| A report section
+| `core.evidence`, plus a fragment in `templates/evidence.html`
+
+| An observability provider
+| new module or `vortex-app/adapter`, by the rule above
+
+| A page
+| `vortex-app/web`
+
+| A CLI command
+| `vortex-app/cli`
+
+| A migration
+| `vortex-persistence/resources/db/migration`
+
+| An AI capability
+| `vortex-ai`, prompt as a resource
+|===
+
+== Ports
+
+Everything external sits behind an interface in `dev.vortex.core.port`:
+
+[cols="2,2,3", options="header"]
+|===
+| Port
+| Implemented by
+| Future implementations
+
+| `PerformanceEngine`
+| `K6PerformanceEngine`
+| other local engines. *Not* how remote execution arrives — see
+  <<remote-execution,remote and distributed execution>>
+
+| `PerformanceAssistant`
+| `OllamaPerformanceAssistant`
+| Bedrock, enterprise gateways
+
+| `ObservabilityProvider`
+| `ActuatorObservabilityProvider`, `PrometheusObservabilityProvider`,
+  `DynatraceObservabilityProvider`
+| —
+
+| `ProductionObservationSource`
+| `PrometheusObservationSource`, `DynatraceObservationSource`
+| — (deliberately: see xref:../adr/adr-031-production-observation-has-its-own-port.adoc[ADR-031])
+
+| `TelemetryCollector`
+| `ObservabilityTelemetryCollector`
+| —
+
+| `ServiceCatalogImporter`
+| `OpenApiCatalogImporter`
+| HAR, Postman, k6 script
+
+| `ConfigurationStore`
+| `YamlConfigurationStore`
+| —
+
+| `ArtifactStore`
+| `FilesystemArtifactStore`
+| —
+
+| `LocalLab`
+| `DockerLocalLab`
+| —
+
+| `Clock`
+| system UTC
+| fixed, in tests
+
+| repositories
+| JDBC implementations
+| —
+|===
+
+Applied pragmatically. There are no single-method interfaces created for symmetry, and no
+abstract factories.
+
+`vortex-core` has no knowledge of who calls through these ports — enforced by ArchUnit and by the
+absence of any web dependency in that module. The same application services execute behind the
+web UI, the CLI, and whatever comes next; the two lifecycles those services drive — a
+deterministic execution state machine that is never blocked by AI, and a separate analysis
+resource layered on top once a run already has a verdict — are described in full in
+xref:execution-and-evidence.adoc[], along with the evidence hierarchy (raw evidence through
+interpretation) and the virtual-thread concurrency model that keeps a fifteen-minute test from
+holding a platform thread. AI analysis itself is covered in xref:ai-analysis.adoc[].
+
+== Domain model
+
+Plain Java. No annotations, no framework, no ORM. Records and sealed interfaces, with invariants
+in compact constructors.
+
+=== The mental model
+
+....
+SYSTEM UNDER TEST    what service are we evaluating?
+        ↓
+OPERATIONS           what interactions can we exercise?
+        ↓
+WORKLOAD             what workload do we want the SUT to experience?
+        ↓
+QUALITY GATES        what must remain true under that workload?
+        ↓
+RUN                  execute through k6
+        ↓
+EVIDENCE             what actually happened?
+        ↓
+DECISION             is the service ready? where is the limit? did we regress?
+....
+
+The short version:
+
+[cols="1,4"]
+|===
+| SUT | what system?
+| Operation | what interaction?
+| Workload | what workload?
+| Gate | what is acceptable?
+| Run | what execution?
+| Evidence | what happened?
+|===
+
+=== The shape
+
+[source,mermaid]
+----
+flowchart LR
+    P[Project · the SUT] --> C[ServiceCatalog]
+    C --> O[Operation]
+    P --> CFG[ProjectConfiguration]
+    CFG --> B[OperationBinding]
+    CFG --> S[Workload]
+    S --> MIX[OperationMix]
+    S --> W[Workload]
+    S --> TT[TestType]
+    CFG --> ENV[Environment]
+    CFG --> TH[ThresholdSet]
+    CFG --> PO[ProductionObservation]
+
+    CFG -->|resolve| PLAN[EffectiveTestPlan]
+    PLAN --> EX[TestExecution]
+    EX --> MR[MeasuredResults]
+    EX --> DS[DeterministicSummary]
+    EX -.-> AN[Analysis]
+    EX --> CAP[CapacityObservation]
+----
+
+=== The system under test
+
+The SUT is one deployable service — typically a microservice representing a bounded capability. It
+is deliberately *not* a type of its own: it is the `Project`, its `ServiceCatalog` of operations,
+and the `Environment` the run targets.
+
+A service has dependencies, and they certainly affect the numbers:
+
+....
+Client
+  │
+  ▼
+Application Service       ← the SUT
+  │
+  ├── Database
+  ├── Decisioning Service
+  └── Event Broker
+....
+
+That does not make them additional systems under test. What it changes is *what a result may
+claim*, and Vortex already models exactly that, through `Environment.dependencyMode()` and
+`EnvironmentCapabilities` — which together produce a `TestClassification` of isolated or
+integrated. A named inventory of dependencies would feed no computation, so there is not one. See
+xref:../03-performance-model/experiments.adoc[isolated versus integrated].
+
+=== Packages
+
+[cols="1,4", options="header"]
+|===
+| Package
+| Contents
+
+| `shared`
+| Identifiers and value types: `LoadLevel` (sealed), `RequestsPerSecond`, `Concurrency`,
+  `Percentile`, `ErrorRate`, `Weight`, `Percentages`
+
+| `project`
+| `Project`, `ProjectConfiguration`, `ProjectReadiness`
+
+| `catalog`
+| `ServiceCatalog`, `Operation`, `OperationBinding`, `ExpectedResponse`, `HttpMethod`,
+  `OperationKind`, `PayloadProvenance`
+
+| `scenario`
+| `Workload`, `TestType`, `WorkloadSource`
+
+| `workload`
+| `Workload` (sealed), `WorkloadModel`, `OperationMix`, `WeightedOperation`, `Stage`,
+  `RateAllocator`, `AllocatedRate`
+
+| `environment`
+| `Environment`, `EnvironmentType`, `DependencyMode`, `TestClassification`, `TargetUrl`,
+  `SecretReferences`
+
+| `threshold`
+| `Threshold` (sealed), `ThresholdScope`, `ThresholdSet`, `ThresholdEvaluator`, `Verdict`
+
+| `intent`
+| `TestIntent`
+
+| `plan`
+| `EffectiveTestPlan`, `PlannedOperation`, `OperationKeys`, `PlanFingerprint`, `CanonicalJson`,
+  `ScriptSource`, `ToolVersions`
+
+| `execution`
+| `TestExecution`, `ExecutionState`, `ExecutionProgress`, `FailureReason`, `ExecutionArtifacts`
+
+| `metrics`
+| `MeasuredResults`, `OperationMetrics`, `MetricObservation`, `LatencyPercentiles`, `MetricSeries`,
+  `SamplePoint`
+
+| `analysis`
+| `DeterministicSummary`, `SloBreakpoint`, `SystemSaturation`, `EvidenceStrength`, `Analysis`,
+  `Finding`, `EvidenceIds`
+
+| `capacity`
+| `CapacityObservation`, `Headroom`, `HeadroomCalculator`, `ProductionObservation`
+
+| `comparison`
+| `ExecutionComparison`, `RegressionEvaluator`, `EquivalenceCheck`
+
+| `safety`
+| `ExecutionPolicy`, `SafetyLimits`, `SafetyFinding`, `SafetyAssessment`
+
+| `calibration`
+| `CalibrationPolicy`, `WorkloadSuggestion`
+
+| `port`
+| Every boundary to the outside world
+
+| `application`
+| Use cases: plan resolution, preflight, execution, analysis, projects, catalogs, capacity
+|===
+
+=== The types that carry the most weight
+
+==== `Operation`
+
+One meaningful interaction with the service: method, path, parameters, and the body Vortex would
+send. A machine-discoverable fact, re-derived on every import.
+
+*A single operation is a complete performance target.* "Can `POST /applications` sustain 50
+submissions per second within its latency objective?" needs no mix, no flow and no business
+framing.
+
+What a *person* decided about an operation lives separately, in `OperationBinding`: the request
+data, the expected response, and whether a mutating operation has been approved for execution.
+Keeping the two apart is why re-importing a specification never discards somebody's test data.
+
+==== `Workload`
+
+The workload Vortex intends to reproduce: a `TestType`, an `OperationMix`, a `Workload`, its own
+objectives, and a `WorkloadSource` recording where the numbers came from.
+
+What it is not:
+
+* *Not a business journey.* An operation mix is aggregate traffic composition, not one caller
+  working through several endpoints in order. See
+  xref:../03-performance-model/workloads.adoc[composition versus sequence].
+* *Not a k6 scenario.* k6's `workloads` block schedules VUs and iterations. One Vortex workload
+  normally compiles into several k6 scenarios — one per operation. Vortex sits a level above and
+  does not mirror its object model.
+* *Not a test type.* The test type is the pattern; the workload is the concrete workload for this
+  service.
+
+==== `LoadLevel`, `RequestsPerSecond` and `Concurrency`
+
+A sealed interface with two members, and every level carries its unit. An open workload controls a
+*request rate*; a closed workload controls *concurrency*. The two never convert into one another,
+because deriving a rate from a virtual-user count needs a latency — the thing the test exists to
+measure.
+
+`50` therefore never travels alone. It travels as `50 requests/sec` or `50 VUs`, through the plan
+fingerprint, the database, the charts and the report, so a regression comparison across the two
+returns `NOT_COMPARABLE` rather than a confident percentage.
+
+==== `Workload` and `RateAllocator`
+
+A workload carries a single *total* level. Per-operation rates are `AllocatedRate`, a class whose
+constructor is package-private and which only `RateAllocator` can produce.
+
+That is the whole point. The dangerous reading — "each operation runs at the total rate" — is not
+merely discouraged, it is inexpressible. A 60/30/10 mix at 100 requests/sec produces 60, 30 and 10;
+never three workloads at 100.
+
+Allocation uses the largest-remainder method against the rate granularity, so the parts always sum
+to the whole. Extensively tested, including fractional splits, single operations, many operations
+and rates too small to divide.
+
+Weighted mixes apply to *open* workloads only — see
+xref:../adr/adr-025-open-and-closed-workload-models.adoc[ADR-025].
+
+==== `EffectiveTestPlan`
+
+The fully resolved, immutable description of what will run. Distinct from `ProjectConfiguration`:
+
+[cols="1,1", options="header"]
+|===
+| `vortex.yaml`
+| `EffectiveTestPlan`
+
+| what the user asked for
+| what will actually happen
+
+| edited freely, lives in git
+| immutable, snapshotted per run
+
+| "production-peak, 120/sec, 15/25/55/5"
+| "18/sec createOrder, 30/sec getOrder, 66/sec getOrderStatus, 6/sec cancelOrder, against
+  `http://localhost:8080`, local runner, isolated"
+|===
+
+Resolution never writes back into configuration. Reports render from the snapshot, so a report
+from six months ago describes the test that ran.
+
+The plan also carries the *k6 scenario key* assigned to each operation. That mapping is how
+measurements are attributed back, and it is read from here rather than inferred from a tag string
+— see xref:../adr/adr-026-generated-k6-uses-native-primitives.adoc[ADR-026].
+
+Secret values are never present — headers carry `${VORTEX_AUTH_TOKEN}`, resolved only at process
+launch.
+
+==== `TestType`
+
+`SMOKE`, `AVERAGE_LOAD`, `STRESS`, `SPIKE`, `SOAK`, `BREAKPOINT` — the established load-testing
+patterns, named as the field names them.
+
+*Intent, not a schedule.* A test type selects no executor and constrains no workload shape. A soak
+may be closed-model when the caller is a fixed worker fleet; a spike may be a step change in
+either quantity. Vortex guides the pairing and refuses none of it.
+
+Deliberately absent: *baseline*, which is a comparison concept rather than a workload — the run
+you measure against, recorded as a `CapacityObservation` and a plan fingerprint. And *volume*,
+which describes the size of the data the service holds rather than the traffic arriving at it.
+
+==== `WorkloadSource`
+
+Where a workload's numbers came from: observed, derived from an observation, or manually entered.
+"50 requests/sec" means two different things depending, and a capacity conclusion inherits the
+confidence of its weakest input. Vortex shows the provenance beside the number rather than
+inferring confidence it does not have.
+
+==== `TestIntent`
+
+`{ TestType, String objective }` — what this run is trying to learn. Taken from the workload. The
+result page opens by returning to it.
+
+==== `MetricObservation`
+
+Every measurement carries `name · source · unit · aggregation · value · window · dimensions`. No
+anonymous doubles. When an analysis says "CPU remained below 58%", Vortex knows which provider
+measured it, over what window, and how it was aggregated.
+
+==== `Threshold`, `ThresholdScope` and `Verdict`
+
+Sealed hierarchy, evaluated by pure code. An objective applies to the whole run or to one
+operation: a status check answering in 40 ms and a submission answering in 900 ms average out to a
+number that describes neither.
+
+`NOT_EVALUATED` is a first-class outcome — an objective whose measurement was not collected is
+never reported as passed, and neither is one whose operation issued no requests.
+
+==== `SystemSaturation`
+
+Reports a *range* with named corroborating signals, or `NOT_ESTABLISHED`. Requires at least two
+independent signals. Deliberately reluctant.
+
+==== `CapacityObservation`
+
+Named an _observation_, not a _baseline_, because tested capacity is not a property a service has.
+Cannot be constructed without its conditions.
+
+Today's model is HTTP-shaped throughout — `Operation` carries a method, a path, an `HttpMethod`,
+and an `OperationKind` derived from it. Extending Vortex to non-HTTP entry points such as message
+consumers is a roadmap direction, not a current decision; see
+xref:../01-product/roadmap.adoc[] (Phase 7) for that plan.
+
+=== Conventions
+
+* *Records* for value objects, with invariants in compact constructors
+* *Sealed interfaces* where the set of cases is closed (`Threshold`, `Workload`, `LoadLevel`)
+* *`Optional`* on accessors that can legitimately be absent, named `xIfPresent()`
+* *Constructor injection*, no field injection, no setters
+* *No Lombok* — records cover the cases that mattered
+* *No `null` in collections* — empty collections instead
+* *`Instant` in UTC* for anything stored; local time only at render
+* *Exceptions carry remedies*, not just messages
+* *Every figure carries its unit* — a bare number that has forgotten what it counted is not
+  recoverable
+
+[[local-lab]]
+== Local lab
+
+Running a service's dependencies on a developer's machine so it can actually be tested there.
+
+=== Why local testing is first-class
+
+An engineer should be able to learn performance testing, validate a workload and catch a
+regression without booking an environment or waiting for a pipeline. Fast, free, safe, and
+available to everyone.
+
+What it produces is an xref:../03-performance-model/experiments.adoc[isolated test] — genuinely
+useful for application bottlenecks, concurrency, pools and regressions, and genuinely unable to
+establish production capacity.
+
+=== Vortex does not own your Compose file
+
+Most services that need a database and a couple of stubs already have a working `compose.yaml`.
+Vortex references it:
+
+----
+Local performance lab
+  k6 ──────────────▶ service under test
+                          │
+                          ├── PostgreSQL
+                          ├── WireMock
+                          └── LocalStack
+----
+
+Composable: a project declares what it needs. A service with no dependencies needs no lab at all.
+
+Generating a second Compose file would ask teams to maintain the same thing twice, and the two
+would drift.
+
+A service points at its file in `vortex.yaml`:
+
+----
+lab:
+  compose: compose.yaml
+----
+
+The path is relative to the repository and Vortex refuses an absolute one, because this file is
+committed and read on other people's machines. It is configured in the service's workspace, under
+*Understand → Reality → Environments*, on the *Local lab* card — which is also where *Start
+dependencies* and *Stop dependencies* live.
+
+Beside the environment, deliberately. Whether this service's dependencies are up is part of
+whether it can be tested at all, and a user should not have to visit a settings page to find that
+out (xref:../adr/adr-034-the-service-workspace-is-the-product.adoc[ADR-034]).
+
+=== What a local lab is, and is not
+
+[quote]
+____
+Local Lab is an execution convenience, not a source of performance evidence and not part of run
+orchestration. Vortex may start or stop developer-owned dependencies, but it must not infer that a
+successful Compose command proves the service is healthy or ready for testing.
+____
+
+This distinction is what keeps the feature small. A local lab *may*:
+
+* point at a service-owned Compose file
+* start dependencies
+* stop dependencies
+* report Docker capability
+* report the result and captured output of commands Vortex executed
+
+A local lab *must not*:
+
+* automatically participate in test execution
+* automatically start dependencies before a run
+* declare a service ready for performance testing
+* turn Compose health into performance evidence
+* continuously monitor containers
+* manage arbitrary Docker resources
+* generate Compose files
+* become an environment orchestration subsystem
+
+==== Reporting what happened, not what is true now
+
+A successful `docker compose up -d --wait` establishes that Compose brought its services up and
+their healthchecks passed *at that moment*. Nothing watches them afterwards, so the interface says
+"Dependencies started successfully" rather than "the lab is running", and names the Compose file
+the command actually ran against.
+
+That last part matters more than it looks. The recorded outcome is evidence of a command, so it is
+kept with the file it was run against and discarded when that file changes — otherwise a success
+from `compose-a.yaml` would sit there looking like a success for the `compose-b.yaml` somebody has
+since configured.
+
+==== Machine capability is a separate question
+
+Whether Docker is installed, reachable and has Compose is a property of the machine, and it is
+answered under *Runtime*, alongside the load generator and the workspace. Which Compose file a
+service starts is a property of that service, and lives in that service's workspace. The two are
+deliberately not merged: one asks "can this machine run a lab at all?", the other "does this
+service define one?"
+
+They are also reported differently. Runtime states a count of what it checked and never a single
+word covering all of it, because Docker being absent is not a problem — it is an optional
+capability whose absence costs a convenience.
+
+=== Docker is optional
+
+Nothing about onboarding, configuration, execution, evaluation, reporting or comparison requires
+it. `DoctorReport` marks it optional and says so, so nobody installs Docker because a diagnostic
+seemed to demand it.
+
+It is needed only for containerised dependencies, or the containerised load generator.
+
+=== The Docker runner, and its honest caveats
+
+`DockerK6Runner` runs `grafana/k6`, pinned rather than `latest` so runs stay reproducible.
+
+*The target must change.* A container's `localhost` is the container. Testing a service on the
+host requires rewriting to `host.docker.internal` — provided by Docker Desktop on macOS and
+Windows, and added via an explicit host mapping on Linux.
+
+Vortex never does this quietly. Preflight shows both:
+
+----
+Configured target   http://localhost:8080
+Will actually call  http://host.docker.internal:8080
+----
+
+A run whose traffic went somewhere other than the address the user typed is a run whose results
+cannot be interpreted — and on Linux the rewrite may simply not resolve, which is far easier to
+diagnose when it is visible.
+
+*It is not a sandbox.* Containerising an imported script limits filesystem access, which is worth
+something. The container shares the host kernel, has network access, and can reach anything the
+host can reach. See xref:security.adoc[].
+
+=== Diagnostics
+
+`vortex doctor` distinguishes:
+
+* Docker not installed
+* installed but daemon not running
+* daemon running but Compose missing
+
+Each with its own remedy, because each needs a different one.
+
+=== The demo service
+
+`vortex-demo-service` is a real Spring Boot application with a *deliberate, documented* bottleneck:
+a semaphore-bounded worker pool plus simulated downstream latency, producing genuine queueing.
+
+Two properties matter:
+
+* *Vortex knows nothing about it.* No special case anywhere. It observes latency, errors and the
+  pool metrics the service publishes through its ordinary metrics endpoint, and infers from that
+  alone — exactly what it would have for an unfamiliar service.
+* *Nothing is scripted.* There is no rule saying "fail above N requests per second". The
+  degradation emerges from contention, so the exact point moves with machine speed, JIT and
+  background load.
+
+Its `/about` endpoint describes its own limits, for whoever is running the demonstration. Vortex
+never reads it.
+
+Expected behaviour: baseline stable, peak stable, stress eventually violating the objective, pool
+acquisition wait rising with load. The _measured_ breakpoint is recorded, not required to equal
+any particular figure.
+
+[[local-lab-vs-dependency-simulation]]
+=== Local lab and dependency simulation are not the same concern
+
+xref:../01-product/roadmap.adoc[The roadmap] describes a future capability that reproduces observed
+production dependency characteristics — latency distribution, timeouts, failures — during a local run.
+That capability sits *beside* local lab, not inside it, and the two boundaries stay separate on
+purpose:
+
+* Local lab answers _whether a dependency is running_ — starting and stopping containers a service
+  already declares in its own Compose file.
+* Dependency simulation would answer _how a running dependency behaves_ — putting a proxy in front of
+  a dependency local lab (or a developer) already started, so it answers the way production is
+  observed to, rather than instantly.
+
+The second does not extend local lab's authority. The boundaries above continue to hold: local lab
+still does not participate in execution automatically, still does not turn a successful command into
+performance evidence, and still does not become an environment orchestration subsystem. A local
+dependency has to already be running — by local lab or otherwise — before anything could shape how it
+responds.
+
+[[remote-execution]]
+== Remote and distributed execution
+
+Everything above this section is, and remains, the whole of local execution. This section describes
+where Vortex goes when a run outgrows one machine or needs a controlled, disposable execution
+environment — full detail and staging live in xref:../01-product/roadmap.adoc[the roadmap] (Phase
+5); this is the architectural shape that phase builds toward, not a schedule.
+
+=== Two paths, one product
+
+The Workbench remains the only interactive product. Local execution is unchanged; remote execution
+is a second path it can choose instead, never a replacement and never a precondition:
+
+[source,mermaid]
+----
+flowchart TB
+    WB[Vortex Workbench] -->|local| K6L[local k6]
+    K6L --> TARGET[Target system]
+
+    WB -->|remote| COORD[Vortex Coordinator]
+    COORD -->|Kubernetes API| JOB[Ephemeral Job]
+    JOB --> RUNNER[Vortex Runner]
+    RUNNER --> K6R[k6]
+    K6R --> TARGET
+----
+
+*The Coordinator is not in the local execution path.* Today the Workbench manages local execution
+directly through `PerformanceEngine`, and that does not change. The Coordinator is not inserted
+underneath local runs to make the two paths look alike:
+
+----
+DO NOT:  Workbench → Coordinator → Local Runner → k6
+DO:      Workbench → k6                                (unchanged)
+----
+
+A developer must still be able to do exactly this, with no remote infrastructure involved and no
+network connectivity to anything Vortex operates:
+
+----
+Vortex Workbench
+    ↓
+local k6
+    ↓
+localhost / target
+----
+
+Architectural symmetry between the two paths is not a goal. What they share is the evidence
+contract — requested workload, delivered workload, generator evidence, target evidence, execution
+environment, verdict (xref:execution-and-evidence.adoc[]) — not the runtime topology that produces
+it. How that evidence is produced is allowed to differ, and for local execution it should keep
+differing: forcing a local run through the Coordinator would add a runtime hop, a new failure mode
+and a new thing to keep running, in exchange for symmetry nobody asked for.
+
+=== Three components, one repository
+
+[cols="1,3", options="header"]
+|===
+| Component | Role
+
+| *Vortex Workbench*
+| Today's application, unchanged in kind: service definition, workload composition, objective
+  definition, local execution, live progress, evidence exploration. Gains the ability to submit a
+  run to a remote execution environment and watch it the same way it watches a local one — from the
+  user's side, eventually a choice of execution environment, not a second product.
+
+| *Vortex Coordinator*
+| The control plane for remote execution, and only for remote execution. Accepts remote execution
+  requests, materialises immutable execution plans, delegates to a Kubernetes execution provider,
+  supervises worker lifecycle, collects worker evidence, aggregates it, and decides whether enough
+  trustworthy evidence exists for a verdict. Long-lived, because something has to own execution
+  happening in infrastructure the Workbench cannot reach directly — that is the entire reason it
+  exists, not a workflow engine, not a scheduler, not a Kubernetes replacement.
+
+| *Vortex Runner*
+| A small, headless execution worker with no UI, suitable eventually for a lightweight
+  native/container package. Its lifecycle is `materialise assignment → launch and supervise k6 →
+  observe its own resource use → report evidence → exit`. It does not decide a verdict, does not
+  schedule, does not maintain durable state, and does not orchestrate Kubernetes.
+|===
+
+All three stay in this repository and continue to share `vortex-core` and its evidence contract.
+Where a genuine runtime boundary exists — the Coordinator is a long-lived service, the Runner is a
+disposable process — they may become separate deployable artifacts, following the same rule that
+already governs Maven modules (<<modules,a module exists to quarantine a real dependency or enforce
+a real direction>>). That rule argues *for* Coordinator and Runner as their own modules once they
+have real code — a `KubernetesExecutionProvider` quarantines the Kubernetes client the same way
+`vortex-k6` quarantines `ProcessBuilder` and k6's wire formats — and *against* a second repository or
+premature service decomposition, neither of which quarantines anything.
+
+=== Control plane and load plane are different traffic
+
+[source]
+----
+Control / evidence plane            Load plane
+
+  Workbench                           Runner
+      │                                  │
+      ▼                                  │ HTTP today; other
+  Coordinator ◄──────┐                   │ transports as the
+      ▲               │                  │ roadmap's async
+      │            Runner(s)             │ work (Phase 7) lands
+      └───────────────┘                  ▼
+  execution requests,              Target system
+  status, progress,
+  evidence, cancellation
+----
+
+The Workbench and the Coordinator must never sit on the path generated traffic takes to the target.
+A `Runner → Coordinator → Target` hop would make Vortex's own infrastructure part of the measured
+request path — an artificial bottleneck at best, contaminated latency at worst, on the exact number
+the whole system exists to measure honestly. The correct path is always `Runner → Target`, direct.
+
+=== Kubernetes owns compute lifecycle; Vortex owns experiment semantics
+
+The Coordinator reasons about Vortex concepts — an execution plan, a handle to a running execution,
+its status, the evidence it produced, one worker's contribution to that evidence — through a
+`RemoteExecutionProvider` boundary, with Kubernetes specifics confined to a
+`KubernetesExecutionProvider` behind it:
+
+----
+Vortex Coordinator
+       │
+       ▼
+RemoteExecutionProvider        (ExecutionPlan, ExecutionHandle, ExecutionStatus,
+       │                        ExecutionEvidence, WorkerExecution — Vortex's own vocabulary)
+       ▼
+KubernetesExecutionProvider     (Job, Pod, Namespace, ServiceAccount, resource requests/limits,
+       │                         node selectors, taints/tolerations, TTL, watch APIs — confined here)
+       ▼
+Kubernetes API
+----
+
+Names are illustrative, not a commitment — the real shape is a decision for the ADR written when
+this is actually built. The boundary itself is the point: no code outside the Kubernetes adapter
+should need to know what a `Pod` is, the same discipline that already keeps k6's wire format inside
+`vortex-k6` and Docker's API inside its adapter package. ECS, Nomad and other backends are not
+implemented behind it now, and nothing here should make adding one later require rewriting the
+Coordinator — but building that generality today, for zero real backends beyond Kubernetes, would be
+exactly the plugin-framework-with-one-implementation this project has repeatedly declined (see how
+`ObservabilityProvider` stayed at two real adapters in Phase 3, and ADR-010's own reasoning below).
+
+Identity and permissions follow the same discipline: a Kubernetes `ServiceAccount` and RBAC scoped
+to creating, observing, cancelling and cleaning up Vortex's own execution resources — not a cluster
+admin credential, not a static AWS key embedded anywhere, not SSH. *Kubernetes decides where and how
+an execution worker runs. Vortex decides what should be executed and what the resulting evidence
+means* — and the traffic each of them generates never crosses into the other's job.
+
+The two must also never be confused with each other in what a result reports:
+
+----
+Kubernetes Job SUCCEEDED   ≠   Performance test PASSED
+Kubernetes Job FAILED      ≠   Target system failed under load
+----
+
+A Job succeeding says Kubernetes ran what it was asked to run; it says nothing about what the
+service under test did. A Job failing is infrastructure evidence, not target evidence, and must
+surface as an execution or validity problem — not silently become a `Verdict` about the service, the
+exact confusion `RunQuality` (roadmap Phase 4, ADR-038) exists to prevent for local runs already.
+Distributed execution inherits that discipline; it does not get a second, laxer one.
+
+=== Workers are ephemeral compute, never idle Vortex infrastructure
+
+[cols="1,1,1", options="header"]
+|===
+| | Coordinator | Runners
+
+| Idle
+| 1
+| 0
+
+| Test running
+| 1
+| _N_
+
+| Test finished
+| 1
+| 0 — evidence persisted
+|===
+
+Kubernetes Jobs are disposable execution workers, cleaned up through native mechanisms such as Job
+TTL rather than a Vortex-built reaper. Vortex keeps the evidence; Kubernetes keeps nothing once a
+Job's TTL expires — the two systems' responsibilities do not overlap. No idle Runner fleet is
+maintained "for responsiveness"; a slower cold start is a cost worth paying to avoid owning a fleet
+that has no test to run most of the time.
+
+Serious capacity testing eventually wants workers in a known resource envelope — explicit CPU and
+memory requests and limits, `requests = limits` where predictability matters more than bin-packing —
+so a dropped-iteration signal can be read against a declared allocation rather than whatever the
+node happened to have free. Dedicated node pools (node selectors, taints/tolerations) to reduce
+noisy-neighbour effects are the same idea one level up. Neither is designed in detail here; both
+follow directly from resource signals Phase 4 already introduces (`ResourceScope`,
+`ResourceLimit` — ADR-037), extended to a scope the domain does not have yet.
+
+=== Execution environment becomes part of the evidence
+
+A trustworthy result should be able to state not only what it measured but where it ran — mode
+(local or remote), provider, worker count and shape, k6 version, region where one applies. That is
+an extension of provenance Vortex already records for local runs
+(xref:execution-and-evidence.adoc#fingerprint-included[what a plan fingerprint includes today]), not
+a new concept; local execution should keep recording enough of it to stay explainable too, not only remote.
+The full shape is deliberately not designed here — see the roadmap for what is and is not decided.
+
+For a distributed run, per-worker resource and delivery evidence rolls up the same way `RunQuality`
+already reasons about a single generator: a worker that saturated before delivering its assigned
+share is evidence that worker did not establish its share of the workload, not evidence the target
+could not have sustained it. *Failure to generate the requested workload is not evidence that the
+target cannot handle the requested workload* — the single most important sentence in this section,
+and one this codebase already lives by for one generator (`OFFERED_LOAD_NOT_GENERATED`,
+`GENERATOR_SATURATED` — roadmap xref:../01-product/roadmap.adoc#runquality[4.5]). Distributed
+execution's only real evidentiary job is applying that same sentence per worker instead of once.
+
+=== Not hard-coded to HTTP forever
+
+The Runner's execution runtime should not bake in `Runner == HTTP/k6, permanently`. The roadmap
+already anticipates event-driven workloads (Phase 7); remote execution should leave room for a
+transport-specific execution path later without coupling today's work to one. This is a constraint
+on today's boundaries, not a plugin framework built ahead of a second transport that does not exist
+yet — the same discipline `ObservabilityProvider` and `ServiceCatalogImporter` already apply.
+
+=== Guardrails
+
+Vortex will not build its own scheduler, cluster manager, service mesh, general workflow engine or
+distributed-compute platform. Kubernetes already does scheduling, pod placement, worker lifecycle,
+restart primitives and resource allocation; Vortex's job stays workload semantics, objectives,
+execution intent, evidence, generator trustworthiness, aggregation, interpretation and verdicts. Every
+piece of distributed infrastructure capability has to answer one question before it is worth
+building: *does this materially improve the confidence, repeatability, scalability or usability of a
+performance experiment?* If not, it does not get built — not persistent runner fleets, not worker
+discovery protocols, not heartbeat/lease systems, not adaptive sharding or autoscaling, not
+multi-region or multi-cloud execution, not a generic plugin framework for execution providers.
+
+=== Relationship to ADR-010 and ADR-040
+
+xref:../adr/adr-010-k6-operator-for-distributed-execution.adoc[ADR-010] originally committed
+distributed execution to generating a `TestRun` manifest for the
+https://github.com/grafana/k6-operator[k6 Operator], with Vortex explicitly declining to talk to
+Kubernetes itself.
+xref:../adr/adr-040-vortex-coordinator-for-remote-execution.adoc[ADR-040] supersedes it: the
+Coordinator talks to the Kubernetes API directly and runs a purpose-built Vortex Runner inside an
+ephemeral Job, because it is the Coordinator's own resources being created and watched, not a
+`TestRun` handed to an operator to schedule, and evidence needs to flow back through Vortex's own
+control plane rather than being reconstructed from the Operator's status objects. ADR-010's
+underlying decision — *Vortex will not build a distributed scheduler* — still holds; Kubernetes
+remains the scheduler either way. What changed is which Kubernetes object represents one execution.
+See ADR-040 for the full reasoning and consequences.
+
+[[native-image]]
+== Runtime status: GraalVM native image
+
+=== Status: configured, not verified
+
+This is stated plainly because the alternative — implying it works — would be the kind of
+unchecked claim this project is built to avoid.
+
+Build configuration:: Present (`native` profile in `vortex-app/pom.xml`)
+Reflection hints:: Present for domain types crossing serialisation boundaries
+Compiled successfully:: *No. Never attempted.*
+Runtime-verified:: *No*
+
+Native compatibility is treated as a quality attribute throughout — it shapes real decisions — but
+nobody has run the compiler, so nobody knows whether it works.
+
+=== Why it shapes decisions anyway
+
+Several choices were made partly with native compilation in mind, and each stands on its own
+merits:
+
+* *`JdbcClient` with hand-written row mappers* rather than an ORM. No proxies, no bytecode
+  generation, no reflection-heavy entity graph.
+* *A framework-free core.* Plain Java classes with no annotation processing.
+* *Jackson configured explicitly*, with mixins in one place rather than annotations scattered
+  across the domain.
+* *`-parameters` enabled*, so record component names survive for constructor binding.
+* *No dynamic class loading, no reflection-based dependency injection in the domain.*
+
+=== The command
+
+[source,bash]
+----
+JAVA_HOME=/path/to/graalvm-25 ./mvnw -Pnative -pl vortex-app native:compile
+----
+
+Requires GraalVM 25 with `native-image` installed. Expect fifteen to thirty minutes and several
+gigabytes of memory.
+
+=== What we expect to find
+
+*`swagger-parser` is the main risk.* It is reflection-heavy — a large Jackson-bound model with
+polymorphic deserialisation. Reachability metadata may be incomplete.
+
+The mitigation is already in place: it is confined to `vortex-openapi` behind
+`ServiceCatalogImporter`, and its model types never escape that module (enforced by test). If it
+proves unworkable natively, it can be replaced with a hand-written parser for the subset Vortex
+actually uses, without touching anything else.
+
+Other likely areas:
+
+* SQLite JDBC loads a native library; it generally works but needs resource configuration
+* Spring AI's HTTP clients
+
+=== What remains to be done
+
+. Run the command above
+. Record what fails
+. Add reachability metadata for what can be fixed
+. *Document honestly what cannot*
+. Smoke-test the binary: start it, create a project, import a specification, run a smoke test
+. Add a CI job so it stays working
+
+Until steps 1–5 are done, this page says "not verified" and the README says the same.
+
+=== If you attempt it
+
+Please record the outcome here — the failures are more useful than the successes, and the next
+person should not have to rediscover them.
+
+Note that Vortex is genuinely useful on the JVM. Native compilation improves startup time and
+memory footprint for a tool that is already fast to start; it is a nice-to-have, and
+xref:../adr/adr-020-native-image-is-a-quality-attribute.adoc[not worth compromising the
+architecture for].
+
+== Where the UI sits
+
+The web interface is one adapter among several, calling the same application services as the CLI.
+Its structure — the app shell, the service-centric workspace, the command palette, how pages map
+to routes — is its own concern and is covered in xref:interface.adoc[].

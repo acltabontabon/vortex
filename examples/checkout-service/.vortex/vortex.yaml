@@ -1,0 +1,327 @@
+# Vortex performance definition.
+#
+# This file is the portable, reviewable description of what to test. Commit it
+# alongside the service it describes: a performance definition that exists only
+# inside one installation of a tool cannot be reviewed, shared, or run from CI.
+#
+# The model, in five words:
+#
+#   Service     what system?      the service under test — this file describes one
+#   Operation   what interaction? one request against it
+#   Workload    what traffic?     how much load, across which operations, for how long
+#   Evaluation  what question?    what a run of that workload is meant to establish
+#   Evidence    what happened?    the result, kept with the conditions it was measured under
+#
+# A workload is a condition the whole service experiences, not a business flow.
+# An operation mix describes aggregate traffic composition — many callers hitting
+# several endpoints at once — not one caller working through them in order. The
+# `type:` on each workload is its evaluation: the kind of question it answers.
+#
+# Rates are requests per second. One operation is one request, so there is no
+# second rate to confuse it with.
+#
+# This example is more elaborate than what Vortex writes for a new project: it
+# shows a multi-operation mix, a concurrency workload, two environments, a
+# secret reference, and recorded production traffic. Validate it with:
+#
+#     vortex validate examples/checkout-service
+
+version: 1
+
+service:
+  name: checkout-service
+  description: "Order placement and lookup for the storefront."
+
+# How to issue each operation: the request data to send, what a good answer
+# looks like, and whether a person has approved it. The operations themselves
+# come from the imported OpenAPI document and are not repeated here, so
+# re-importing never discards these decisions.
+#
+# An operation that changes data must be reviewed before Vortex will execute it.
+# Schema-valid is not business-valid, and creating records at a hundred a second
+# is not something that should become possible by accident.
+#
+# Every value below is either written out or says where it comes from. A plain
+# string is a fixed value; a string containing ${NAME} is read from the
+# environment when the load generator starts. Anything else names its source.
+#
+# createOrder shows all four in one request, which is the realistic case:
+# the client id never changes, the idempotency key must never repeat, the
+# account has to be one that exists, and the partner token must not be written
+# down in a file that gets committed.
+operations:
+  createOrder:
+    reviewed: true
+    headers:
+      # Fixed — the same on every request, and correct that way.
+      X-Client-Id: "storefront-web"
+      # Generated — a new one for every request. A key that repeated would make
+      # every order after the first a duplicate submission, and a correct
+      # service would reject it: the run would measure the rejection path and
+      # report it as throughput.
+      X-Idempotency-Key: { generated: uuid }
+      # Environment — resolved only when k6 is launched. Vortex stores this
+      # reference and never the value, so it is safe in a committed file.
+      Authorization: "Bearer ${VORTEX_AUTH_TOKEN}"
+    body: '{"accountId":"","email":"","productCode":"","amount":42.5,"submittedAt":""}'
+    bodyValues:
+      # Dataset — a field of the current row of .vortex/datasets/accounts.csv.
+      # Every value this request reads from that dataset comes from the same
+      # row, so the account and the email belong to the same customer.
+      accountId:   { dataset: accounts, scope: portable, field: accountId }
+      email:       { dataset: accounts, scope: portable, field: email }
+      productCode: { dataset: accounts, scope: portable, field: productCode }
+      submittedAt: { generated: timestamp }
+    expect:
+      status: [200, 201]
+  # An order lookup only succeeds once an order exists, and Vortex has no way to
+  # know that from the specification. Saying so here is what stops a 404 from
+  # being counted as a service failure: k6 treats any 4xx as an error unless told
+  # otherwise, and "the data was not there" is a fact about the data.
+  getOrder:
+    pathValues:
+      id: "ord-1"
+    expect:
+      status: [200, 404]
+  cancelOrder:
+    pathValues:
+      id: "ord-1"
+    reviewed: true
+    expect:
+      status: [200, 404, 409]
+
+# Where tests can run, and — just as importantly — what each place actually is.
+# Vortex uses this to decide what a result can legitimately claim: a run against
+# simulated dependencies cannot establish production capacity, however fast it is.
+#
+# Header values may reference environment variables as ${NAME}. Vortex stores the
+# reference and resolves it only when launching the load generator, so a secret
+# never reaches this file, the execution history, the reports or the AI prompts.
+environments:
+  local:
+    type: LOCAL_ISOLATED
+    baseUrl: "http://localhost:8080"
+    dependencies: MOCKED
+    capabilities:
+      usesMockDependencies: true
+      usesLocalStack: false
+      productionLikeInfrastructure: false
+      sharedEnvironment: false
+      distributedExecutionAllowed: false
+
+  performance:
+    type: PERFORMANCE
+    baseUrl: "https://checkout.perf.example.com"
+    dependencies: REAL
+    capabilities:
+      usesMockDependencies: false
+      usesLocalStack: false
+      # Real dependencies AND production-like infrastructure together are what
+      # let Vortex treat results from here as integrated capacity evidence.
+      productionLikeInfrastructure: true
+      sharedEnvironment: true
+      distributedExecutionAllowed: true
+    headers:
+      Authorization: "${VORTEX_AUTH_TOKEN}"
+
+# The objectives every run is judged against unless a workload overrides them.
+# Without these a test produces measurements but no verdict, and a run with no
+# verdict is a demonstration rather than evidence.
+#
+# These are this service's agreed objectives, not a Vortex default.
+thresholds:
+  latency:
+    p95: 500ms
+    p99: 1s
+  errorRate:
+    maximum: 1%
+
+# The workloads Vortex can apply to this service.
+#
+# A workload is a traffic condition the service experiences, not a business flow: an
+# operation mix describes aggregate traffic composition — many callers hitting
+# several endpoints at once — rather than one caller working through them in
+# order. A single operation is a complete, valid workload.
+workloads:
+
+  # Start here. Enough traffic to prove the workload is valid and the service is
+  # reachable, and little enough that it cannot disrupt anything.
+  #
+  # Deliberately an account lookup rather than an order lookup: a smoke test
+  # should fail when Vortex cannot reach the service, not when the test data
+  # happens not to exist yet.
+  smoke:
+    type: SMOKE
+    shape:
+      model: arrival-rate
+      rate: 2
+      duration: 30s
+    operations:
+      getAccount: 100
+
+  # One operation is a complete performance target. No mix, no synthetic flow.
+  submission-capacity:
+    type: BREAKPOINT
+    description: "How many order submissions can this service actually take?"
+    objective: "Establish the sustained submission rate the service supports."
+    shape:
+      model: arrival-rate
+      startRate: 10
+      stages:
+        - target: 25
+          duration: 5m
+        - target: 50
+          duration: 5m
+        - target: 75
+          duration: 5m
+        - target: 100
+          duration: 5m
+    operations:
+      createOrder: 100
+    thresholds:
+      latency:
+        p95: 800ms
+
+  # Representative traffic, in the composition production actually sees. This is
+  # the run future releases are compared against.
+  average-load:
+    type: AVERAGE_LOAD
+    description: "The traffic the service receives on an ordinary weekday."
+    shape:
+      model: arrival-rate
+      rate: 95
+      duration: 10m
+    source:
+      kind: PRODUCTION_OBSERVED
+      detail: "Grafana · checkout-service overview"
+      # A window, not a moment. The peak of a rolling thirty days and the peak of
+      # one evening are different claims, and the reader has to be able to tell.
+      observed:
+        from: 2026-07-02T09:00:00Z
+        to: 2026-08-01T09:00:00Z
+    operations:
+      createOrder: 15
+      getOrder: 25
+      getAccount: 55
+      cancelOrder: 5
+
+  # The observed peak, held long enough to mean something. Above ordinary
+  # traffic by definition, which is the question a stress test asks.
+  #
+  # At 120 requests/sec this mix allocates 18 / 30 / 66 / 6.
+  production-peak:
+    type: STRESS
+    description: "The workload the service receives at month-end settlement."
+    objective: "Confirm the service sustains its observed production peak."
+    shape:
+      model: arrival-rate
+      rate: 120
+      duration: 30m
+    source:
+      kind: PRODUCTION_OBSERVED
+      detail: "Grafana · checkout-service overview"
+      # A window, not a moment. The peak of a rolling thirty days and the peak of
+      # one evening are different claims, and the reader has to be able to tell.
+      observed:
+        from: 2026-07-02T09:00:00Z
+        to: 2026-08-01T09:00:00Z
+    operations:
+      createOrder: 15
+      getOrder: 25
+      getAccount: 55
+      cancelOrder: 5
+    thresholds:
+      # Account lookup is cheap and users notice when it is not. Submission is
+      # expensive and users expect it to take a moment. One aggregate objective
+      # would describe neither.
+      perOperation:
+        createOrder:
+          latency:
+            p95: 500ms
+        getAccount:
+          latency:
+            p95: 200ms
+
+  # Does it stay healthy for hours, not minutes? Memory leaks, pool exhaustion
+  # and queue accumulation are invisible in the first ten minutes.
+  soak:
+    type: SOAK
+    shape:
+      model: arrival-rate
+      rate: 95
+      duration: 2h
+    operations:
+      createOrder: 15
+      getOrder: 25
+      getAccount: 55
+      cancelOrder: 5
+
+  # A closed workload: a bounded population of clients, each waiting for its
+  # previous request before issuing the next. The honest model when the real
+  # caller is a fixed worker fleet or a connection pool.
+  #
+  # Concurrency workloads drive a single operation. Weights would divide virtual
+  # users rather than traffic, and how much traffic each one produces depends on
+  # how fast the service answers — so 25% of the VUs would not be 25% of the
+  # requests, and the gap would widen exactly as the service slowed down.
+  batch-workers:
+    type: AVERAGE_LOAD
+    description: "The 50-worker settlement fleet, going as fast as the service allows."
+    shape:
+      model: concurrency
+      vus: 50
+      duration: 10m
+    operations:
+      getAccount: 100
+    # Escape hatch: merged into the generated k6 workload verbatim. Vortex does
+    # not validate these; k6 does, and preflight reports what it says.
+    k6:
+      gracefulStop: 60s
+
+# What the service actually receives in production. This is what turns an
+# invented traffic number into a production-informed one, and it is the only
+# basis on which Vortex will calculate capacity headroom.
+#
+# The composition matters as much as the volume: 120 requests/sec of cheap
+# account lookups is a different workload from 120 requests/sec of submissions.
+# Where Vortex can go and ask what this service receives, instead of somebody
+# typing it. Uncomment and point it at your own Prometheus or Dynatrace, then
+# run `vortex calibrate`. Fetching never edits this file on its own: the numbers
+# are shown for review first.
+#
+# observation:
+#   source: prometheus
+#   endpoint: http://prometheus.internal:9090
+#   service: checkout-service        # the value of the service label
+#   window: 30d
+#   headers:
+#     Authorization: "Bearer ${PROM_TOKEN}"
+#   labels:                          # only if you are not using Micrometer's defaults
+#     service: application
+#     route: uri
+#     method: method
+#
+# For Dynatrace, name the entity instead of the label value:
+#
+# observation:
+#   source: dynatrace
+#   endpoint: https://abc12345.live.dynatrace.com
+#   entity: SERVICE-1A2B3C4D5E6F7890
+#   window: 30d
+#   headers:
+#     Authorization: "Api-Token ${DT_TOKEN}"
+
+production:
+  observedAverage: 45    # requests per second
+  observedP95Rate: 95    # the 95th percentile of request RATE, not latency
+  observedPeak: 120
+  observedMix:
+    createOrder: 15
+    getOrder: 25
+    getAccount: 55
+    cancelOrder: 5
+  source: "Grafana · checkout-service overview"
+  observed:
+    from: 2026-07-02T09:00:00Z
+    to: 2026-08-01T09:00:00Z
+  note: "Peak observed during the month-end settlement window."

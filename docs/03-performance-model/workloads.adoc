@@ -1,0 +1,375 @@
+= Workloads
+:toc:
+:toclevels: 2
+
+The choice that decides what a load test is actually measuring — how load is applied, how
+multi-operation traffic is described, and where the values inside each request come from.
+
+'''
+
+== Arrival rate versus concurrency
+
+=== Two ways to apply load
+
+Every load generator does one of two things, and they are not variations on a theme.
+
+*Open workload — arrival rate.* Requests are issued on a schedule. 120 requests per second means 120
+requests per second, whatever the service does about them. If it slows down, the requests keep
+arriving and the queue grows.
+
+*Closed workload — concurrency.* A fixed population of virtual users each issue their next request
+only once the previous one returns. 50 virtual users means 50 requests in flight at most. If the
+service slows down, they issue fewer requests, and the offered load falls.
+
+....
+OPEN                                CLOSED
+
+ ─┬─┬─┬─┬─┬─┬─┬─┬─►                 ─┬───┬───┬───►      (service is fast)
+  arrivals on a schedule             ─┬─────┬─────►     (service is slow)
+                                      each VU waits
+....
+
+=== Which one is your caller?
+
+The right model is whichever matches the real thing sending traffic.
+
+[cols="1,3", options="header"]
+|===
+| Model
+| The caller it describes
+
+| *Arrival rate*
+| Public traffic, upstream services, event streams, scheduled batches — anything that does not slow
+  down just because your service did.
+
+| *Concurrency*
+| A connection pool, a fixed worker fleet, a known number of terminals — a bounded population that
+  really does wait for you.
+|===
+
+Vortex defaults to arrival rate, and the reason matters for capacity work specifically: *a closed
+workload eases off at exactly the moment you most want the pressure held*. Ask "where does this
+service break?" with 50 virtual users and the answer is partly a property of the virtual users, not
+the service.
+
+=== The trap: 50 is not 50
+
+....
+workload: { model: arrival-rate, rate: 50, duration: 10m }
+workload: { model: concurrency,  vus: 50,  duration: 10m }
+....
+
+These are not the same test, and the numbers they produce are not comparable.
+
+Fifty virtual users against a 100 ms operation produce roughly 500 requests/sec. Against a 2 s
+operation, roughly 25. And the figure *moves during the run* as latency changes. Under a concurrency
+workload, throughput is an **outcome**, not an input.
+
+So Vortex treats them as different quantities everywhere:
+
+* Every level carries its unit — `50 requests/sec` or `50 VUs`, never a bare `50`.
+* `RequestsPerSecond` and `Concurrency` have no conversion between them, in code or in the UI.
+* The workload model is part of the plan fingerprint, so comparing an arrival-rate run with a
+  concurrency run at the same number returns *not comparable* with the reason, rather than a
+  percentage that reads like a regression.
+
+=== What a closed workload cannot tell you
+
+Three figures are unavailable under concurrency, and Vortex reports them as unavailable rather than
+approximating:
+
+*A predicted request count.* It depends on the latency the run exists to measure.
+
+*A delivered-load shortfall.* Nothing was offered, so nothing fell short. Falling throughput here is
+the service slowing down, which is the finding — not the workload easing off, which is its cause.
+
+*Capacity headroom against production traffic.* Production telemetry reports requests per second.
+Dividing virtual users by requests per second produces a number with no unit and no meaning. Run an
+arrival-rate workload to establish capacity comparable with production.
+
+=== Why only open workloads carry an operation mix
+
+A weighted mix under an arrival-rate workload divides *traffic*: 15% of 120 requests/sec is 18
+requests/sec, regardless of latency.
+
+Under a concurrency workload it would divide *virtual users*, and each one's throughput depends on
+how fast its operation responds. 15% of the VUs is not 15% of the requests — and the gap widens as
+the service degrades, so the number would be least true exactly when someone leans on it.
+
+Vortex therefore requires a concurrency workload to target a single operation, and says so with the
+reason rather than the rule. To reproduce a traffic composition, use an arrival rate, where the
+weights genuinely describe traffic — see <<composition>>.
+
+=== How each compiles to k6
+
+Vortex owns the reasoning; k6 owns the execution.
+
+[cols="1,2,2", options="header"]
+|===
+| | constant | ramping
+
+| *arrival rate*
+| `constant-arrival-rate`
+| `ramping-arrival-rate`
+
+| *concurrency*
+| `constant-vus`
+| `ramping-vus`
+|===
+
+The executor follows from the model and the shape alone. The test type — smoke, stress, soak — says
+what question the run is asking and selects nothing. The generated script is ordinary k6 and runs
+without Vortex; see xref:../adr/adr-026-generated-k6-uses-native-primitives.adoc[ADR-026].
+
+=== One more thing Vortex will not do
+
+"TPS" does not appear in the product unless the transaction boundary is stated in the same phrase. It
+is ambiguous unless somebody says what a transaction is, and that ambiguity is a reliable source of
+factor-of-three errors.
+
+[[composition]]
+== Composition versus sequence
+
+=== The same four operations, two different claims
+
+....
+COMPOSITION                              SEQUENCE
+
+15% POST /applications                   POST /applications
+25% GET  /applications/{id}                      ↓
+55% GET  /applications/{id}/status          GET /applications/{id}
+ 5% POST /applications/{id}/cancel               ↓
+                                            GET /applications/{id}/status
+....
+
+*Composition* says: at any moment, the traffic arriving at this service is 15% submissions, 25%
+lookups, 55% status polls and 5% cancellations, arriving concurrently from many callers.
+
+*Sequence* says: one caller does these four things, in this order, and the next caller starts again
+from the top.
+
+These are not two notations for one idea. The first describes what the service experiences. The
+second describes what one client does.
+
+=== Why Vortex models composition
+
+A microservice does not receive journeys. It receives requests — thousands of them, concurrently,
+from callers at unrelated points in unrelated flows. Its connection pool, its thread pool, its
+database and its caches are all being contended for by that mixture.
+
+Reproducing a composition reproduces that contention. Reproducing a sequence reproduces one client's
+experience, serialised, which is a different and narrower thing:
+
+* A status poll that is 55% of real traffic is 25% of a four-step sequence. The cache hit rate you
+  measure is not the one production has.
+* A sequence forces an ordering the real callers do not share. Real submissions and real status polls
+  interleave; a sequence has them take turns.
+* A sequence's throughput is bounded by its own slowest step. Composition lets each operation arrive
+  at the rate it actually arrives at.
+
+For the question "can this service sustain its production workload?", composition is the honest
+model.
+
+=== Getting the composition right
+
+The composition matters as much as the volume. 120 requests/sec of cheap status polling is a
+completely different workload from 120 requests/sec of submissions, and a workload built from the
+total alone reproduces traffic the service has never seen.
+
+So Vortex asks you to record what production actually looks like: an observed peak — say, 120
+requests/sec — alongside the mix behind it, for example 15% `createOrder`, 25% `getOrder`, 55%
+`getOrderStatus` and 5% `cancelOrder`, with the observation source named alongside the numbers. The
+full YAML for expressing this lives in xref:../04-reference/configuration.adoc[].
+
+Vortex will propose workloads from this, and it will *refuse* to propose them from a volume with no
+composition. It will not guess a distribution: a workload built on an invented mix carries the
+authority of production evidence without any of the evidence.
+
+=== Where sequences genuinely belong
+
+Some questions really are about a flow:
+
+....
+Credit Card Application Journey
+
+Client → Application Service → Decisioning Service → Account Service
+....
+
+"Can the complete business flow sustain 30 applications/sec end to end?" is a real and useful
+question. It is also a different class of problem: multiple systems under test, cross-service
+ownership, correlation and capture between steps, test-data propagation, async workflows, distributed
+latency attribution, and end-to-end versus component SLIs.
+
+Vortex does not model it today, and
+xref:../adr/adr-024-service-level-workload-modelling.adoc[ADR-024] records why: those concerns must
+justify their complexity before entering a core that is still becoming excellent at service-level
+performance engineering.
+
+=== One operation is also a composition
+
+A mix of one is not a degenerate case. "Can `POST /applications` sustain 50 submissions per second
+within its latency objective?" is a complete performance question, and answering it needs no other
+operation and no synthetic flow — a single-operation workload targeting `createOrder` at 50
+requests/sec for 30 minutes is a full test on its own.
+
+Both are legitimate tests, and they answer different questions. "Can `POST /applications` take 100
+requests/sec in isolation?" and "can the service take 100 requests/sec of realistic mixed traffic?"
+are not the same, and the second is usually the harder one.
+
+== Test data
+
+What Vortex generates, what it deliberately does not, and why the distinction is enforced.
+
+=== Schema-valid is not business-valid
+
+An OpenAPI document tells Vortex that `POST /orders` expects:
+
+[source,json]
+----
+{ "accountId": "string", "amount": "number" }
+----
+
+From that, Vortex can generate a payload that will pass validation. What it cannot know:
+
+* which account ids exist
+* which are in a state that permits an order
+* whether the amount is within limits
+* whether reusing the same id ten thousand times behaves sensibly
+* whether the operation is idempotent
+* what the downstream effects are
+
+So every generated payload is labelled *"Schema-valid — not business-validated"*, and that label
+travels into the plan and the report.
+
+=== The review gate
+
+Operations that can change data — `POST`, `PUT`, `PATCH`, `DELETE` — arrive from an import marked
+*review required*, and cannot enter an executable workload until a person has looked at the request
+data.
+
+This is a deliberate speed bump. Generating traffic that repeatedly creates or cancels real records
+should not become possible because a tool successfully produced valid JSON.
+
+Read/mutation classification comes from the HTTP method, and Vortex is explicit that this is
+best-effort: a `GET` can have side effects and a `POST` can be a pure search. It decides when a
+review gate applies, never what the service actually does.
+
+=== Where a value comes from
+
+For realistic tests you usually need more than one account id. So a request value <<sources,declares
+its source>> and Vortex supplies it during execution — you describe what the endpoint needs, rather
+than writing a load-testing script that produces it.
+
+[[sources]]
+[cols="1,3", options="header"]
+|===
+| Source | What it means
+
+| *Fixed*
+| A literal you supplied. The same value on every request, which is frequently correct — a product
+code, a client identifier, a tenant header.
+
+| *Generated*
+| Vortex produces it: UUID, timestamp, date, random integer, random string, email, phone-like
+string, sequence. A closed set, deliberately — a value Vortex cannot produce is usually one that has
+to be a value your service will actually accept, and that belongs in a dataset.
+
+| *Dataset*
+| A field of the current row of a CSV or JSON file you added.
+
+| *Environment*
+| Read from an environment variable when the load generator starts, and nowhere else. This is how a
+credential participates without being written down.
+|===
+
+The same four apply wherever a value can sit — a header, a path parameter, a query parameter, a body
+field. Provenance is recorded for all of them, so a report always says where the data came from.
+
+==== How often a generated value is produced
+
+The default is a new value for every request, and it is the right answer for keys and identifiers.
+An idempotency key generated once per virtual user makes every request after the first a duplicate
+submission — which a correct service rejects, producing a run that measured the rejection path and
+reported it as throughput.
+
+The alternative is once per virtual user, for a value that identifies the caller rather than the
+call. A session token stands in for one client, not one request.
+
+Within a single request, a value is produced *once* and then used. If the same value appears in a
+header and in the body, both carry the same value — you can see this in the generated script, where
+each one is a named constant at the top of the function.
+
+==== Which dataset row a request gets
+
+Rows are used in order, without repeating, until the dataset runs out; then it starts again from the
+beginning. Requests in flight at the same moment never read the same row, and a re-run reads the
+same rows in the same order.
+
+*Every value one request reads from a dataset comes from the same row.* A customer id and the mobile
+number beside it belong to the same customer — which is the only behaviour that makes a realistic
+dataset worth having.
+
+None of this is configurable, and that is deliberate: you should not have to choose a partitioning
+strategy in order to run a test.
+
+==== Datasets stay on your machine unless you say otherwise
+
+A dataset you add is held locally, and the test definition records that it is expected without
+recording its contents. Nothing is written into your repository as a side effect of adding one.
+
+Committing a dataset alongside the service is a separate action. Vortex names the exact file it will
+write before it writes it, because a dataset that travels with `vortex.yaml` is a dataset anybody
+with the repository can read — see the caution below.
+
+A configuration that depends on a local dataset cannot run on a machine that does not have it.
+Vortex says so plainly, the same way it reports an API description it cannot resolve, rather than
+guessing.
+
+==== What the API description can and cannot tell Vortex
+
+If a schema declares `format: uuid` or an `enum`, Vortex offers that as a *suggestion* with the
+reason attached — and never applies it.
+
+A format says how a value is shaped, not what it means. A UUID-shaped `customerId` might need to be
+freshly generated, drawn from a dataset of customers who already exist, or held constant for the
+whole run. Those are three different tests, and no schema distinguishes them.
+
+=== Secrets are references, not values
+
+A value read from the environment is stored as a reference — `${API_TOKEN}` — and resolved once,
+into the environment of the load generator process. The resolved value never reaches `vortex.yaml`,
+the local database, the plan snapshot, an artifact, a log line, a report or an AI prompt.
+
+Preflight tells you whether a variable is set on this machine before a run starts, so a missing
+token is a sentence rather than a puzzling `401`. What it never does is show you the value.
+
+=== Never import production data
+
+CAUTION: Do not put production personal data into local performance datasets. It is not necessary
+and it creates a class of problem entirely unrelated to performance.
+
+Prefer:
+
+* *synthetic data* generated for the purpose
+* *anonymised data* where the shape matters but the content does not
+* *deliberately fake identifiers* that are obviously not real
+
+Vortex's own sample data uses obviously-synthetic values (`vortex-sample`, `acc-1001`,
+`sample@example.invalid`) precisely so nothing it generates can be mistaken for a real record.
+
+*Imported files are never automatically placed in AI prompts.* The context sent to a model is
+assembled explicitly from measurements and metadata; a dataset you import is not part of it.
+
+=== Data volume matters more than it seems
+
+A service tested against a thousand rows and a service tested against ten million are different
+services. Unindexed queries, cache hit rates and connection hold times all change. That is what
+*volume testing* is for, and it is why a capacity observation records the dataset characteristics
+it was measured with — a capacity figure from an empty database will not survive contact with a real
+one.
+
+'''
+
+See also: xref:../adr/adr-024-service-level-workload-modelling.adoc[ADR-024] ·
+xref:../adr/adr-025-open-and-closed-workload-models.adoc[ADR-025] ·
+xref:../adr/adr-026-generated-k6-uses-native-primitives.adoc[ADR-026]

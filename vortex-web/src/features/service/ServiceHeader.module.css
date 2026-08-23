@@ -1,0 +1,122 @@
+/*
+ * A quiet surface, not a card — "everything below is this service's workspace" stated once, gently,
+ * with a hairline edge rather than a border-everywhere box. On Overview, `OverviewPage`'s fact grid
+ * continues this exact surface and inset directly beneath it (see `.band` there, which supplies the
+ * matching bottom edge and corners); every other route just gets a calm identity strip on its own.
+ *
+ * <p>The background carries one quiet touch of colour — a soft glow seated behind the badge, fading
+ * out well before the meta line — rather than a flat, unbroken tint. It reads as "this service has a
+ * presence" without competing with the figures the fact grid states beneath it.
+ */
+.header {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xl);
+  flex-wrap: wrap;
+  background-color: light-dark(var(--mantine-color-neutral-0), var(--mantine-color-neutral-9));
+  background-image: radial-gradient(
+    64rem 12rem at 3rem -2rem,
+    light-dark(
+      color-mix(in srgb, var(--mantine-color-brand-6) 7%, transparent),
+      color-mix(in srgb, var(--mantine-color-brand-6) 14%, transparent)
+    ),
+    transparent 70%
+  );
+  border: 1px solid light-dark(var(--mantine-color-neutral-2), var(--mantine-color-neutral-7));
+  border-bottom: none;
+  border-radius: var(--mantine-radius-md) var(--mantine-radius-md) 0 0;
+  padding: 1.5rem 1.75rem;
+}
+
+.identity {
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+
+.name {
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  min-width: 0;
+}
+
+.description {
+  margin: 4px 0 0;
+  font-size: 0.86rem;
+  color: var(--mantine-color-dimmed);
+  max-width: 68ch;
+}
+
+/*
+ * The service's physical situation on one line. Monospace throughout: every item is an identifier
+ * somebody may have to read a character at a time.
+ */
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-md);
+  flex-wrap: wrap;
+  margin-top: 9px;
+  font-size: 0.78rem;
+  font-family: var(--mantine-font-family-monospace);
+}
+
+.env {
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.url {
+  color: var(--mantine-color-dimmed);
+}
+
+.release {
+  color: var(--mantine-color-dimmed);
+}
+
+/* Absence, in the same neutral voice as everything else here — never an error colour, and never a
+   font gimmick either. Dimmed color alone carries "this is metadata, not identity". */
+.absent {
+  color: var(--mantine-color-dimmed);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-md);
+  flex-shrink: 0;
+}
+
+/* Separates "what this service's readiness/activity is" from "configure it" — two different kinds
+   of control sharing one row, told apart by a hairline rather than by grouping them into boxes. */
+.controlsDivider {
+  width: 1px;
+  height: 22px;
+  background: light-dark(var(--mantine-color-neutral-2), var(--mantine-color-neutral-7));
+}
+
+/* Status text, not a control — no border, no background, no pointer cursor. It sits in the same
+   visual register as the readiness pill beside it without borrowing its button chrome. */
+.runningIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+
+.liveDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--mantine-color-live-6);
+}

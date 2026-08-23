@@ -1,0 +1,42 @@
+/*
+ * A ghost button, not a hyperlink — the trigger should read as an action you press, not text you
+ * click through. No underline, dotted or otherwise; hover and focus are carried entirely by a
+ * background tint and a color shift.
+ */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  padding: 1px 6px;
+  margin: -1px -6px;
+  border-radius: var(--mantine-radius-sm);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.trigger:hover {
+  background: light-dark(rgba(0, 0, 0, 0.045), rgba(255, 255, 255, 0.06));
+  color: var(--mantine-color-text);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--mantine-color-brand-6);
+  outline-offset: 2px;
+}
+
+.iconTrigger {
+  padding: 3px;
+  margin: -3px;
+  border-radius: 999px;
+  color: var(--mantine-color-dimmed);
+}
+
+.iconTrigger svg {
+  display: block;
+}

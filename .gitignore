@@ -1,0 +1,42 @@
+# Build output
+target/
+!.mvn/wrapper/maven-wrapper.jar
+build/
+
+# vortex-web (ADR-035) — built by frontend-maven-plugin into vortex-app's static resources
+vortex-app/src/main/resources/static/app/
+vortex-web/node_modules/
+vortex-web/node/
+vortex-web/dist/
+
+# Vortex workspace — local state, never committed.
+# The example project is the exception: a committed .vortex/vortex.yaml is the
+# whole point of the portable configuration, and README tells people to run
+# `vortex validate examples/checkout-service` against it.
+.vortex/
+!examples/**/.vortex/
+*.db
+*.db-shm
+*.db-wal
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+nbproject/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Native image build output
+vortex-app/target/vortex
+*.build_artifacts.txt

@@ -1,0 +1,165 @@
+= ADR-041: Run-scoped resource telemetry is retained, not just its peak
+
+== Status
+
+Accepted, and implemented in Phase 4 — HTTP foundation hardening.
+
+Two things were settled during implementation and are worth recording here, because both close gaps
+found while tracing the execution lifecycle this decision now depends on:
+
+* *`ExecutionService.run()`'s telemetry cleanup was not actually guaranteed on every exit path.* An
+  exception raised while recording artifacts or advancing state after `RUNNING` — a real, if
+  narrow, window — reached the outer failure handler without ever calling `Session.finish()`, leaving
+  the sampler thread polling the service for up to its own safety ceiling after the execution had
+  already been marked `FAILED`. The whole method's telemetry-relevant body is now wrapped in one
+  `finally` that calls `finish()` unconditionally; `finish()` itself is idempotent, so this is a
+  no-op on the path that already finishes explicitly and the only call that matters everywhere else.
+* *`ObservabilityTelemetryCollector` already conflated two providers reporting the same bare signal
+  id.* Prometheus and Dynatrace both use unqualified keys like `system.cpu.utilization`; a run
+  configured with both silently folded their readings into one series, keyed only by
+  `MetricObservation.id()`. Retaining a *raw* series under a colliding id would have interleaved two
+  providers' samples in one supposedly-single-signal stream, so the aggregation key became
+  `(providerId, observation.id())` as part of this change.
+
+== Context
+
+`ObservabilityTelemetryCollector` already sampled the service under test every five seconds and kept
+a trace — first, peak, last — per signal, deliberately stopping short of a series:
+"storing and querying telemetry over time is what the team's observability platform is for." That was
+the right boundary while Vortex's job was "did anything grow". It is not enough for the boundary Phase
+4 asks Vortex to hold: producing *capacity evidence* means being able to say whether CPU saturation
+preceded a breakpoint, whether memory climbed for the whole of a soak, or whether the load generator
+was the actual constraint — none of which three points can answer, because none of them carries *when*.
+
+Two bad answers were available and both were refused.
+
+The first is to keep the peak/first/last summary and reconstruct history later from a provider's own
+range-query API when someone asks. That makes an execution's evidence completeness depend on an
+external system's retention window — the same self-containment problem k6's own raw metrics already
+solve by capturing locally (`raw-metrics.json.gz`) rather than re-querying k6 after the fact. It also
+does not generalize: Actuator and the load generator have no range-query equivalent, so this would be
+a second code path for two of four providers, not a replacement.
+
+The second is to buffer the full series in memory and only decide what to keep at the end. Memory use
+would then grow with run duration — the opposite of what the eight-hour soak in the product's own
+examples requires, and it means a Vortex crash mid-run loses telemetry that had already been sampled
+successfully.
+
+== Decision
+
+=== The peak/first/last computation is untouched
+
+`ObservabilityTelemetryCollector.Readings` still tracks the trace online, in constant memory,
+independent of whether the raw series can be persisted at all. `ResourceSignal` and its derivation
+are unchanged by this ADR. Nothing about this decision touches ADR-037.
+
+=== A raw sample is a new, minimal type — not a bigger `ResourceSignal`
+
+----
+ResourceSample
+  at            Instant        when this was sampled
+  providerId    String         disambiguates identically-keyed signals across providers
+  signalId      String         MetricObservation.id() / ResourceSignal.signalId()
+  kind          ResourceKind
+  scope         ResourceScope
+  value         double
+  unit          MetricUnit
+  stageIndex    Integer        nullable — null outside any stage (ramp-up or drain)
+----
+
+No dimensions map, no limit: a limit does not change sample to sample, so repeating it on every one
+of tens of thousands of lines would be pure duplication of a value `ResourceSignal` already carries
+once. `stageIndex` is a plain nullable field rather than `Optional<Integer>`, matching this
+codebase's own convention (`Optional` at accessor return types, never record fields) and the existing
+precedent of `ObservationTrace.peakAt`.
+
+=== The collector emits to a sink; it does not know about artifacts
+
+`ObservabilityTelemetryCollector` depends on `ResourceSampleSink` — `accept(ResourceSample)`,
+`close(String reason)` — and nothing else. One implementation,
+`ArtifactResourceSampleSink`, owns `ArtifactStore`, execution ids, and JSON serialization; the
+collector never touches any of them. This is not abstraction for its own sake: it is what let the
+collector's own tests inject an in-memory sink instead of a real filesystem, closing a gap that
+existed before this work — there was no dedicated `ObservabilityTelemetryCollectorTest` at all.
+
+`ArtifactStore` gained one capability to support the sink: `openForAppend`, returning an
+`ArtifactWriter` that flushes every line immediately. This is *process-crash tolerant, incremental
+persistence* — a killed Vortex process does not lose lines already written, because the operating
+system still owns and will persist them independently of the process that wrote them. It is
+deliberately not disk-level durability: no `fsync` runs per sample, trading a continuous I/O cost for
+protection against a failure mode (a host crash mid-run) that partial-artifact honesty already
+handles well enough.
+
+=== Presence is not completeness
+
+A writer that fails twenty minutes into an hour-long run still leaves a file that opens cleanly and
+looks like a complete, if short, series. `TelemetryCompleteness` — `COMPLETE`, `PARTIAL`,
+`UNAVAILABLE`, plus the window actually covered and a reason — is a new, separate axis from
+`TelemetryGap`/`TelemetryAvailability`, which describe whether one named metric was obtained at all,
+not how much of a time span a series that *was* obtained actually covers. It is determined by whether
+the artifact carries a proper closing record, written by the sink's `close()`:
+
+* No terminator at all → the process ended before it could write one (a crash, most likely) → `PARTIAL`.
+* A terminator reporting a write failure or an early stop reason → `PARTIAL`, with that reason.
+* A terminator reporting a clean end → `COMPLETE`.
+* No artifact at all → `UNAVAILABLE` — including every execution recorded before this shipped.
+
+No reconciler changes were needed: `ExecutionService.reconcileUnfinished()` already marks an orphaned
+execution `FAILED` on restart, and leaves whatever the crash left in the artifact directory. Read-time
+inference from the artifact's own shape is what turns that into `PARTIAL`, without new persisted state.
+
+=== The execution's own lifecycle owns telemetry lifetime; a plan-derived ceiling is a backstop only
+
+Telemetry starts when `ExecutionService.run()` creates the session, right after `RUNNING`, and stops
+in the `finally` that guarantees every exit — success, cancellation, any exception — closes it exactly
+once (see Status, above). `ObservabilityTelemetryCollector`'s own watchdog — previously a flat
+`Duration.ofHours(6)` — is now `plan.totalDuration()` plus the larger of thirty minutes or a fifth of
+that duration, and exists only to catch a hung `engine.execute()` that never returns and never throws,
+the one case the `finally` cannot reach because it never runs mid-hang. If the watchdog fires, the
+session closes itself with an explicit reason, producing `PARTIAL` telemetry rather than sampling
+indefinitely.
+
+=== Cardinality is bounded, globally, at 64 distinct signals
+
+CPU and memory are single-valued; the real cardinality risk is a provider that fans a signal out per
+dimension — concretely, Dynatrace splitting dependency latency by downstream service name. The bound
+reuses `K6RawMetricsAggregator.MAX_DISTINCT_CODES` rather than inventing a new number: the same shape
+of problem (bound distinct identifiers, consolidate the rest) already has a trusted answer in this
+codebase. Retention is first-64-seen, deterministic; the overflow is reported as a `TelemetryGap`
+rather than silently dropped. It is a safety mechanism against a misconfigured or unusually
+high-cardinality provider, not a constraint normal runs approach.
+
+=== A chart is a projection of the artifact, not the artifact
+
+The artifact keeps every sample. `RunEvidenceService` bounds what it returns for a chart via
+`ResourceSeriesProjection`: the run divided into time buckets, each contributing its lowest and
+highest reading (so a brief spike cannot fall between two kept points the way naive every-Nth-point
+thinning would), plus the first sample, the last sample, and whichever sample is nearest each of the
+run's own stage-boundary and breakpoint instants, forced in regardless of bucketing. Evidence grouped
+by `ResourceKind` — one chart per kind actually observed, every scope that reported it overlaid on the
+same axis when units agree — answers "what constrained this experiment" rather than "what metrics
+were collected", which is the UI boundary this whole feature exists inside of.
+
+== Consequences
+
+*Gained.* A resource chart can show a spike, not just a peak value; a reader can ask whether CPU
+saturation preceded a breakpoint instead of only whether it happened; the load generator's own
+resource behaviour is directly comparable to the service's on one axis. Two pre-existing correctness
+gaps — the un-guaranteed telemetry cleanup and the cross-provider signal collision — are closed as a
+side effect of building this, because the raw-retention feature could not be trustworthy without them.
+
+*Cost.* `TelemetryCollector.start` and `ArtifactStore` both grew — a new port method and a new
+execution-id parameter — which is a real, if narrow, ripple through every implementation and test
+double of either. Correlation between a resource chart and the k6-derived timeline remains
+approximate: both share one execution-relative axis and the same 5-second cadence, but a local k6
+binary and Vortex's own JVM share a clock while a Dockerized k6 does not, and this ADR does not
+attempt to correct for that — only to state the limitation plainly, the same way
+`ValidityPolicy.DEFAULT_WINDOW_TOLERANCE` already treats up to thirty seconds of provider/run-window
+misalignment as tolerance rather than something to fix.
+
+*Trade accepted.* An 8-hour soak at a realistic signal count costs roughly seven megabytes of
+uncompressed artifact; at the 64-signal cardinality cap it costs roughly sixty. Both are flat files
+inspectable with `cat`/`jq`, gzipped only if a real file crosses a measured size threshold — never by
+blanket policy. That is comfortably inside "bounded", and nowhere near where a queryable store would
+become justified. Vortex remains explicitly not an observability platform: no query language, no
+cross-run history, no retention beyond one execution's own artifact directory.

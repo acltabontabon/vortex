@@ -1,0 +1,36 @@
+.page {
+  max-width: 900px;
+}
+
+.section {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  overflow: hidden;
+}
+
+.sectionSummary {
+  padding: 0.85rem 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-weight: 600;
+  list-style: none;
+}
+
+.sectionSummary::-webkit-details-marker {
+  display: none;
+}
+
+.sectionState {
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.sectionBody {
+  padding: 0 1.1rem 1.1rem;
+  border-top: 1px solid var(--mantine-color-default-border);
+  padding-top: 1rem;
+}

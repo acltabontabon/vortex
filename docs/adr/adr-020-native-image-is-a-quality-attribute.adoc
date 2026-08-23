@@ -1,0 +1,34 @@
+= ADR-020: Native image is a quality attribute, not a goal
+
+== Status
+
+Accepted
+
+== Context
+
+GraalVM native image gives fast startup and low memory. It also constrains what libraries can be
+used, and chasing it can distort an architecture.
+
+== Decision
+
+Native compatibility is treated as a quality attribute that informs decisions, not a goal that
+overrides them.
+
+It genuinely shaped several choices — `JdbcClient` over an ORM, a framework-free core, explicit
+Jackson configuration, no reflection-based injection in the domain — each of which stands on its own
+merits.
+
+It did *not* override the choice of `swagger-parser`, which is reflection-heavy but is the right
+tool. It is confined behind `ServiceCatalogImporter` so it can be replaced if it proves
+unworkable.
+
+*Compilation has not been attempted.* The documentation says so plainly.
+
+== Consequences
+
+*Gained:* an architecture that is likely to compile natively, without having been contorted to.
+
+*Cost:* the claim is unverified, and is labelled unverified everywhere it appears.
+
+*Remaining work:* run the compiler, record what fails, add metadata for what can be fixed,
+document what cannot. See xref:../02-architecture/architecture.adoc#native-image[native image].

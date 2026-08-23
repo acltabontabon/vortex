@@ -1,0 +1,5 @@
+{
+  "root_group": { "name": "", "path": "", "id": "x", "groups": [], "checks": [] },
+  "options": {},
+  "state": { "testRunDurationMs": 12.0 }
+}

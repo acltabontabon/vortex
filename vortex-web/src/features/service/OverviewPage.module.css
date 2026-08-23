@@ -1,0 +1,183 @@
+/*
+ * Two layers, not a stack of equally-weighted sections: the service context band (header + fact
+ * grid, see `.band` below), then the Tests/Recent Runs working area. `.page` only sets the rhythm
+ * between those pieces — how the working area itself splits into two columns is the Grid in the TSX.
+ */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+/*
+ * The service header's own continuation — see the doc comment on `FactGrid` in OverviewPage.tsx.
+ * Matches the header's surface, hairline edge and horizontal inset; corners and the bottom/side
+ * border round off and close where the combined band actually ends, never at the top (the header
+ * already owns that edge). The negative top margin cancels `ServiceLayout`'s Stack gap between the
+ * header and this page's own content, so the two sit flush — one quiet band, not a header followed
+ * by a second, equally-loud block.
+ */
+.band {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-top: none;
+  border-radius: 0 0 var(--mantine-radius-md) var(--mantine-radius-md);
+  margin-top: calc(-1 * var(--mantine-spacing-xl));
+  padding: 0.5rem 1.75rem 1.5rem;
+}
+
+/*
+ * `.band`'s twin for a service that has nothing to state yet — same surface, same inset, same closing
+ * of the header's deliberately open bottom edge (see `.band` above; `ServiceHeader` sets
+ * `border-bottom: none` on every route, so *something* here has to finish that box or the header
+ * hangs open with a gap beneath it). The declarations are repeated rather than shared: this repo uses
+ * CSS Modules' `composes:` nowhere, and one duplicated block is cheaper than introducing it here.
+ *
+ * <p>The inner hairline is what `.factGrid` supplies on a configured service — "identity ends, the
+ * workspace begins" reads identically either way. Only the padding differs, to give the funnel room.
+ */
+.vortexBand {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-top: none;
+  border-radius: 0 0 var(--mantine-radius-md) var(--mantine-radius-md);
+  margin-top: calc(-1 * var(--mantine-spacing-xl));
+  padding: 1.25rem 1.75rem 2rem;
+  /* Reaches for the fold rather than sitting at its content height: this is the only thing on the
+     page, and a card that stops two-thirds of the way down leaves the rest of the window as dead
+     grey. `min-height` rather than `height`, so a short window still scrolls instead of clipping. */
+  display: flex;
+  flex-direction: column;
+  min-height: min(820px, calc(100vh - 15rem));
+}
+
+.vortexBand > section {
+  flex: 1;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1.35rem;
+}
+
+/*
+ * Sticky rather than scrolling away with the main column — the workspace can run long once a test's
+ * evidence is expanded, and Recent Runs stays reachable the whole time instead of disappearing above
+ * the fold. The Grid's own top alignment (`align="start"` in the TSX) is what makes sticky behave
+ * here. No border, no fill: width, the Grid's own gutter, and Recent Runs' own quieter typography are
+ * what mark this as the secondary column — not a rule down the middle of the page.
+ */
+.railCol {
+  position: sticky;
+  top: 1.5rem;
+  max-height: calc(100vh - 3rem);
+  overflow-y: auto;
+}
+
+@media (max-width: 62em) {
+  .railCol {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
+.attention {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+}
+
+.sectionHeading {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  margin-bottom: 0.9rem;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.sectionCount {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+
+/*
+ * Instrumentation, not a KPI band: numbers sit directly on the canvas, spaced far enough apart that
+ * the eye reads three separate readings rather than one bordered block. `.band` (the parent) is what
+ * gives this region its surface; the hairline above is what tells the eye "identity ends, readings
+ * begin" instead of leaving that boundary to whitespace alone.
+ */
+.factGrid {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 3.5rem;
+  row-gap: 1.5rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1.35rem;
+}
+
+.fact {
+  min-width: 0;
+}
+
+.factValueRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.factValue {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 1.7rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.factLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  margin-top: 3px;
+}
+
+/* Quieter than the label above it — a third line, not a second caption competing for attention. */
+.factSource {
+  font-size: 0.72rem;
+  font-family: var(--mantine-font-family-monospace);
+  color: var(--mantine-color-dimmed);
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
+.tests {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emptyTests {
+  padding: var(--mantine-spacing-md) 0;
+}
+
+.conditionsList {
+  margin: 0;
+  padding-left: 1.05rem;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+

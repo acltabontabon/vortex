@@ -1,0 +1,320 @@
+= ADR-038: Run quality grades the experiment; the verdict grades the service
+
+== Status
+
+Accepted, and implemented in slice 4.5 of
+xref:../01-product/roadmap.adoc[Phase 4 — HTTP foundation hardening].
+
+Four things were settled during implementation. Each is a place where the decision as written would
+otherwise have quietly failed to hold.
+
+=== `RunQuality` has a fourth state, and it is not a grade
+
+`VALID`, `DEGRADED` and `INVALID` describe assessments. A run recorded before this axis existed, or
+one that never reached evaluation, has none — and the migration has to say something about it.
+`NOT_ASSESSED` is that something. It carries no reason codes, so it withholds nothing: an older run's
+page gains a note rather than losing a number. Defaulting those rows to `VALID` would have
+manufactured a judgement nobody made and stood it behind a capacity figure, which is the failure this
+ADR exists to prevent, reintroduced through a schema default.
+
+=== Run quality is a property of the execution, not of the analysis
+
+The natural reading of "a pure function of the evidence tier" puts the grade on
+`DeterministicSummary`. That breaks on the code this ADR itself demands: `EXECUTION_INTERRUPTED` must
+fire for a cancelled run, and a cancelled run has no summary. So the assessment lives on
+`TestExecution`, which is also where the terminal state it reads lives.
+
+That forced a second change. `ExecutionService` used to discard the engine outcome entirely on
+cancellation, so there was nothing to grade — the aggregator had read a series, per-operation totals
+and the generator's own counters while the run was alive, and all of it was thrown away. A cancelled
+run now keeps its partial measurements. It has no latency percentiles, because k6 computes those in a
+summary a killed process never writes, and absent is the honest answer there.
+
+=== `ValidityPolicy` is deliberately not an experiment-identity dimension
+
+It is held on `EffectiveTestPlan` beside the objectives, as decided. It is *not* added to
+`ExperimentIdentity.DIMENSIONS`, and `vortex.experiment/2` does not bump.
+
+The reason is specific to this phase: the policy is not configurable, so every plan carries the
+identical value. Adding it would distinguish no two experiments while moving every stored fingerprint
+and re-baselining the reproduction criterion mid-phase, for no information gain. It is recorded in
+provenance instead, so a reader can see which numbers graded a run.
+
+That changes when an organisational policy pack can vary it. At that point two runs with different
+sample floors would fingerprint identically while grading differently on the same measurements, and
+the dimension has to be added — with `SCHEMA` bumped to `vortex.experiment/3`.
+
+=== `WARM_UP_NOT_COMPLETED` is vocabulary in this phase, not a rule
+
+Its evidence is "a warm-up was declared and the run ended inside it", and the workload model cannot
+express a declared warm-up until P1. The constant stays, because this ADR's code set and its
+baseline-eligibility table are the authority. No assessor rule fires, and none may until the
+measurement exists — inventing an input so the rule had something to read would be exactly the
+approximation the rule below forbids. `ValidityReason.isAssessable()` makes the distinction testable
+rather than a matter of remembering, and P1's warm-up support activates the code.
+
+== Context
+
+Vortex already grades several different things and keeps them carefully apart. `Verdict` says whether
+the objectives were met. `BoundaryStatus` says whether the levels formed a boundary at all.
+`EvidenceStrength` says how well corroborated a deterministic finding is. `TelemetryAvailability`
+says why a measurement is missing.
+
+None of them asks the question underneath all four: *was this experiment actually carried out as
+specified?*
+
+The failure this leaves open is not hypothetical, and it is the most damaging kind because the output
+looks normal. A workload asks for 1,000 requests/sec. The machine running k6 cannot generate it —
+too few cores, an exhausted file-descriptor limit, a laptop on battery — and produces 720. Every
+downstream calculation is arithmetically correct and every one of them is about the wrong system:
+
+----
+Achieved throughput   720 requests/sec
+p95 latency           180 ms
+Error rate            0.04%
+Verdict               PASS
+Tested capacity       720 requests/sec
+----
+
+Nothing there is false. Read together, they say the service demonstrated 720 requests/sec within its
+objectives. What the run actually demonstrated is that *the load generator* could produce 720
+requests/sec, and that the service was comfortable at whatever it was given. The service's limit was
+never approached, and the number most likely to be quoted from that page is a measurement of Vortex's
+own hardware.
+
+k6 publishes the evidence that would catch it. `dropped_iterations` counts the iterations an
+arrival-rate scenario could not start on time, and Vortex's aggregator does not read it — it reads
+`http_reqs`, `http_req_failed`, `http_req_duration` and `vus`, and discards everything else. The
+`StageObservation.rateShortfall` calculation exists and is used as one of several saturation signals,
+where a shortfall is attributed to the *service* rather than considered as a possible property of the
+generator.
+
+The same blindness covers a run that was too short to mean anything, a stage with eleven samples, a
+run whose telemetry arrived for the first two stages and stopped, and a run that was interrupted and
+partially measured.
+
+== Decision
+
+=== A third axis, deliberately not folded into the verdict
+
+----
+RunQuality
+  VALID      the experiment was carried out as specified; conclusions stand as measured
+  DEGRADED   something reduces what the evidence supports; conclusions are qualified
+  INVALID    the experiment did not measure what it claims to; conclusions are withheld
+----
+
+`RunQuality` is computed deterministically from a list of `RunQualityFinding`s, each carrying an
+explicit reason code, the measurement that produced it, and the effect it has. It is derived from the
+same evidence tier everything else is derived from, and it is a pure function of that tier.
+
+It is *not* merged into `Verdict`. A run can meet every objective and be `INVALID`; a run can miss
+every objective and be `VALID` — indeed a stress test that breaks the service is the healthiest thing
+in the product. Collapsing the two would mean either "the objectives were not met" or "we could not
+tell", said in one word, which is the confusion this whole model exists to prevent. This is the same
+separation ADR-015 draws between execution and analysis: a measurement's validity and a service's
+performance are different properties of one run.
+
+=== Every reason code cites a measurement
+
+A validity rule may exist only if there is something measurable behind it. The codes below are the
+candidate set; each names the evidence it requires, and a code whose evidence Vortex does not collect
+is not implemented, not approximated.
+
+[cols="1,2,2", options="header"]
+|===
+| Reason code | Evidence required | Effect
+
+| `OFFERED_LOAD_NOT_GENERATED`
+| k6 `dropped_iterations` above zero, or achieved rate materially below offered rate on a stage the
+  service showed no distress in
+| `INVALID` for capacity claims at and above that level
+
+| `GENERATOR_SATURATED`
+| A `ResourceSignal` scoped `LOAD_GENERATOR` at or above its limit (ADR-037)
+| `INVALID` for capacity claims
+
+| `RUN_TOO_SHORT`
+| Total measured duration below the declared minimum for the test type
+| `DEGRADED`
+
+| `INSUFFICIENT_SAMPLES`
+| Request count in a stage below the declared minimum
+| `DEGRADED`, and that stage may not be a boundary edge
+
+| `WARM_UP_NOT_COMPLETED`
+| A warm-up was declared in the workload and the run ended inside it
+| `DEGRADED`
+
+| `TELEMETRY_INCOMPLETE`
+| `TelemetryGap`s covering stages the conclusion rests on
+| `DEGRADED`; no limiting-resource statement
+
+| `TARGET_UNAVAILABLE_DURING_RUN`
+| Connection-class failures clustered at the start, or a probe failing mid-run
+| `DEGRADED` or `INVALID` by extent
+
+| `EXECUTION_INTERRUPTED`
+| Terminal state `CANCELLED`, or `FailureReason.INTERRUPTED`
+| `INVALID` for capacity claims; measurements retained
+
+| `WINDOW_MISALIGNED`
+| Telemetry window not overlapping the execution window beyond a declared tolerance
+| `DEGRADED`; telemetry not usable as corroboration
+|===
+
+There is no scoring, no weighting and no heuristic blend. A finding either fires on evidence or does
+not exist. `DEGRADED` is the default effect and `INVALID` is reserved for the cases where a specific
+*claim* would be false, not merely weaker.
+
+=== The numbers those rules compare against live in one place, and are printed
+
+"Materially below", "the declared minimum" and "within tolerance" are policy. They decide verdicts,
+so they may not be scattered through the code as literals nobody can find.
+
+They live in a single `ValidityPolicy` value object, constructed with defaults, held on the plan
+alongside the objectives. Not configurable in this phase — a tuning surface introduced before anyone
+has run against the defaults produces arguments instead of evidence — but shaped so that
+organisational policy packs, already a documented concept, can supply one later without touching a
+call site.
+
+*Every finding states the threshold it crossed.* Not "run too short" but "held for 2m; this test type
+requires 5m before a level is quotable as capacity". A qualification an engineer cannot argue with
+is a qualification they cannot act on either, and the number they would need to argue is the same
+number they need in order to fix it.
+
+This follows what the codebase already does with `SystemSaturation.MINIMUM_CORROBORATING_SIGNALS`
+and `RegressionEvaluator.NOISE_THRESHOLD_PERCENT`: a named constant with the reasoning written
+beside it, rather than a configuration key with no default anybody trusts.
+
+=== Invalidity withholds claims; it never edits measurements
+
+An `INVALID` run keeps everything it measured. The raw stream, the summary, the latency percentiles,
+the telemetry and the artifacts are stored exactly as a valid run's are, and the result page renders
+them. What changes is what Vortex is willing to *state*: capacity is not quoted, headroom is refused
+with a reason, and the run is not eligible as a regression baseline.
+
+This is the shape `HeadroomCalculator` already uses. It does not hide a number; it replaces it with
+the sentence explaining why there isn't one. Nothing about run quality invents a new mechanism.
+
+=== A pipeline fails closed on invalidity, and only on invalidity
+
+`ExitCode` is a CI contract: `0` all objectives met, `1` tool failure, `2` objective violated, `3`
+config or preflight failed, `4` cancelled. An invalid run is none of those. It is not an objective
+violation — the objectives may have been met — and it is not a preflight failure, because preflight
+runs before any traffic and this is discovered afterwards.
+
+Returning `0` for it is the option that gets someone burned: a pipeline that green-lights a deploy
+on a run which never generated the load it asked for. So invalidity gets its own code:
+
+----
+5   evidence not valid — the run did not measure what it claims to
+----
+
+Adding a code is safe in the direction that matters. Every existing script that treats non-zero as
+failure keeps working; redefining `2` to sometimes mean "we could not tell" would silently change
+what an existing gate asserts.
+
+`DEGRADED` does *not* change the exit code. The verdict decides it, and the qualification is printed
+alongside. Failing a build because telemetry was incomplete would train teams to stop collecting
+telemetry, which is the opposite of the intent. The line is: fail closed when Vortex genuinely cannot
+tell, never merely because it would have liked more evidence.
+
+=== The load generator is a measured system
+
+The `LOAD_GENERATOR` scope in ADR-037 is not decoration. To distinguish "the service could not go
+faster" from "we could not ask faster", Vortex has to observe the machine it is running on: process
+and system CPU, memory, and the generator's own reported saturation.
+
+That observation is subject to the same discipline as everything else. Where it is unavailable — a
+distributed run under the k6 Operator, a container with no reachable metrics — the absence carries a
+cause, and the `GENERATOR_SATURATED` code simply does not fire. It never fires on a guess, and its
+absence is never read as proof the generator was healthy.
+
+==== The reader uses the JDK, and that does not make Vortex JVM-specific
+
+The system being measured here is *the machine Vortex is running on*, which is a JVM host by
+definition — it is running Vortex. Nothing about how it is read constrains what Vortex can test.
+That distinction is worth stating because it is easy to lose: resource telemetry for the *service
+under test* must stay provider-neutral and language-neutral (ADR-037), while resource telemetry for
+the *generator* is Vortex observing itself.
+
+So the local reader takes no new dependency:
+
+[cols="1,2", options="header"]
+|===
+| Signal | Source
+
+| Host CPU load, total and free physical memory
+| `com.sun.management.OperatingSystemMXBean` — container-aware on a modern JVM, so a Vortex running
+  under a cgroup quota reports the quota rather than the host
+
+| The k6 process's own CPU time
+| `ProcessHandle.Info.totalCpuDuration()`, sampled and differenced. k6 is a child process, not the
+  JVM, and this is the only JDK-native way to see it
+
+| A containerised k6 runner's CPU and memory
+| The Docker adapter that already exists for the local lab
+|===
+
+All three are cross-platform, all three are `jdk.management` or `java.base`, and all three live in
+`vortex-app` as an adapter. `vortex-core` sees `ResourceSignal`s scoped `LOAD_GENERATOR` and knows
+nothing about where they came from — the same arrangement every other provider has.
+
+A third-party system-metrics library would supply more (per-core breakdown, disk and network
+counters, sensor data) at the cost of a dependency in the composition root for signals no validity
+rule currently cites. If a rule later needs one, that is the moment to justify the dependency.
+
+=== Baseline eligibility is decided per reason code, not per grade
+
+A regression baseline is judged against repeatedly, so a bad one costs more than a bad run. But
+refusing every degraded baseline would, early on, refuse almost all of them — missing telemetry
+alone degrades a run, and most services have partial telemetry.
+
+So eligibility is scoped to what the degradation actually undermines:
+
+[cols="1,2", options="header"]
+|===
+| Baseline carries | What the comparison may not conclude
+
+| `INVALID` (any code)
+| Nothing. The run is not offered as a baseline at all
+
+| `TELEMETRY_INCOMPLETE`
+| Resource and efficiency deltas. Latency, throughput and reliability deltas stand
+
+| `INSUFFICIENT_SAMPLES`
+| Capacity and breakpoint movement, since the stage in question was not a usable boundary edge
+
+| `RUN_TOO_SHORT`, `WARM_UP_NOT_COMPLETED`
+| Capacity movement. Latency deltas are reported with the qualification attached
+
+| `WINDOW_MISALIGNED`
+| Anything resting on telemetry correlation
+|===
+
+A blanket yes would compare against evidence that cannot support the comparison; a blanket no would
+leave teams with no baseline at all. Refusing the specific deltas is more work and is the only answer
+that is true in both directions.
+
+== Consequences
+
+*Gained.* The single most damaging failure mode in load testing — quoting the generator's ceiling as
+the service's capacity — becomes detectable rather than invisible. Every existing conclusion gains a
+precondition it can be checked against, and the precondition is stated on the page rather than
+assumed by the reader. A regression comparison can refuse a baseline that was never valid, which is
+strictly better than comparing against it.
+
+*Cost.* A fourth grading axis in a product that already asks readers to keep three straight, and the
+naming has to work hard: `Verdict`, `BoundaryStatus`, `EvidenceStrength`, `RunQuality`. More runs will
+carry a qualification, and some of them will be qualifications an engineer finds pedantic — a
+five-minute soak flagged `RUN_TOO_SHORT` is correct and unwelcome. Detecting generator saturation
+requires collecting telemetry about Vortex's own host, which is a new class of collection with its
+own permissions and its own absences. Thresholds like "materially below" and "declared minimum"
+have to be written down somewhere reviewable rather than tuned in code.
+
+*Trade accepted.* Vortex could keep reporting what it measured and leave validity to the engineer's
+judgement, which is what every load-testing tool does. The engineer who knows to check
+`dropped_iterations` did not need Vortex; the one who does not is exactly the person the product is
+for, and they will quote the number. A tool that produces a defensible conclusion has to be willing
+to say that this particular run does not support one.

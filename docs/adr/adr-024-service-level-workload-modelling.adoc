@@ -1,0 +1,114 @@
+= ADR-024: Service-level workload modelling, not cross-service journeys
+
+== Status
+
+Accepted. Supersedes xref:adr-016-journey-rate-is-not-request-rate.adoc[ADR-016].
+
+The model below is current. Its *vocabulary* is not: what this ADR calls a `Scenario` is now called a
+`Workload`, and the traffic shape inside it is a `LoadShape`. See
+xref:adr-030-workloads-not-scenarios.adoc[ADR-030]. The text is left as written, because an ADR
+records what was decided at the time.
+
+== Context
+
+Vortex's original core model was the *journey*: an ordered sequence of operations representing
+something a user or calling system does. Workloads were expressed as journey arrivals per second, a
+single project-wide traffic mix distributed those arrivals across journeys, and each journey became
+one k6 scenario.
+
+Two things pushed against that model.
+
+*The question Vortex actually answers is about one service.* The MVP's system under test is a
+deployable service — typically a microservice representing a bounded capability — and the questions
+its owners bring are: how does it behave under its normal production workload, can it sustain its
+expected peak, which operation gives way first, how much headroom is left, at what level does
+degradation begin, did this release regress. Every one of those is answerable against a single
+service and its operations. None of them needs a journey.
+
+*The journey we had was not the thing it was named after.* It carried no correlation and no capture
+between steps: every step's path values were resolved statically before the run, so nothing created
+in step one could be read in step two. It was an ordered batch with think time, wearing the
+vocabulary of a stateful business flow. Meanwhile the most realistic thing a service-level test can
+reproduce — the aggregate composition of concurrent traffic from many callers — was expressible only
+by contorting it into a sequence, which says something different and usually less true.
+
+The cost was concrete. Testing one endpoint required inventing a business journey to put it in. A
+four-operation production mix had to be described as a flow. And every rate in the product needed a
+companion rate beside it, because one journey arrival was several HTTP requests.
+
+== Decision
+
+The MVP models:
+
+....
+System Under Test  →  Operations  →  Scenario  →  Quality gates  →  Run  →  Evidence
+....
+
+*System under test* — one deployable service. Not a new type: it is the project, its
+`ServiceCatalog`, and the environment's dependency mode, which is the only place dependency
+information changes what a result may claim.
+
+*Operation* — one meaningful interaction with the service. One operation is one request. *A single
+operation is a complete, valid performance target*; nothing else is required to test it.
+
+*Scenario* — the workload to reproduce: a test type, an operation mix, a workload model and shape, a
+duration, and the objectives that must hold. Reusable, and it lives in `vortex.yaml`.
+
+*Run* — one immutable execution of a scenario. *Evidence* — what happened.
+
+`Journey`, `JourneyStep`, `TrafficModel`, `WeightedJourney` and `JourneyOrigin` are removed, along
+with `JourneysPerSecond`, AI journey suggestion, and the journey editor. `vortex.yaml` version 1 is
+refused rather than migrated, with the required edit spelled out.
+
+=== An operation mix is composition, not sequence
+
+....
+20% POST /applications              POST /applications
+30% GET  /applications/{id}                 ↓
+50% GET  /applications/{id}/status     GET /applications/{id}
+                                            ↓
+                                       GET /applications/{id}/status
+....
+
+The left describes aggregate concurrent traffic. The right describes a behavioural flow. For
+service-level capacity the left is usually the more faithful model, because a microservice receives
+many concurrent requests from many callers rather than one caller working through a script.
+
+=== What survives from ADR-016
+
+ADR-016 defended two things. The first — that journey rate and request rate must never be conflated
+— was an ambiguity _manufactured by the journey abstraction_, and it disappears with it: one
+operation is one request, so there is one rate. The second is untouched and moves here:
+
+[quote]
+____
+A workload carries one *total* level. Per-operation rates are `AllocatedRate`, whose constructor is
+package-private and which only `RateAllocator` can produce, so "each operation runs at the total
+rate" is inexpressible rather than merely discouraged.
+____
+
+== Consequences
+
+*Gained.* The common case is now the simple case: one operation, one rate, one objective. The
+realistic case says what it means, because a mix is described as a mix. One rate instead of two
+removes the product's most persistent source of explanation. And the type system now guards a
+sharper distinction than the one it replaced — arrival rate versus concurrency (see
+xref:adr-025-open-and-closed-workload-models.adoc[ADR-025]), where the two really are different
+quantities.
+
+*Cost.* A complete break. `vortex.yaml` v1 does not load, stored execution evidence from before this
+change is unreadable, and think-time sequencing is gone. AI journey suggestion goes with it:
+operations come from the OpenAPI import deterministically, and a model cannot know how much traffic
+each one receives.
+
+*Why refuse rather than migrate.* A one-step journey would translate cleanly to an operation. A
+multi-step one would not: Vortex would have to choose between silently discarding the sequence and
+silently reinterpreting an ordered flow as a concurrent mix, and those mean different things. This
+product refuses to guess elsewhere; it refuses here too, and prints the edit instead.
+
+*Future scope.* Cross-service journey testing remains a legitimate concept — "can the complete credit
+application flow sustain 30 applications/sec end to end?" is a real question. It is a different class
+of problem, and it must justify its complexity before entering the core: multiple systems under test,
+cross-service ownership, correlation and capture between steps, test-data propagation, async
+workflows, distributed latency attribution, failure attribution, and end-to-end versus component
+SLIs. Vortex should be excellent at service-level performance engineering first.

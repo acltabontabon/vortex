@@ -1,0 +1,30 @@
+= ADR-009: Environment-aware test classification
+
+== Status
+
+Accepted
+
+== Context
+
+"We load-tested it, it does 1000 TPS" — measured locally, against mocks — is how a performance
+number becomes a liability.
+
+== Decision
+
+Every environment declares its type, dependency mode and capabilities. From those, Vortex derives
+`ISOLATED` or `INTEGRATED`, and the classification travels with every result, report and capacity
+figure.
+
+A run is integrated only when dependencies are real *and* infrastructure is production-like *and*
+nothing is simulated. `HeadroomCalculator` refuses to compare isolated capacity with production
+traffic, returning the reason instead of a number.
+
+Hostname heuristics raise caution but never reclassify: the declared type is authoritative.
+
+== Consequences
+
+*Gained:* the caveat is inseparable from the number. Asking for headroom from an isolated test
+produces an explanation, not a smaller figure.
+
+*Cost:* one more thing to declare per environment, and users must be honest about it. The
+conservative default (isolated unless proven otherwise) makes the failure mode safe.

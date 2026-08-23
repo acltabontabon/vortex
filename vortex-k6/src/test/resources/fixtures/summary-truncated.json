@@ -1,0 +1,4 @@
+{
+  "root_group": {},
+  "metrics": {
+    "http_reqs": { "type": "counter", "values": { "count": 12

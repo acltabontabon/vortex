@@ -1,0 +1,32 @@
+= ADR-019: JdbcClient over JPA
+
+== Status
+
+Accepted
+
+== Context
+
+Persistence is the default reach for Spring Data JPA.
+
+== Decision
+
+Hand-written SQL through Spring's `JdbcClient`, with hand-written row mappers.
+
+The schema is small — seven tables — and read and written whole. Plans, results and summaries are
+stored as JSON documents whose shape must be free to evolve without a migration for every new
+metric, with denormalised columns beside them purely so history can be listed without deserialising
+every row.
+
+== Consequences
+
+*Gained:* the queries are the documentation of what is stored. No entity lifecycle, no lazy
+loading, no N+1, no ORM behaviour to reason about. Considerably less reflection for native
+compilation.
+
+*Cost:* SQL is written by hand. For this schema that is less work than configuring an ORM to
+generate the same queries.
+
+*Serialisation:* the domain carries no Jackson annotations
+(xref:adr-013-core-has-no-framework-dependencies.adoc[ADR-013]), so sealed hierarchies and typed map
+keys are taught to Jackson from the persistence module via mixins — verified by a round-trip test
+against a real SQLite file.

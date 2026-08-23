@@ -1,0 +1,186 @@
+.railSection {
+  min-width: 0;
+}
+
+.railGroup {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 0.82rem;
+  font-weight: 650;
+  margin-bottom: 10px;
+}
+
+.railHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+  margin-bottom: 0.65rem;
+}
+
+.railTitle {
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+/* A ghost button, matching InfoPopover's trigger language — not a coloured hyperlink. */
+.more {
+  align-self: center;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  text-decoration: none;
+  padding: 2px 7px;
+  margin: -2px -7px;
+  border-radius: var(--mantine-radius-sm);
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.more:hover {
+  background: light-dark(rgba(0, 0, 0, 0.045), rgba(255, 255, 255, 0.06));
+  color: var(--mantine-color-text);
+}
+
+/*
+ * A line through every node, not a stack of rows that happen to share a container — this is what
+ * makes the list read as one service's history rather than as several disconnected entries. The line
+ * sits behind the dots (painted first, in source order) so each node interrupts it cleanly.
+ */
+.timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: light-dark(var(--mantine-color-neutral-2), var(--mantine-color-neutral-7));
+}
+
+/*
+ * A pressable row, matching TestRow's cursor/selection language at this rail's own scale — no border
+ * or lift, since this list is read at a glance far more often than it's clicked.
+ */
+.run {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  border-radius: var(--mantine-radius-sm);
+  padding: 7px 6px;
+  margin: 0 -6px;
+  transition: background-color 120ms ease-out;
+}
+
+.run:hover,
+.run:focus-visible {
+  background: light-dark(rgba(0, 0, 0, 0.04), rgba(255, 255, 255, 0.05));
+}
+
+.run:focus-visible {
+  outline: 2px solid var(--mantine-color-brand-6);
+  outline-offset: 2px;
+}
+
+/* This run's own node on the timeline — solid, so it interrupts the connecting line rather than
+   sitting on top of it as a separate layer. */
+.node {
+  position: relative;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+}
+
+.content {
+  min-width: 0;
+  flex: 1;
+}
+
+.runName {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 3px;
+}
+
+.runMeta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Never coloured itself — the node already carries the verdict's colour, and a column of several
+   coloured words in a row reads louder than the state actually warrants (the same reasoning behind
+   VerdictBadge's own `subtleText` variant). */
+.verdictLabel {
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+
+.runWhen {
+  font-size: 0.76rem;
+  color: var(--mantine-color-dimmed);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mantine-font-family-monospace);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* A small affordance, not a phrase — "View full result" as text was cramped and prone to wrapping
+   at this column's width. Revealed on hover/focus rather than permanent, same reasoning as before:
+   the row's headline is the test name and the verdict, and which exact run this was is one glance
+   away, not a fixture. Centred on the row rather than baseline-locked to `.runMeta`'s text, so it
+   reads as its own small control, not a third word crowding the verdict and the time. */
+.viewFull {
+  align-self: center;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-color-dimmed);
+  opacity: 0;
+  transition: opacity 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.viewFull:hover {
+  background: light-dark(rgba(0, 0, 0, 0.06), rgba(255, 255, 255, 0.08));
+  color: var(--mantine-color-text);
+}
+
+.viewFull:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--mantine-color-brand-6);
+  outline-offset: 1px;
+}
+
+.run:hover .viewFull,
+.run:focus-within .viewFull {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run,
+  .viewFull {
+    transition: none;
+  }
+}

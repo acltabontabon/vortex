@@ -1,0 +1,49 @@
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+}
+
+.name {
+  font-family: var(--mantine-font-family-monospace);
+  font-weight: 650;
+  font-size: 1rem;
+}
+
+.type {
+  font-size: 0.78rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.question {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.sectionLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+  margin-bottom: 6px;
+}
+
+.factValue {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 1.1rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.factLabel {
+  font-size: 0.72rem;
+  color: var(--mantine-color-dimmed);
+  margin-top: 1px;
+}
+
+.derivation {
+  font-family: var(--mantine-font-family-monospace);
+}

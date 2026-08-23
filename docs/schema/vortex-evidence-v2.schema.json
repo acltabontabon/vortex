@@ -1,0 +1,966 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vortex.dev/schema/vortex-evidence-v2.schema.json",
+  "title": "Vortex run evidence",
+  "description": "The Vortex evidence contract, version 2. Adds three top-level sections - validity, resources and limits - and records the shape of the host and which telemetry providers were consulted in provenance. Version 1 remains in this directory as the contract already-written exports were tagged with; pre-1.0 there is no dual-reader, and old files keep their own version.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "run",
+    "verdict",
+    "workload",
+    "performance",
+    "provenance",
+    "validity",
+    "resources",
+    "limits"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vortex.evidence/2"
+    },
+    "run": {
+      "type": "object",
+      "description": "What was tested, and the conditions the numbers hold under.",
+      "required": [
+        "id",
+        "service",
+        "scenario",
+        "environment",
+        "classification",
+        "requestedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        },
+        "serviceVersion": {
+          "type": "string",
+          "description": "Absent when the project never recorded a release."
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "testType": {
+          "enum": [
+            "SMOKE",
+            "AVERAGE_LOAD",
+            "STRESS",
+            "SPIKE",
+            "SOAK",
+            "BREAKPOINT"
+          ]
+        },
+        "environment": {
+          "type": "string"
+        },
+        "environmentType": {
+          "type": "string"
+        },
+        "classification": {
+          "enum": [
+            "ISOLATED",
+            "INTEGRATED"
+          ],
+          "description": "An isolated run cannot establish production capacity."
+        },
+        "dependencyMode": {
+          "enum": [
+            "MOCKED",
+            "REAL",
+            "MIXED",
+            "UNKNOWN"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "description": "Any embedded credentials are removed."
+        },
+        "requestedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "durationMillis": {
+          "type": "integer"
+        }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_EVALUATED"
+          ],
+          "description": "NOT_EVALUATED is never a pass. An objective that was not checked has not been met."
+        },
+        "question": {
+          "type": "string"
+        },
+        "answer": {
+          "type": "string"
+        },
+        "qualifications": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Caveats that must accompany the result."
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "description": "What was asked for beside what was delivered. Never folded into one figure.",
+      "required": [
+        "model",
+        "configuredLevel",
+        "configuredUnit",
+        "requests",
+        "failures"
+      ],
+      "properties": {
+        "model": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ]
+        },
+        "configuredLevel": {
+          "type": "number"
+        },
+        "configuredUnit": {
+          "type": "string",
+          "examples": [
+            "requests/sec",
+            "VUs"
+          ]
+        },
+        "achievedRatePerSecond": {
+          "type": "number"
+        },
+        "deliveredFraction": {
+          "type": "number",
+          "description": "Share of the offered load accepted, 0 to 1. Absent under a closed workload, where throughput is an outcome rather than a target \u2014 absence means not applicable, never zero."
+        },
+        "deliveredCaveat": {
+          "type": "string"
+        },
+        "configuredDurationMillis": {
+          "type": "integer"
+        },
+        "actualDurationMillis": {
+          "type": "integer"
+        },
+        "requests": {
+          "type": "integer"
+        },
+        "failures": {
+          "type": "integer"
+        },
+        "estimatedRequests": {
+          "type": "integer"
+        },
+        "operationMix": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scriptSource": {
+          "enum": [
+            "GENERATED",
+            "IMPORTED"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "description": "Where the workload figures came from."
+        },
+        "requestHeaders": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Header names in full; values masked. That a run was authenticated is part of how it was carried out, what it was authenticated with is not."
+        }
+      }
+    },
+    "performance": {
+      "type": "object",
+      "required": [
+        "requests",
+        "failures",
+        "errorRatePercent"
+      ],
+      "properties": {
+        "requests": {
+          "type": "integer"
+        },
+        "failures": {
+          "type": "integer"
+        },
+        "errorRatePercent": {
+          "type": "number"
+        },
+        "latencyMillis": {
+          "type": "object",
+          "description": "Empty when no distribution was recorded. Never zero-filled.",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "sloBreakpoint": {
+          "type": "object",
+          "description": "Where objectives were first violated. A statement about an agreement, not the machine.",
+          "properties": {
+            "level": {
+              "type": "number"
+            },
+            "unit": {
+              "type": "string"
+            },
+            "violated": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidenceStrength": {
+              "$ref": "#/$defs/evidenceStrength"
+            },
+            "stagesObserved": {
+              "type": "integer"
+            }
+          }
+        },
+        "systemSaturation": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "enum": [
+                "OBSERVED",
+                "NOT_ESTABLISHED"
+              ]
+            },
+            "evidenceStrength": {
+              "$ref": "#/$defs/evidenceStrength"
+            },
+            "explanation": {
+              "type": "string"
+            }
+          }
+        },
+        "headroom": {
+          "type": "object",
+          "description": "Tested SLO-compliant capacity against observed production traffic. Not a maximum throughput.",
+          "properties": {
+            "testedCapacityPerSecond": {
+              "type": "number"
+            },
+            "observedProductionPeakPerSecond": {
+              "type": "number"
+            },
+            "multiple": {
+              "type": "number"
+            }
+          }
+        },
+        "headroomNotStated": {
+          "type": "string",
+          "description": "Why headroom could not be computed. Present only when 'headroom' is absent \u2014 a report never goes quiet where a number was expected, because silence reads as a tool that forgot rather than one that declined."
+        },
+        "productionBaseline": {
+          "type": "object",
+          "description": "The observed production traffic the headroom above was measured against, with the facts that say how far it can be trusted. Facts rather than a grade: the window, the resolution and the mix coverage are what let a reader disagree with it.",
+          "properties": {
+            "peakPerSecond": {
+              "type": "number"
+            },
+            "fetched": {
+              "type": "boolean",
+              "description": "True when a monitoring system produced this, false when a person typed it."
+            },
+            "source": {
+              "type": "string"
+            },
+            "sampleResolutionSeconds": {
+              "type": "number",
+              "description": "The interval each rate sample averaged over. A peak from one-minute samples and one from hourly samples are different claims about the same traffic."
+            },
+            "mixCoverage": {
+              "type": "number",
+              "description": "Share of observed production traffic the operation mix accounts for, between 0 and 1. Absent when nobody established it \u2014 which is not the same claim as full coverage."
+            },
+            "observedRequests": {
+              "type": "number"
+            },
+            "matchedRequests": {
+              "type": "number"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query as issued, so any figure can be checked against the system that produced it."
+            }
+          }
+        }
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "description": "Objective-by-objective results. Empty when the run asserted nothing.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "description",
+          "verdict"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "NOT_EVALUATED"
+            ]
+          },
+          "observed": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "Why it could not be evaluated, when it could not."
+          }
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "description": "Per-operation results, so an aggregate cannot hide a badly behaving operation.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "verdict",
+          "hasTraffic"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "request": {
+            "type": "string"
+          },
+          "sharePercent": {
+            "type": "string"
+          },
+          "payloadProvenance": {
+            "enum": [
+              "SCHEMA_GENERATED",
+              "HUMAN_AUTHORED",
+              "DATASET_SUPPLIED"
+            ]
+          },
+          "verdict": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "NOT_EVALUATED"
+            ]
+          },
+          "hasTraffic": {
+            "type": "boolean",
+            "description": "False distinguishes an operation that never fired from one that succeeded. When false, no measurement fields are present."
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "failures": {
+            "type": "integer"
+          },
+          "errorRatePercent": {
+            "type": "number"
+          },
+          "achievedRatePerSecond": {
+            "type": "number"
+          },
+          "latencyMillis": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "timeline": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Null when the run produced no series. Points are thinned, not truncated.",
+      "properties": {
+        "bucketMillis": {
+          "type": "integer"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "achievedRatePerSecond": {
+                "type": "number"
+              },
+              "targetLevel": {
+                "type": "number"
+              },
+              "targetUnit": {
+                "type": "string"
+              },
+              "p95Millis": {
+                "type": "integer"
+              },
+              "errorRatePercent": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    },
+    "observability": {
+      "type": "array",
+      "description": "What the service said about itself. Empty when no provider was reachable.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "metric",
+          "source",
+          "unit",
+          "aggregation",
+          "value"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The identifier a finding cites."
+          },
+          "metric": {
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "K6",
+              "ACTUATOR",
+              "PROMETHEUS",
+              "DYNATRACE",
+              "USER_PROVIDED",
+              "DERIVED"
+            ]
+          },
+          "unit": {
+            "type": "string"
+          },
+          "aggregation": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          },
+          "windowStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "windowEnd": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dimensions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "trace": {
+            "type": "object",
+            "description": "Absent when the signal was sampled once. Never filled in from the peak.",
+            "properties": {
+              "start": {
+                "type": "number"
+              },
+              "peak": {
+                "type": "number"
+              },
+              "end": {
+                "type": "number"
+              },
+              "peakAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "provenance": {
+            "type": "object",
+            "description": "How the provider was asked. Provider-neutral by design.",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string"
+              },
+              "entity": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "Derived from the measurements by arithmetic, not by a model. Every finding cites at least one evidence identifier. Findings state association, never causation.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "level",
+          "headline",
+          "evidenceStrength",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "FAIL",
+              "WARNING",
+              "OBSERVATION",
+              "PASS"
+            ]
+          },
+          "headline": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "evidenceStrength": {
+            "$ref": "#/$defs/evidenceStrength"
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "comparison": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "An earlier run of the same experiment. Vortex shows any two runs side by side but only issues a verdict when they tested the same thing.",
+      "properties": {
+        "baselineRunId": {
+          "type": "string"
+        },
+        "baselineLabel": {
+          "type": "string"
+        },
+        "baselineFinishedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "comparable": {
+          "type": "boolean"
+        },
+        "verdict": {
+          "enum": [
+            "IMPROVED",
+            "UNCHANGED",
+            "REGRESSED",
+            "NOT_COMPARABLE"
+          ]
+        },
+        "differences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deltas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "metric": {
+                "type": "string"
+              },
+              "baseline": {
+                "type": "number"
+              },
+              "candidate": {
+                "type": "number"
+              },
+              "lowerIsBetter": {
+                "type": "boolean"
+              },
+              "percentChange": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "What produced this result, so it can be reproduced.",
+      "required": [
+        "vortexVersion",
+        "engineVersion",
+        "configurationHash",
+        "generatedAt"
+      ],
+      "properties": {
+        "vortexVersion": {
+          "type": "string"
+        },
+        "engineVersion": {
+          "type": "string"
+        },
+        "runtimeVersion": {
+          "type": "string"
+        },
+        "containerImage": {
+          "type": "string"
+        },
+        "configurationHash": {
+          "type": "string",
+          "description": "SHA-256 of the resolved plan. Two runs sharing it tested the same experiment."
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "observabilityWindowStart": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "observabilityWindowEnd": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "evidenceQueries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "secretReferences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Environment variables the run needed, by name. A name is not a secret."
+        },
+        "artifactDirectory": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reproductionCommand": {
+          "type": "string"
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this document was produced, which is not when the run happened."
+        },
+        "host": {
+          "type": "object",
+          "description": "The machine that produced the numbers. Absent when it was not recorded - which is a different fact from a machine with no cores.",
+          "properties": {
+            "operatingSystem": {
+              "type": "string"
+            },
+            "osVersion": {
+              "type": "string"
+            },
+            "architecture": {
+              "type": "string"
+            },
+            "availableProcessors": {
+              "type": "integer",
+              "description": "Cores visible to the process: under a container this is the cgroup quota, which is the number that matters for reproducing a run."
+            },
+            "totalMemoryBytes": {
+              "type": "integer"
+            }
+          }
+        },
+        "telemetryProviders": {
+          "type": "array",
+          "description": "Every provider consulted, including those that answered nothing. A provider that failed is listed rather than omitted, because omitting it would suggest nobody looked there.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "availability"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "availability": {
+                "enum": [
+                  "available",
+                  "no_data",
+                  "unsupported",
+                  "unreachable",
+                  "unauthorized",
+                  "malformed"
+                ]
+              },
+              "metricsRequested": {
+                "type": "integer"
+              },
+              "metricsReturned": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "validity": {
+      "type": "object",
+      "description": "Whether the experiment was carried out as specified. Independent of the verdict in both directions: a run can meet every objective and be invalid, and a run can miss every objective and be perfectly valid.",
+      "required": [
+        "grade",
+        "assessed",
+        "permitsCapacityClaims",
+        "findings"
+      ],
+      "properties": {
+        "grade": {
+          "enum": [
+            "valid",
+            "degraded",
+            "invalid",
+            "not_assessed"
+          ],
+          "description": "not_assessed is not a grade: it describes a run recorded before this axis existed, carries no reason codes, and withholds nothing."
+        },
+        "assessed": {
+          "type": "boolean"
+        },
+        "permitsCapacityClaims": {
+          "type": "boolean"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "effect",
+              "statement"
+            ],
+            "properties": {
+              "code": {
+                "enum": [
+                  "offered_load_not_generated",
+                  "generator_saturated",
+                  "run_too_short",
+                  "insufficient_samples",
+                  "warm_up_not_completed",
+                  "telemetry_incomplete",
+                  "target_unavailable_during_run",
+                  "execution_interrupted",
+                  "window_misaligned"
+                ]
+              },
+              "effect": {
+                "enum": [
+                  "qualifies",
+                  "withholds_capacity",
+                  "withholds_all_claims"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "description": "Names the measurement and the threshold it crossed, so the qualification can be argued with."
+              },
+              "evidenceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "fromLevel": {
+                "type": "string",
+                "description": "The level at and above which this withholds claims. Absent when the finding is about the run as a whole."
+              }
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "description": "Measurements a provider classified as a typed resource, with the system each describes. Unclassified measurements appear in observability only, and may never support a limiting-resource claim.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "resourceKind",
+          "scope",
+          "value",
+          "atItsLimit"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "resourceKind": {
+            "enum": [
+              "cpu",
+              "memory",
+              "network",
+              "disk",
+              "runtime_memory",
+              "runtime_pause",
+              "pool",
+              "queue",
+              "threads"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "system_under_test",
+              "load_generator",
+              "dependency"
+            ]
+          },
+          "value": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "atItsLimit": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "object",
+            "description": "Absent when the provider published none. Vortex does not compute a percentage against a denominator it guessed.",
+            "required": [
+              "value",
+              "basis"
+            ],
+            "properties": {
+              "value": {
+                "type": "number"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "basis": {
+                "enum": [
+                  "published_by_provider",
+                  "inherent_to_unit"
+                ]
+              },
+              "describedAs": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "description": "The limits this run established, reported separately because they routinely disagree. A run that established none says so by carrying none.",
+      "properties": {
+        "objectiveBreakpoint": {
+          "type": "string"
+        },
+        "systemSaturation": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "evidenceStrength": {
+      "enum": [
+        "HIGH",
+        "MEDIUM",
+        "LOW",
+        "INSUFFICIENT"
+      ],
+      "description": "Identical arithmetic can rest on very different evidence."
+    }
+  }
+}

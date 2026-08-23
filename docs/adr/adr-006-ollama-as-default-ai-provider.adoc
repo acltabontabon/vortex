@@ -1,0 +1,32 @@
+= ADR-006: Ollama as the default local AI provider
+
+== Status
+
+Accepted
+
+== Context
+
+Vortex includes AI assistance. Sending a service's operation names, measurements and topology to a
+third-party API is a conversation many organisations would rather not have before an engineer can
+try a tool.
+
+== Decision
+
+https://ollama.com[Ollama] is the default provider, accessed through Spring AI, behind a
+provider-neutral `PerformanceAssistant` port.
+
+Vortex never downloads a model (`pull-model-strategy: never`). `vortex.ai.*` is the single
+configuration point, and Spring AI's own properties are driven from it.
+
+== Consequences
+
+*Gained:* requests do not leave the machine. No account, no key, no cost. Consistent with
+local-first.
+
+*Cost:* local models are smaller and less capable, which is why the evidence package is small and
+already-calculated (xref:adr-007-ai-assists-but-does-not-decide.adoc[ADR-007]) and why tool calling
+is deferred.
+
+*Future providers:* Bedrock or an enterprise gateway would implement the same port. Deliberately
+not built now — an interface with one real implementation is a better guess than one with none, and
+speculative providers are worse than either.

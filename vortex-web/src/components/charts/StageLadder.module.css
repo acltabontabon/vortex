@@ -1,0 +1,42 @@
+.ladder {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.6rem;
+}
+
+.ladder th,
+.ladder td {
+  text-align: left;
+  padding: 3px 1.4rem 3px 0;
+  font-weight: 400;
+  vertical-align: baseline;
+  font-size: 0.8rem;
+}
+
+.ladder th:first-child,
+.ladder td:first-child {
+  padding-right: 8px;
+  width: 14px;
+}
+
+.ladder th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  padding-bottom: 4px;
+}
+
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.met {
+  background: var(--mantine-color-pass-6);
+}
+
+.violated {
+  background: var(--mantine-color-fail-6);
+}

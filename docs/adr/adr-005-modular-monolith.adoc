@@ -1,0 +1,28 @@
+= ADR-005: Modular monolith rather than microservices
+
+== Status
+
+Accepted
+
+== Context
+
+Vortex has several distinct concerns: onboarding, execution, analysis, persistence, AI. Splitting
+them into services is a familiar instinct.
+
+== Decision
+
+One process, one executable, Maven modules for boundaries.
+
+Splitting a local developer tool into networked services would be architectural cosplay: it would
+add deployment complexity, network failure modes and operational burden to something that runs on a
+laptop, in exchange for nothing.
+
+== Consequences
+
+*Gained:* a single binary. No orchestration, no service discovery, no distributed debugging.
+Refactoring across boundaries is a compiler-checked operation.
+
+*Cost:* components cannot be scaled independently. Nothing here needs to be.
+
+*Boundaries still real:* enforced by Maven (xref:adr-014-seven-modules-not-eight.adoc[ADR-014]) and
+ArchUnit.

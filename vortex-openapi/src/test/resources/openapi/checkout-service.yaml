@@ -1,0 +1,150 @@
+openapi: 3.0.3
+
+info:
+  title: checkout-service
+  version: 1.0.0
+  description: >
+    A sample service used to demonstrate Vortex. It has a deliberate, documented bottleneck
+    (a bounded worker pool) so that a stress test produces meaningful, non-fabricated results.
+
+servers:
+  - url: http://localhost:8080
+    description: Local
+
+tags:
+  - name: Accounts
+    description: Account lookups
+  - name: Orders
+    description: Order placement and lifecycle
+
+paths:
+  /accounts/{id}:
+    get:
+      operationId: getAccount
+      tags: [Accounts]
+      summary: Fetch an account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Account identifier
+          schema:
+            type: string
+          example: acc-1001
+      responses:
+        '200':
+          description: The account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+
+  /orders:
+    post:
+      operationId: createOrder
+      tags: [Orders]
+      summary: Place an order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: The created order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '503':
+          description: The service is saturated and cannot accept more work
+
+  /orders/{id}:
+    get:
+      operationId: getOrder
+      tags: [Orders]
+      summary: Fetch an order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: ord-1
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          description: No such order
+
+  /orders/{id}/cancel:
+    post:
+      operationId: cancelOrder
+      tags: [Orders]
+      summary: Cancel an order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: ord-1
+      responses:
+        '200':
+          description: The cancelled order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          description: No such order
+
+components:
+  schemas:
+    Account:
+      type: object
+      properties:
+        id:
+          type: string
+          example: acc-1001
+        status:
+          type: string
+          example: ACTIVE
+        availableBalance:
+          type: number
+          example: 512.40
+
+    CreateOrderRequest:
+      type: object
+      required: [accountId, amount]
+      properties:
+        accountId:
+          type: string
+          example: acc-1001
+        amount:
+          type: number
+          example: 42.50
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+          example: ord-1
+        accountId:
+          type: string
+          example: acc-1001
+        amount:
+          type: number
+          example: 42.50
+        status:
+          type: string
+          enum: [ACCEPTED, CANCELLED]
+        createdAt:
+          type: string
+          format: date-time

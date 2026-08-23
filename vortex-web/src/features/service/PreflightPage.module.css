@@ -1,0 +1,27 @@
+.split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--mantine-spacing-lg);
+}
+
+@media (min-width: 900px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    align-items: start;
+  }
+}
+
+.main {
+  min-width: 0;
+}
+
+.aside {
+  min-width: 0;
+  position: sticky;
+  top: var(--mantine-spacing-lg);
+}
+
+.stickyCard {
+  position: sticky;
+  top: var(--mantine-spacing-lg);
+}

@@ -1,0 +1,136 @@
+/*
+ * The one live-execution surface, shared by the service row's inline view (compact) and the
+ * standalone run page (full) — tinted with the theme's `live` token, the same idiom this app
+ * already uses to mark a distinct, legible state rather than a generic alert box.
+ */
+.panel {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--mantine-radius-sm);
+  background: light-dark(var(--mantine-color-live-0), var(--mantine-color-live-9));
+  border: 1px solid light-dark(var(--mantine-color-live-1), var(--mantine-color-live-8));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.full {
+  padding: 18px 20px;
+  gap: 14px;
+  border-radius: var(--mantine-radius-md);
+}
+
+.headRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+}
+
+.stage {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.full .stage {
+  font-size: 1.05rem;
+}
+
+.liveMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: light-dark(var(--mantine-color-live-7), var(--mantine-color-live-3));
+}
+
+.liveDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: livePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot {
+    animation: none;
+  }
+}
+
+.elapsed {
+  font-family: var(--mantine-font-family-monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--mantine-color-dimmed);
+}
+
+/* Aligned columns, not a wrapped row of prose — each present stat gets its own grid column, and
+   an absent one (its slot simply not rendered) leaves no gap behind. */
+.telemetry {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  column-gap: 1.5rem;
+}
+
+.full .telemetry {
+  column-gap: 2.5rem;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.statLabel {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.statValue {
+  font-family: var(--mantine-font-family-monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.full .statValue {
+  font-size: 1.1rem;
+}
+
+/* Terminal/status flavour text — muted and monospace so it reads as instrumentation, not copy. */
+.commentary {
+  margin: 0;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 0.76rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+}

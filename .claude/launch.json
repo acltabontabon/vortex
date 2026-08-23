@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vortex",
+      "runtimeExecutable": "./mvnw",
+      "runtimeArgs": ["-pl", "vortex-app", "spring-boot:run"],
+      "port": 7717,
+      "url": "http://127.0.0.1:7717"
+    },
+    {
+      "name": "demo-service",
+      "runtimeExecutable": "./mvnw",
+      "runtimeArgs": ["-pl", "vortex-demo-service", "spring-boot:run"],
+      "port": 8080,
+      "url": "http://127.0.0.1:8080"
+    },
+    {
+      "name": "vortex-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "vortex-web", "run", "dev"],
+      "port": 5173,
+      "url": "http://localhost:5173"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+/* Mantine's own reset (via @mantine/core/styles.css) handles the rest; this only removes the
+   default browser body margin so the app fills the whole viewport. */
+body {
+  margin: 0;
+}
+
+@keyframes tabler-spin {
+  to { transform: rotate(360deg); }
+}
+.tabler-spin {
+  animation: tabler-spin 900ms linear infinite;
+}
+
+/*
+ * Server-rendered load-axis SVG (see vortex-app's LoadAxisRenderer). These class names are
+ * emitted as literal strings by Java, not through CSS Modules, so they have to stay global and
+ * stay in sync with the renderer's class names by hand.
+ */
+.load-axis { display: block; width: 100%; height: auto; }
+.axis-track { stroke: var(--mantine-color-default-border); stroke-width: 2; }
+.axis-open { fill: none; stroke: var(--mantine-color-default-border); stroke-width: 2; stroke-linecap: round; }
+.axis-point { stroke: var(--mantine-color-body); stroke-width: 2; }
+.axis-point.compliant { fill: var(--mantine-color-pass-6); }
+.axis-point.non-compliant { fill: var(--mantine-color-fail-6); }
+.axis-point.unevaluated { fill: var(--mantine-color-neutral-6); }
+.axis-point.derived { fill: var(--mantine-color-body); stroke-width: 2.5; }
+.axis-point.derived.compliant { stroke: var(--mantine-color-pass-6); }
+.axis-point.derived.non-compliant { stroke: var(--mantine-color-fail-6); }
+.axis-point.derived.unevaluated { stroke: var(--mantine-color-neutral-6); }
+.axis-boundary { stroke: var(--mantine-color-text); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.axis-saturation { fill: var(--mantine-color-warn-1); stroke: var(--mantine-color-warn-3); }
+.axis-level { fill: var(--mantine-color-dimmed); font-size: 11px; }
+.axis-end { fill: var(--mantine-color-dimmed); font-size: 11px; }
+
+/* Screen-reader-only text — visible content still carries the same information at a glance
+   (a colored dot/mark), this just names it for anyone not reading it visually. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

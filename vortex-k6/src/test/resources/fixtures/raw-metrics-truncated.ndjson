@@ -1,0 +1,6 @@
+{"metric":"http_reqs","type":"Point","data":{"time":"2026-08-21T04:45:43.246412+08:00","value":1,"tags":{"scenario":"getaccount","status":"200"}}}
+{"metric":"http_req_duration","type":"Point","data":{"time":"2026-08-21T04:45:43.246412+08:00","value":41.063,"tags":{"scenario":"getaccount","status":"200"}}}
+{"metric":"http_req_failed","type":"Point","data":{"time":"2026-08-21T04:45:43.246412+08:00","value":0,"tags":{"scenario":"getaccount"}}}
+{"metric":"http_reqs","type":"Point","data":{"time":"2026-08-21T04:45:49.100000+08:00","value":1,"tags":{"scenario":"getaccount","status":"503"}}}
+{"metric":"http_req_failed","type":"Point","data":{"time":"2026-08-21T04:45:49.100000+08:00","value":1,"tags":{"scenario":"getaccount"}}}
+{"metric":"http_req_duration","type":"Point","data":{"time":"2026-08-21T04:45:49.100000+08:00","value":5010.2,"tags":{"scenario":"getacc

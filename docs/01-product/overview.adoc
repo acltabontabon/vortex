@@ -1,0 +1,766 @@
+= Product overview
+:toc:
+:toclevels: 3
+
+== Vision
+
+=== The sentence
+
+Vortex is a local-first performance engineering workbench: it helps engineers model realistic
+workloads, execute repeatable tests against a service, understand its capacity, detect regressions
+and diagnose bottlenecks — without every engineer having to become a performance-testing specialist.
+It builds on k6 for load generation and an optional local Ollama model for interpretation, never the
+other way around.
+
+=== The experience we are building towards
+
+[quote]
+____
+An engineer takes a microservice with no performance tests and establishes a repeatable,
+understandable, production-informed performance baseline in less than one working day.
+____
+
+Not a load test. A _baseline_: a number they can defend, with the conditions it was measured under
+attached, that will still mean something when someone re-runs it next quarter.
+
+=== Why this is not a load-testing tool
+
+Load generation is solved. k6 is excellent, it is open source, and rebuilding any part of it would
+be a waste of everyone's time.
+
+What is not solved is everything around it. A team with k6 installed still has to decide what
+workload represents their traffic, how much of it to generate, what a reasonable threshold is, which
+of the numbers in the output matter, whether this week's result is worse than last week's, and what
+to do about it. Those decisions require judgement that most teams have to reinvent, badly, one
+service at a time.
+
+Vortex is the accumulated answer to those questions, made into a tool.
+
+----
+                     VORTEX
+                        │
+          ┌─────────────┼─────────────┐
+          ▼             ▼             ▼
+
+      MODELLING      EXECUTION    UNDERSTANDING
+
+      Workloads         k6        Deterministic metrics
+      Traffic mixes     │         Capacity
+      Workloads         │         Breakpoints
+      Thresholds        │         Regression
+      Calibration       │         Interpretation
+
+                        │
+                        ▼
+
+               PERFORMANCE EVIDENCE
+----
+
+k6 generates load. Ollama helps interpret evidence. Docker provides a local laboratory. Observability
+systems provide telemetry. Vortex connects them into a workflow that produces something a team can
+act on.
+
+=== What "good" looks like
+
+Vortex succeeds when a problem that felt vague becomes tractable:
+
+[cols="1,1", options="header"]
+|===
+| Before
+| After
+
+| "Can it handle Black Friday?"
+| "It met its objectives at 212 requests/sec in the performance environment with real dependencies, against an observed peak of 120. That is 1.76× headroom."
+
+| "The test failed, I think?"
+| "p95 exceeded 500 ms first at 212 requests/sec, and status polling degraded before submission did. The connection pool was saturated at the same time. CPU was not."
+
+| "Is this slower than last release?"
+| "Yes: p95 at the same rate, mix and environment moved from 280 ms to 405 ms."
+
+| "Where do I even start?"
+| "Import your OpenAPI document."
+|===
+
+=== What we will not trade away
+
+*Trustworthiness over capability.* A number Vortex reports must be defensible. Where the evidence
+does not support a conclusion, Vortex says so — "not established by this test" is a feature.
+
+*Honesty over polish.* A result carries its conditions. A local run against mocked dependencies is
+labelled as such wherever its numbers appear, because the alternative is somebody putting
+"1000 TPS" on a slide.
+
+*Determinism over intelligence.* Verdicts, breakpoints, headroom and regressions are computed by
+ordinary code. A language model that produced them would make the same data yield different answers
+on different days, and everything downstream would inherit that.
+
+*Local-first over hosted.* No account, no cluster, no server, no SaaS. An engineer should be able
+to learn performance testing on their laptop during an afternoon.
+
+=== What success is not
+
+Not feature count. Vortex should be impressive because an engineering problem that previously felt
+vague suddenly feels straightforward — not because it has hundreds of features.
+
+== Problem statement
+
+=== The observation
+
+Teams that need performance testing usually have access to excellent performance-testing tools and
+do not use them. When they do use them, the results frequently do not survive contact with a
+sceptical reader.
+
+The gap is not technology. It is that performance testing requires a chain of judgements, each of
+which is easy to get wrong, and getting any of them wrong quietly invalidates everything after it.
+
+=== The chain
+
+Ask a team to performance-test a service and they must decide, in order:
+
+. *What traffic should we model?* Most teams do not know their own numbers. Someone picks 100
+  requests per second because it is round.
+. *What kind of test is this?* Baseline, peak, stress, spike, soak and capacity answer different
+  questions. Choosing the wrong one produces an answer to a question nobody asked.
+. *What traffic are we generating?* Blasting one endpoint tells you about that endpoint. Production
+  sends a mixture of concurrent requests across many endpoints, and services fall over on the mix.
+. *How many virtual users?* A question with no good answer, which changes every time latency
+  does, and which silently reduces the offered load exactly when the service starts to struggle.
+. *What threshold?* Without one, the run produces measurements and no verdict.
+. *What do these numbers mean?* A load generator's output is a wall of metrics. Which one
+  indicates a problem is not obvious to someone doing this for the first time.
+. *Where was the bottleneck?* "p95 = 800 ms" describes the symptom. The useful question is what
+  ran out.
+. *Is this repeatable?* A test that lives in one person's terminal history is not.
+. *Is this worse than last time?* Only answerable if the two runs tested the same thing, which is
+  only knowable if that was recorded.
+. *Is it safe to run?* Load tests cause incidents.
+
+Each link is where a team stalls, and there is no tool whose job is the chain.
+
+=== What goes wrong in practice
+
+*Invented traffic.* A number chosen because it sounded plausible. The test then measures the
+service's response to a fiction.
+
+*Endpoint blasting.* 500 requests/sec at one path, passing comfortably, while the same service under
+its real mixture of traffic would have failed at 200 — because the expensive operation nobody tested
+was contending for the same pool.
+
+*Conflated units.* "50" meaning requests per second in one sentence and virtual users in the next.
+They are not the same quantity, and no conversion exists without the latency the test was supposed to
+find out. The error survives into a capacity plan.
+
+*Context-free capacity.* "We handle 1000 TPS" on a slide. Measured locally. Against mocks.
+
+*Green tests that measured nothing.* An objective whose measurement was never collected, reported
+as a pass.
+
+*Unrepeatable results.* A number nobody can reproduce, from a configuration nobody kept.
+
+*Confident wrong diagnoses.* A bottleneck identified from telemetry that was never gathered.
+
+=== What Vortex changes
+
+Vortex takes the chain seriously as the product:
+
+[cols="2,3", options="header"]
+|===
+| The judgement
+| What Vortex does
+
+| What traffic?
+| Records observed production traffic and derives workloads from it by documented arithmetic
+
+| What kind of test?
+| Asks what you want to find out, in your own terms, and maps it to an executor
+
+| What traffic?
+| A workload reproduces a realistic operation mix; one operation is also a complete target
+
+| How many virtual users?
+| You never say. You state a throughput; Vortex handles the rest
+
+| What threshold?
+| Suggests a starting point, says plainly it is not a standard, evaluates deterministically
+
+| What do the numbers mean?
+| Opens with the question you asked and answers it in a sentence
+
+| Where was the bottleneck?
+| Correlates client-side measurements with the service's own telemetry, and says when it cannot
+
+| Repeatable?
+| The definition is a file in your repository; every run snapshots its resolved plan
+
+| Worse than last time?
+| Compares freely, but only issues a regression verdict when the runs are equivalent
+
+| Safe?
+| Shows exactly what will happen, classifies the environment, and requires typed confirmation where it matters
+|===
+
+=== The one-line version
+
+Teams do not need a better load generator. They need the workflow around one.
+
+== Principles
+
+These are the rules Vortex holds itself to. Where a feature would violate one, the feature loses.
+
+'''
+
+=== 1. Production-informed over arbitrary
+
+Prefer real workload evidence to invented traffic numbers. A test against a number someone picked
+because it sounded plausible measures the service's response to a fiction.
+
+_In practice:_ observed production traffic is a first-class input, and workloads derived from it
+record how the number was arrived at.
+
+=== 2. Realistic composition over endpoint blasting
+
+Production systems experience a mixture of concurrent traffic across many endpoints, not isolated
+benchmarks. A service that comfortably serves 500 lookups a second may fall over at 50 checkouts.
+
+_In practice:_ a workload reproduces a weighted operation mix, and that is ordinary rather than
+advanced. One operation is also a complete target — the simple case stays simple.
+
+=== 3. Arrival rate over guessed virtual users
+
+Throughput is what service owners know. Virtual-user counts are an artefact of the load generator
+that must be guessed, and a virtual-user test quietly reduces its own offered load exactly when the
+service starts to struggle.
+
+_In practice:_ users state requests per second, and arrival rate is the default. Concurrency is
+available when the real caller is a bounded population, and is never confused with a rate.
+
+=== 4. Evidence over opinion
+
+Performance conclusions must be grounded in measurements. Every claim traces to something measured,
+and it is always clear which claims are measurements, which are calculations, and which are
+interpretations.
+
+_In practice:_ AI findings cite evidence by identifier, and unresolvable citations are discarded.
+Recommendations carry the same requirement, so generic advice is discarded along with unsupported
+findings rather than surviving because it sounds reasonable.
+
+=== 5. AI assists; deterministic systems decide
+
+Never delegate truth to a language model. Measurements, verdicts, breakpoints, headroom and
+regressions are computed by ordinary code.
+
+_In practice:_ Vortex calculates that 67 × 1.5 = 100.5 and rounds it by a documented rule. The model
+explains what that means. It is never asked to multiply.
+
+=== 6. Local first
+
+An engineer should be able to learn performance testing, validate a workload and catch a regression
+on their own machine. No account, no cluster, no server, no SaaS.
+
+_In practice:_ Vortex plus k6 plus the service under test is enough. Everything else is optional.
+
+=== 7. Environment context matters
+
+Local mocks do not equal production capacity. What a result can legitimately claim depends on where
+it was measured.
+
+_In practice:_ every result, report and capacity figure carries its environment classification.
+
+=== 8. Progressive disclosure
+
+Keep beginners productive without restricting experts. Someone who owns a service can answer "can it
+handle expected peak traffic?"; nobody can answer "constant-arrival-rate or ramping?" without first
+learning a load generator.
+
+_In practice:_ intent-first questions, with the generated configuration always inspectable.
+
+=== 9. Safe by default
+
+Performance tests can cause incidents. Vortex does not assume a user intends to flood whatever URL
+appears in a config file.
+
+_In practice:_ every run shows its target and environment class first; non-local targets require the
+environment's name to be typed; rates have per-environment ceilings; mutating operations need
+explicit review.
+
+=== 10. Reproducibility matters
+
+A performance claim should link back to its configuration and evidence.
+
+_In practice:_ the definition lives in the service's repository; every run snapshots the fully
+resolved plan, the generated workload, the raw output and the tool versions.
+
+=== 11. Adopt before building
+
+Use existing open-source tools where they already solve the problem well.
+
+_In practice:_ k6 generates load. Ollama runs models. Docker runs dependencies. Vortex owns the
+workflow.
+
+=== 12. Modular monolith first
+
+Do not distribute an architecture before the problem requires it. Microservices for a local
+developer tool would be architectural cosplay.
+
+_In practice:_ one process, one binary, module boundaries that quarantine real dependencies.
+
+=== 13. A performance test is an experiment
+
+Not "send traffic, get number", but:
+
+----
+Hypothesis → Controlled workload → Known environment → Measured observations → Evaluation → Conclusion
+----
+
+Every test plan should answer: _what are we trying to learn?_
+
+_In practice:_ plans carry an explicit intent, and the result page opens by returning to the
+question rather than by showing a chart.
+
+== Scope and non-goals
+
+=== What the MVP does
+
+[cols="3,2", options="header"]
+|===
+| Capability
+| State
+
+| Project management
+| Working
+
+| OpenAPI import and operation discovery
+| Working, deterministic
+
+| Workload builder and weighted operation mixes
+| Working
+
+| Workload profiles (smoke, baseline, load, peak, stress, spike, soak)
+| Working
+
+| Thresholds (latency percentiles, error rate)
+| Working
+
+| Safety policies and preflight
+| Working
+
+| k6 execution — local binary and container
+| Working
+
+| Live progress
+| Working, five-second aggregation over SSE
+
+| Deterministic evaluation: pass/fail, SLO breakpoint, system saturation
+| Working
+
+| Telemetry from the service under test
+| Working, via its metrics endpoint
+
+| Execution history and artifacts
+| Working
+
+| Comparison, and strict regression evaluation
+| Working — reachable from the result page and from `vortex compare`
+
+| Release identity (`service.version`, `--service-version`)
+| Working
+
+| Capacity observations and headroom
+| Working
+
+| Portable `vortex.yaml`
+| Working
+
+| HTML report
+| Working
+
+| Evidence export — JSON, Markdown, PDF
+| Working. `evidence.json` and `report.md` are written into every completed run's directory; all
+  three are downloadable from the result page and from `vortex export`
+
+| AI: workload explanation, result interpretation
+| Working, optional
+
+| CLI: `doctor`, `validate`, `run --headless`
+| Working
+
+| Native image
+| Configured, *not verified*
+|===
+
+=== Deliberate non-goals
+
+==== A replacement for k6
+We use k6. Vortex does not implement HTTP load generation, virtual users, arrival-rate scheduling or
+distributed execution, and adding any of it would be a mistake.
+
+==== A replacement for k6 Studio
+Grafana's https://grafana.com/docs/k6-studio/[k6 Studio] already does browser and proxy recording,
+HAR import and visual script authoring, and does it well. Vortex's value begins above generic script
+creation: record a complex flow in k6 Studio, import the script into Vortex, attach workload
+metadata and thresholds, execute, analyse and compare.
+
+==== An observability platform
+Vortex consumes telemetry. It does not store time series, run a query language, or replace Grafana,
+Prometheus, Dynatrace or anything similar.
+
+==== An APM product
+Different problem, different shape, vastly more scope.
+
+==== A Kubernetes platform
+Remote and distributed execution (see xref:roadmap.adoc[the roadmap]) will eventually run through a
+Vortex Coordinator that talks to the Kubernetes API to create short-lived Jobs for a Vortex Runner.
+Vortex will not become a general Kubernetes scheduler, and the Coordinator is never part of local
+execution — Vortex plus k6 plus the service under test remains enough on its own.
+
+==== A generic AI chatbot
+The assistant supports specific performance-engineering workflows. There is no agent loop, no
+memory, no vector store and no retrieval layer, because none of them solve the problem at hand.
+
+==== A traffic proxy or production recorder
+Not in this MVP. This means capturing and replaying real production traffic. A future capability that
+reproduces the observed _statistical characteristics_ of a dependency's latency and failures during a
+local run (see xref:roadmap.adoc[the roadmap]) is a different thing — it never records or replays
+actual traffic, only a distribution derived from it.
+
+==== A chaos-engineering platform
+Chaos Mesh and Litmus exist. Integration may make sense later; replacement does not. Reproducing a
+dependency's _observed_ production behaviour for fidelity (xref:roadmap.adoc[the roadmap]) is adjacent
+but distinct from fault injection for resilience testing — a dependency profile replays what was
+measured, not an arbitrary failure chosen to see what breaks.
+
+==== A synthetic monitoring platform
+Continuous availability monitoring is a different problem.
+
+==== A guarantee of production capacity
+This one matters most. A test provides *evidence under documented conditions*. Vortex is built to
+make those conditions inseparable from the number, and its language reflects it: _tested
+SLO-compliant capacity_, never _guaranteed maximum throughput_.
+
+==== An autonomous performance engineer
+AI proposes; humans decide. Vortex will not start a test on its own, and there is no configuration
+that makes it.
+
+==== An unrestricted traffic generator
+Safety policies are not optional. Vortex is an engineering tool for investigating your own systems.
+
+==== A messaging platform
+Asynchronous workload testing (see the xref:roadmap.adoc[roadmap]) publishes messages at a controlled
+rate in service of a capacity question, the same way k6 does for HTTP — it is not Postman for queues,
+an AWS console replacement, a Kafka management UI, or a generic message-publishing utility. Supporting
+one broker does not make Vortex a broker client.
+
+==== A document designer
+Three export formats — JSON, Markdown, PDF — chosen because each answers a different question about
+who is reading and where. There is no report designer, no template language, no drag-and-drop layout
+and no chart builder. A fourth format needs a reason, not a plugin point, and the first request to
+put a logo on the PDF is answered with an ADR rather than a theming system.
+
+=== Boundaries we expect to move
+
+Documented as future direction, not stubbed out:
+
+* Remote execution on a Vortex Coordinator, then distributed execution across several ephemeral
+  workers — Kubernetes/EKS first
+* CI templates and performance gates
+* Scheduled runs
+* Organisational policy packs
+* Asynchronous workload testing — AWS SQS first, Kafka and JMS as deliberate future extensions
+* Production-informed dependency simulation — reproducing observed production dependency latency and
+  failure characteristics during local runs, increasing an isolated test's fidelity without changing
+  its classification
+
+Two that have since moved: Prometheus and Dynatrace are now supported both as production observation
+sources and as during-run observability providers, and traffic can be calibrated from one rather than
+typed in by hand. Capacity history per service version is recorded. See the
+xref:roadmap.adoc[roadmap].
+
+== Terminology
+
+Terms Vortex uses, and what it means by them. Where a word is commonly used loosely, the loose usage
+is named too, because that is usually where confusion starts.
+
+=== The model in seven words
+
+[cols="1,4"]
+|===
+| *Service* | what system?
+| *Operation* | what interaction?
+| *Workload* | what traffic?
+| *Evaluation* | what question?
+| *Quality gate* | what is acceptable?
+| *Run* | what execution?
+| *Evidence* | what happened?
+|===
+
+=== Current vocabulary
+
+==== Levels and rates
+
+*Arrival rate* — how many requests are offered per second, on a schedule, independently of how the
+service responds. The control quantity of an _open_ workload. Written `requests/sec`.
+
+*Concurrency* — how many virtual users are active, each waiting for its previous request before
+issuing the next. The control quantity of a _closed_ workload. Written `VUs`.
+
+*Achieved throughput* — how many requests per second the service actually took. An _observed_
+quantity. Under an open workload the gap between offered and achieved is a signal; under a closed
+workload throughput is an outcome and there is nothing it fell short of.
+
+*Load level* — whichever of the two a given workload controls. Vortex never displays one without its
+unit: `50 requests/sec` and `50 VUs` are the same number and different facts, and no conversion
+between them exists without a latency. See
+xref:../03-performance-model/workloads.adoc[arrival rate vs concurrency].
+
+*Operation rate* — how often one specific operation is invoked per second. One operation is one
+request, so an operation's arrival rate and its request rate are the same figure.
+
+*TPS* — "transactions per second". Vortex avoids this term. It is ambiguous unless the transaction
+boundary is stated in the same sentence, and that ambiguity is a reliable source of factor-of-three
+errors.
+
+==== Latency
+
+*p50, p95, p99* — percentiles. p95 = 500 ms means 95% of requests completed within 500 ms.
+Percentiles rather than averages, because an average hides the unluckiest users: a service with a
+90 ms mean can still be failing one request in twenty at three seconds.
+
+*Error rate* — the share of requests that failed, as a percentage.
+
+==== The system under test
+
+*System under test (SUT)* — the one deployable service a run is evaluating. Typically a microservice
+representing a bounded capability.
+
+*Dependency* — a database, downstream service or broker the SUT calls. Dependencies certainly affect
+the numbers; they are not additional systems under test. What they change is what a result may claim,
+which Vortex models through the environment's _dependency mode_ and _classification_.
+
+*Operation* — one meaningful interaction with the SUT: a method, a path, its parameters and body. A
+machine-discoverable fact from an API description. *A single operation is a complete performance
+target* — nothing else is needed to test one.
+
+*Operation binding* — what a person decided about an operation: request data, expected response, and
+whether a mutating operation has been approved. Kept separate from the operation itself so
+re-importing a specification never discards it.
+
+*Request data* — what a request actually carries: its headers, path and query parameters, and body.
+Answers _what gets sent_, where a workload answers _how much traffic_. Belongs to the operation, so
+every workload that exercises it inherits the same values.
+
+*Value source* — where one request value comes from. Four of them: *fixed* (a literal), *generated*
+(Vortex produces it), *dataset* (a field of the current row of a file you added), and *environment*
+(read from a variable when the load generator starts, and nowhere else). The set is closed on
+purpose — see xref:../adr/adr-036-request-data-is-declared-not-scripted.adoc[ADR-036].
+
+*Dataset* — a CSV or JSON file of realistic values a request can draw from. Rows are used in order
+and wrap at the end; every value one request reads from a dataset comes from the same row. A dataset
+is either _local_ (held on one machine) or _portable_ (committed with the service).
+
+*Generation lifecycle* — how often a generated value is produced: a new one for every request, or one
+per virtual user. Not decoration: an idempotency key generated once per virtual user makes every
+request after the first a duplicate submission.
+
+==== Workloads
+
+*Workload* — the workload Vortex intends to reproduce against the SUT: a test type, an operation mix,
+a workload model and shape, a duration, and the objectives that must hold. Reusable, and it lives in
+`vortex.yaml`. Not a business journey, and not a k6 scenario.
+
+*Workload model* — _open_ (arrival rate) or _closed_ (concurrency). The oldest distinction in load
+modelling, and the one that decides what a test is measuring.
+
+*Operation mix* — how a workload's traffic is composed across operations, as relative weights.
+`70/30` and `7/3` mean the same thing. It describes _aggregate concurrent composition_, not a
+sequence — see xref:../03-performance-model/workloads.adoc[composition vs sequence]. Meaningful only
+under an open workload, where the weights genuinely divide traffic.
+
+*Workload source* — where a workload's numbers came from: observed in production, derived from an
+observation by a stated policy, or manually entered. Shown beside the figure, because a conclusion
+inherits the confidence of its weakest input.
+
+*Stage* — one step of a ramping workload, and one observation of "did the service still meet its
+objectives at this level?".
+
+===== Kinds of test
+
+[cols="1,3", options="header"]
+|===
+| Kind
+| The question it answers
+
+| *Smoke*
+| Is the workload valid and can Vortex reach the service?
+
+| *Average load*
+| Does the service meet its objectives under the traffic it normally receives?
+
+| *Stress*
+| How does it behave at or above its expected peak?
+
+| *Spike*
+| How does it react to a sudden jump in demand?
+
+| *Soak*
+| Does performance degrade during sustained load?
+
+| *Breakpoint*
+| At what level does it stop meeting its objectives?
+|===
+
+A test type is *intent*. It selects no executor and constrains no workload shape: a soak may be
+closed-model, a spike may be a step change in either quantity. Vortex guides the pairing and refuses
+none of it.
+
+Two words deliberately absent from this list. *Baseline* is a comparison concept — the run you
+measure against — not a kind of workload; Vortex records it as a capacity observation and a plan
+fingerprint. *Volume* describes the size of the data the service holds rather than the traffic
+arriving at it, and belongs with the environment a run was executed against.
+
+==== Results
+
+*Threshold / objective* — what the service is expected to achieve. Turns measurements into a
+verdict.
+
+*Pass / Fail / Not evaluated* — _Not evaluated_ means a measurement an objective needed was not
+collected. It is never reported as a pass: an objective that was never checked has not been met.
+
+*SLO breakpoint* — the level at which an objective was _first_ violated, stated with its unit.
+Deterministic. A statement about an agreement, not about the machine — raise the objective and it
+moves while the service behaves identically.
+
+*System breakpoint / saturation* — where the system itself stopped coping: runaway errors, inability
+to sustain the offered load, resource exhaustion. Contextual and noisy, so Vortex reports
+a bounded range backed by several independent signals, or says *not established*. That is
+frequently the correct answer, and it is a feature.
+
+*Highest compliant level* — the highest tested level at which every objective was still met.
+
+*Evidence strength* — how well supported a finding is, given what was actually collected. Applies
+to deterministic findings, not only AI ones: a breakpoint from twelve stages is firmer than one from
+two, even though the arithmetic is identical.
+
+==== Capacity
+
+*Tested SLO-compliant capacity* — the highest level at which the service met every objective, _under
+the recorded conditions_. Vortex never says "capacity" unqualified.
+
+*Capacity observation* — that figure together with its conditions: version, environment,
+classification, dependency mode, workload model, operation mix, objectives, duration, execution.
+Called an _observation_ rather than a _baseline_ because tested capacity is not a property a service
+has — it moves with the version, the configuration, the infrastructure and the size of the data.
+
+*Headroom* — tested compliant capacity ÷ observed production peak. Only computed when the two are
+comparable, which among other things means both are request rates: virtual users and requests per
+second are not divisible.
+
+*Observed production traffic* — what the service actually receives: average, p95, peak, and *how that
+traffic is composed across operations*. What makes a workload production-informed rather than
+invented. The composition matters as much as the volume — 120 requests/sec of status polling is a
+different workload from 120 requests/sec of submissions.
+
+==== Environments
+
+*Isolated performance test* — dependencies simulated or controlled. Good evidence for application
+bottlenecks, concurrency, connection pools and regressions. *Does not establish production
+capacity.*
+
+*Integrated performance test* — real dependencies, production-like infrastructure. Good evidence
+for realistic capacity, dependency latency and platform limits.
+
+*Dependency mode* — whether downstream systems are real, mocked or mixed.
+
+A dependency simulated from observed production characteristics is still simulated: it does not move
+a test from isolated to integrated, however faithful the simulation. See
+xref:roadmap.adoc[production-informed dependency simulation].
+
+==== Execution
+
+*Effective test plan* — the fully resolved description of what will run: defaults applied,
+environment resolved, per-operation rates allocated, k6 scenario keys assigned, runner chosen, safety
+decisions recorded. Snapshot per execution; the fundamental unit of reproducibility.
+
+*Run* — one immutable execution of a workload. Workloads are reusable; runs are history.
+
+*Plan fingerprint* — a content hash of the normalised plan. Two runs with the same fingerprint
+tested the same thing.
+
+*Artifact* — raw evidence kept on disk: the plan, the generated workload, the engine summary, the
+sample stream, the output logs, the report.
+
+==== Analysis
+
+*Measured / Calculated / AI-interpreted* — the three tiers Vortex keeps visibly distinct.
+Measurements come from the engine or the service; calculations from deterministic code;
+interpretations from a language model, always labelled and always citing measurements that exist.
+
+*Evidence reference* — the identifier by which a finding cites a measurement, e.g.
+`metric:checkout.pool.pending`, `threshold:latency.p95`, or, for a comparison, `delta:latency.p95`.
+Unresolvable references are discarded before display.
+
+*Finding type* — `OBSERVATION` / `CORRELATION` / `HYPOTHESIS` / `LIMITATION`: what kind of claim an
+AI finding is making, distinct from *Evidence strength* above (which grades a deterministic
+breakpoint) and from *Finding level* (`fail`/`warning`/`observation`/`pass`, which grades a
+deterministic finding's severity). A finding's type bounds how much confidence it may claim — a
+hypothesis may never claim `HIGH` merely because two figures moved together.
+
+*Missing telemetry* — a measurement that would have helped but was not collected. Stated
+explicitly, because "Vortex cannot identify the saturation point because connection-pool telemetry
+was not collected" is far more useful than a confident guess.
+
+=== Vocabulary reserved for Phase 4
+
+These terms describe a stricter, resource-aware notion of capacity that Vortex does not yet compute.
+They are defined now so that when they do appear, they are recognised rather than mistaken for
+today's `tested SLO-compliant capacity`. See xref:roadmap.adoc[] for the phase they belong to.
+
+*Sustainable capacity* — the highest offered level that was actually generated as offered, met every
+objective, was held rather than passed through, tracked offered load, and reached no observed
+resource limit. Stricter than tested SLO-compliant capacity, and frequently lower or absent. Planned;
+not implemented today. See xref:roadmap.adoc[].
+
+*Throughput ceiling* — the level beyond which increasing offered load stops producing proportionally
+increased achieved throughput. A property of the system, not of an agreement. Planned; not
+implemented today. See xref:roadmap.adoc[].
+
+*Resource limit* — the level at which an observed resource reached the constraint it is measured
+against. Distinct from system saturation, which is inferred from client-side symptoms. Planned; not
+implemented today. See xref:roadmap.adoc[].
+
+*First limiting signal* — which of the four limits a run reached first, and where it was a resource
+limit, which resource. Stated only where evidence identifies one. Planned; not implemented today.
+See xref:roadmap.adoc[].
+
+*Run quality* — whether the experiment was carried out as specified: valid, degraded or invalid,
+with reason codes citing measurements. Separate from the verdict, which says whether the service met
+its objectives. Planned; not implemented today. See xref:roadmap.adoc[].
+
+*Resource signal* — a measurement classified by what kind of resource it describes (CPU, memory,
+network, disk, runtime memory, runtime pause, pool, queue, threads), whose system it describes
+(system under test, load generator, dependency), and the limit it is relative to. Planned; not
+implemented today. See xref:roadmap.adoc[].
+
+=== Vocabulary reserved for Phase 8
+
+Terms for a capability the roadmap describes but Vortex does not yet build. Defined now for the same
+reason as the terms above: so they are recognised later rather than reinvented differently.
+
+*Declared dependency* — a dependency a service has explicitly named as materially participating in its
+workload, distinct from every downstream call the SUT happens to make. Carries a production identity,
+a local target, and the production observation source Vortex should ask about it. Planned; not
+implemented today. See xref:roadmap.adoc[].
+
+*Dependency profile* — a reusable description of a declared dependency's observed production
+behaviour: a latency distribution at minimum, with room for error rate, timeout rate and other
+characteristics. Derived from a production observation source, not authored by hand. Planned; not
+implemented today. See xref:roadmap.adoc[].
+
+*Production-informed dependency simulation* — reproducing a dependency profile during a local run so
+the service under test experiences realistic latency, jitter, timeouts and failures from its
+dependencies, without requiring the real ones. Increases the _fidelity_ of an isolated test; does not
+change its classification. Planned; not implemented today. See xref:roadmap.adoc[].
+
+*Simulation plan* — the resolved mapping from a service's declared dependencies to the dependency
+profiles and simulation configuration a run will actually apply — the dependency-side counterpart to
+the effective test plan. Planned; not implemented today. See xref:roadmap.adoc[].

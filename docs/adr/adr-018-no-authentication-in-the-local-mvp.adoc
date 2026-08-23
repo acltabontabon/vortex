@@ -1,0 +1,33 @@
+= ADR-018: No authentication in the local MVP
+
+== Status
+
+Accepted
+
+== Context
+
+Vortex can start load tests. An unauthenticated interface that can do that is alarming in the
+abstract.
+
+== Decision
+
+No authentication, no users, no RBAC, no accounts. The interface binds to `127.0.0.1` and is
+reachable from one machine only — verified: the LAN address refuses connections.
+
+Adding authentication to a single-user local tool would add a login screen, credential storage and a
+session model, in exchange for protection against an attacker who already has the machine.
+
+Exposing Vortex to a network is explicitly *not* supported. That is a different deployment model
+requiring authentication, authorisation, audit and a security review.
+
+== Consequences
+
+*Gained:* no login, no credential storage, no session management, no account recovery. Nothing to
+get wrong.
+
+*Cost:* Vortex cannot be hosted for a team as it stands. Portable configuration and headless
+execution cover the sharing use case: a definition committed to a repository is shared by being
+committed.
+
+*Documented as an assumption*, so that anyone considering hosting it hits the requirement rather
+than discovering it.

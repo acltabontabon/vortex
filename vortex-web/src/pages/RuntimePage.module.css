@@ -1,0 +1,57 @@
+.table {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 7rem 9rem 1fr;
+  gap: var(--mantine-spacing-md);
+  align-items: baseline;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.status {
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status.pass {
+  color: var(--mantine-color-pass-7);
+}
+
+.status.fail {
+  color: var(--mantine-color-fail-7);
+}
+
+.status.neutral {
+  color: var(--mantine-color-dimmed);
+}
+
+.name {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.detail {
+  font-size: 0.85rem;
+}
+
+.remedy {
+  color: var(--mantine-color-dimmed);
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
+}
+
+.footer {
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--mantine-color-default-border);
+  font-size: 0.8rem;
+  color: var(--mantine-color-dimmed);
+}

@@ -1,0 +1,30 @@
+.badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transform: translateY(-1px);
+}
+
+.label {
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+
+.lg .dot {
+  width: 9px;
+  height: 9px;
+}
+
+.lg .label {
+  font-size: 1rem;
+}

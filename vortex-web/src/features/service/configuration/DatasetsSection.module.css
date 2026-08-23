@@ -1,0 +1,43 @@
+/*
+  A native file input, hidden but focusable through the button that triggers it. Mantine has no
+  file control in this project's dependency set, and adding one for a single field would be a
+  dependency for a `<input type="file">`.
+*/
+.fileInput {
+  display: none;
+}
+
+.row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.preview {
+  margin-top: 8px;
+  overflow-x: auto;
+}
+
+.previewTable {
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  font-family: var(--mantine-font-family-monospace);
+  white-space: nowrap;
+}
+
+.previewTable th,
+.previewTable td {
+  padding: 2px 10px 2px 0;
+  text-align: left;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.previewTable th {
+  color: var(--mantine-color-dimmed);
+  font-weight: 600;
+}

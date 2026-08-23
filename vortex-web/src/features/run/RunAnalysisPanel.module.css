@@ -1,0 +1,20 @@
+.typeTag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.dim {
+  color: var(--mantine-color-dimmed);
+}
+
+.disclosure {
+  margin-top: var(--mantine-spacing-sm);
+  font-size: 0.85rem;
+}
+
+.disclosure summary {
+  cursor: pointer;
+  font-weight: 600;
+}

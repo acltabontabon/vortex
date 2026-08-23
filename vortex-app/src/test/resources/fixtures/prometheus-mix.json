@@ -1,0 +1,11 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      { "metric": { "uri": "/orders/{id}", "method": "GET" },  "value": [1755772800, "50000"] },
+      { "metric": { "uri": "/orders", "method": "POST" },      "value": [1755772800, "30000"] },
+      { "metric": { "uri": "/internal/health", "method": "GET" }, "value": [1755772800, "20000"] }
+    ]
+  }
+}

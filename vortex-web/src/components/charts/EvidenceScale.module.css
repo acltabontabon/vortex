@@ -1,0 +1,130 @@
+.scale {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: rise 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scale {
+    animation: none;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * Small labels on the instrument, not a headline — the numbers they belong to were already stated,
+ * full-size, in the fact grid above this section. Both this row and `.values` below are positioning
+ * contexts, not flex rows: each label/value is placed at its own mark's real x (a percentage of the
+ * track — see `leftPercent` in the component), the same coordinate the dot itself uses, rather than
+ * pinned to the container's edges regardless of where the marks actually fall on the scale.
+ */
+.labels {
+  position: relative;
+  height: 14px;
+}
+
+.label {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+
+.values {
+  position: relative;
+  height: 20px;
+  margin-top: -2px;
+}
+
+.value {
+  position: absolute;
+  top: 0;
+  display: inline-block;
+  white-space: nowrap;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 0.84rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--mantine-radius-sm);
+  padding: 1px 4px;
+  margin: -1px -4px;
+}
+
+.value:hover {
+  background: light-dark(rgba(0, 0, 0, 0.045), rgba(255, 255, 255, 0.06));
+  cursor: default;
+}
+
+/* No max-width: the instrument is meant to use the entire column it's given, not sit at a fixed
+   size inside whatever width the workspace happens to have. */
+.figure {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.track {
+  stroke: var(--mantine-color-default-border);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+.tick {
+  stroke: var(--mantine-color-default-border);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+
+.open {
+  fill: var(--mantine-color-default-border);
+}
+
+/* The only claim this figure makes about the relationship between the two marks: that they are two
+   evidence points, nothing more. A row of dots, never a solid line — a solid stroke would read as
+   "verified production headroom" whether or not the domain actually established it; the verdict
+   itself is stated in words beside the figure, never implied by the drawing. */
+.connectorDot {
+  fill: var(--mantine-color-dimmed);
+  opacity: 0.6;
+}
+
+.mark {
+  stroke: var(--mantine-color-body);
+  stroke-width: 2;
+}
+
+/* An invisible, generously-sized hover target for the dot's Tooltip — `fill: transparent` rather
+   than `none`, since a `none`-filled shape never receives pointer events at all, only a painted
+   (even fully transparent) one does. */
+.markHit {
+  fill: transparent;
+}
+
+/* Production is neutral. Traffic production sends neither passed nor failed anything, and a verdict
+   hue on it would assert a judgement no rule in Vortex computes. */
+.production {
+  fill: light-dark(var(--mantine-color-neutral-6), var(--mantine-color-neutral-4));
+}
+
+.capacity {
+  fill: var(--mantine-color-pass-6);
+}
+
+.failing {
+  fill: var(--mantine-color-fail-6);
+}

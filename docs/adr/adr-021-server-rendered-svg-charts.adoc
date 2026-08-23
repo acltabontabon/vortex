@@ -1,0 +1,50 @@
+= ADR-021: Server-rendered SVG charts
+
+== Status
+
+Accepted
+
+== Context
+
+Vortex needs three charts: latency over time, throughput over time, error rate over time. The
+usual answer is a charting library.
+
+== Decision
+
+Charts are rendered as inline SVG on the server by `SvgChartRenderer`.
+
+Every chart is paired with a table of the underlying numbers.
+
+== Consequences
+
+*Gained:* no bundler, no dependency, no runtime, nothing shipped to the browser to draw a
+polyline. Charts appear in the exported report and in print. Colours come from CSS custom properties,
+so they follow light and dark themes.
+
+*Accessibility:* information carried only by a picture is information some readers do not receive,
+and a shape on a screen is not something anyone can quote in a review. The table is not a fallback;
+it is the other half.
+
+*Cost:* no zooming, panning or hover tooltips. None are needed to answer the questions these charts
+exist to answer.
+
+*Deliberate:* gaps in the data are drawn as gaps, never bridged. Interpolating across a period
+where nothing was measured would invent a measurement.
+
+== Amendment (ADR-029)
+
+The same charts are now drawn twice: as SVG in the browser, and with drawing primitives in the PDF.
+Two implementations of "where does this point go" would eventually disagree, in a product whose
+charts are offered as evidence.
+
+The arithmetic therefore moved into `SeriesPlot` in `vortex-core` — a time series reduced to
+normalised geometry, with no notion of pixels, colours or a surface. `SvgChartRenderer` and the PDF
+renderer each only project it. Nothing about rendering entered the domain; the arithmetic was always
+pure.
+
+The rule that gaps are drawn as gaps is now structural rather than a convention each renderer has to
+remember: a bucket with no measurement ends a segment, so bridging one would take deliberate effort.
+Both projections, and the block-character sparkline in the Markdown export, honour it.
+
+The table beside every chart is now shared too. Both renderers list the same rows, which is the only
+way "the table is the other half" holds when there are two halves in two documents.

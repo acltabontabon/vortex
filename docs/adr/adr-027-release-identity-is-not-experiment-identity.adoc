@@ -1,0 +1,81 @@
+= ADR-027: Release identity is not experiment identity
+
+== Status
+
+Accepted
+
+== Context
+
+Vortex computed a `PlanFingerprint` over the resolved plan and stored it, indexed, on every
+execution. It also had a separate field-by-field `checkEquivalence` in `RegressionEvaluator` that
+decided whether two runs were comparable.
+
+Neither worked, for different reasons.
+
+*The fingerprint was never read.* `findByFingerprint` existed only on the JDBC class — not on the
+repository port — and had no production caller. `describesSameTestAs` was exercised only by tests.
+
+*The two definitions had already drifted.* The fingerprint covered stage shape, target URL, headers
+and raw k6 options; the equivalence check covered none of those. Two plans with different
+fingerprints could still be declared comparable, so a run held steady at 100/sec and a ramp arriving
+at 100/sec compared as though they were repeats of one experiment.
+
+*And the fingerprint included `serviceVersion`.* That field was unreachable — no interface could set
+it, so it was permanently empty and the flaw was invisible. The moment release identity became
+settable, every release would have become its own incomparable experiment, and
+release-over-release comparison — the thing the whole mechanism exists for — would have been
+impossible by construction.
+
+== Decision
+
+*Three identities, kept apart.* Execution identity names a physical run. Release identity names the
+build under test. Experiment identity names the conditions. They answer different questions and are
+never collapsed.
+
+*Experiment identity excludes release identity*, and excludes labels — scenario name, project name,
+stated intent — which describe a run without changing what was measured. It includes stage shape and
+the target URL, which do. It excludes derived values such as the allocated per-operation rates,
+because they are the total divided by the shares and reporting them would describe one change twice.
+
+*One authoritative mechanism.* `ExperimentIdentity` owns an ordered list of dimensions. Each knows
+its canonical key, how to extract a comparable value, and how to phrase a difference. The hash and
+the human-readable explanation walk the same list, so
+
+----
+compare(a, b).compatible()  ⟺  fingerprintOf(a).equals(fingerprintOf(b))
+----
+
+holds by construction. `RegressionEvaluator.checkEquivalence` is deleted; the evaluator keeps only
+what identity cannot express — a run that produced no measurements, and a metric that moved away
+from zero.
+
+*Release identity becomes settable*: `service.version` in `vortex.yaml`, overridden by
+`--service-version` on the command line, which is how a pipeline stamps the commit it checked out.
+Absent stays absent — "unknown" is not a version.
+
+== Consequences
+
+*Release-over-release comparison becomes possible*, which was the point. Two runs of one experiment
+against different builds share a fingerprint and produce a verdict.
+
+*Renaming a scenario no longer severs its history.* Under the old fingerprint it would have.
+
+*Every stored fingerprint changed.* `ExecutionService.reconcileExperimentIdentity()` re-derives
+every execution's identity from its stored plan at start-up and rewrites the lookup column wherever
+the two disagree. Without it, a team's comparison history would disappear on upgrade with no
+indication — "no previous compatible run exists" is also what Vortex says about a first run.
+
+*Reconciliation is self-detecting rather than migration-driven*, which was not the first design. The
+first version had a migration blank the affected rows and reconciliation visit only those; it broke
+within an afternoon, when the contract changed again and no migration was written. Recomputing every
+row and writing back only what changed costs one projection query per start and cannot be forgotten.
+
+*The stored plan is never rewritten.* `plan_json` and the `plan.json` in each artifact directory keep
+the fingerprint that was true when they ran. They are evidence, and evidence is not edited to match
+a later opinion — so comparison derives identity fresh from each plan rather than trusting a stored
+hash.
+
+*The cost:* identity is now conservative in a way that will occasionally frustrate. Any differing
+condition refuses a verdict, including ones a person might have judged immaterial — a slightly
+different duration, an added header. Vortex would rather decline a verdict it could have given than
+give one it cannot support, and it names the condition so the refusal is actionable.

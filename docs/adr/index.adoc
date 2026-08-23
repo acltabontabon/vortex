@@ -1,0 +1,141 @@
+= Architecture Decision Records
+
+Lightweight records of consequential decisions: the context, the decision, and what it costs.
+
+Not every implementation detail gets one. These are the choices that would be expensive to reverse
+or that someone would otherwise reasonably question.
+
+[cols="1,6", options="header"]
+|===
+| #
+| Decision
+
+| xref:adr-001-k6-as-the-performance-engine.adoc[001]
+| Use k6 as the primary performance engine
+
+| xref:adr-002-vortex-is-not-a-load-generation-engine.adoc[002]
+| Vortex is not a load-generation engine
+
+| xref:adr-003-local-first-architecture.adoc[003]
+| Local-first application architecture
+
+| xref:adr-004-thymeleaf-and-htmx.adoc[004]
+| Spring Boot + Thymeleaf + htmx for the interface _(superseded by 035)_
+
+| xref:adr-005-modular-monolith.adoc[005]
+| Modular monolith rather than microservices
+
+| xref:adr-006-ollama-as-default-ai-provider.adoc[006]
+| Ollama as the default local AI provider
+
+| xref:adr-007-ai-assists-but-does-not-decide.adoc[007]
+| AI assists but does not determine performance truth
+
+| xref:adr-008-sqlite-for-local-persistence.adoc[008]
+| SQLite for local persistence
+
+| xref:adr-009-environment-aware-classification.adoc[009]
+| Environment-aware test classification
+
+| xref:adr-010-k6-operator-for-distributed-execution.adoc[010]
+| k6 Operator for future distributed execution _(superseded by 040)_
+
+| xref:adr-011-k6-studio-is-complementary.adoc[011]
+| k6 Studio is complementary, not a competitor
+
+| xref:adr-012-ui-cli-and-ci-share-application-services.adoc[012]
+| UI, CLI and CI share application services
+
+| xref:adr-013-core-has-no-framework-dependencies.adoc[013]
+| The core has no framework dependencies
+
+| xref:adr-014-seven-modules-not-eight.adoc[014]
+| Seven modules, not eight
+
+| xref:adr-015-separate-execution-and-analysis-lifecycles.adoc[015]
+| Separate execution and analysis lifecycles
+
+| xref:adr-016-journey-rate-is-not-request-rate.adoc[016]
+| Journey rate and HTTP request rate are distinct types _(superseded by 024)_
+
+| xref:adr-017-capacity-observation-not-baseline.adoc[017]
+| Capacity observation, not capacity baseline
+
+| xref:adr-018-no-authentication-in-the-local-mvp.adoc[018]
+| No authentication in the local MVP
+
+| xref:adr-019-jdbcclient-over-jpa.adoc[019]
+| JdbcClient over JPA
+
+| xref:adr-020-native-image-is-a-quality-attribute.adoc[020]
+| Native image is a quality attribute, not a goal
+
+| xref:adr-021-server-rendered-svg-charts.adoc[021]
+| Server-rendered SVG charts
+
+| xref:adr-022-guided-setup-instead-of-a-wizard.adoc[022]
+| A guided setup page instead of a linear wizard
+
+| xref:adr-023-scaled-time-units-for-fractional-rates.adoc[023]
+| Scaled time units for fractional arrival rates
+
+| xref:adr-024-service-level-workload-modelling.adoc[024]
+| Service-level workload modelling, not cross-service journeys
+
+| xref:adr-025-open-and-closed-workload-models.adoc[025]
+| Open and closed workload models, and why only open models carry a mix
+
+| xref:adr-026-generated-k6-uses-native-primitives.adoc[026]
+| Generated k6 uses native primitives only
+
+| xref:adr-027-release-identity-is-not-experiment-identity.adoc[027]
+| Release identity is not experiment identity
+
+| xref:adr-028-run-evidence-is-a-first-class-model.adoc[028]
+| Run evidence is a first-class model
+
+| xref:adr-029-openpdf-quarantined-in-a-report-module.adoc[029]
+| OpenPDF, quarantined in a report module
+
+| xref:adr-030-workloads-not-scenarios.adoc[030]
+| Workloads, not scenarios
+
+| xref:adr-031-production-observation-has-its-own-port.adoc[031]
+| Production observation has its own port
+
+| xref:adr-032-capacity-records-both-edges.adoc[032]
+| Capacity records both edges, and says whether they form a boundary
+
+| xref:adr-033-derived-evidence-is-labelled.adoc[033]
+| Derived evidence is labelled, and absence carries a cause
+
+| xref:adr-034-the-service-workspace-is-the-product.adoc[034]
+| The service workspace is the product
+
+| xref:adr-035-react-and-mantine-as-the-interface.adoc[035]
+| React and Mantine as the interface, superseding 004
+
+| xref:adr-036-request-data-is-declared-not-scripted.adoc[036]
+| Request data is declared, not scripted
+
+| xref:adr-037-resource-observation-is-typed.adoc[037]
+| Resource observation is typed; the provider that supplied it is not
+
+| xref:adr-038-run-quality-grades-the-experiment.adoc[038]
+| Run quality grades the experiment; the verdict grades the service
+
+| xref:adr-039-four-limits-not-one.adoc[039]
+| Four limits, not one, and capacity names the one it found
+
+| xref:adr-040-vortex-coordinator-for-remote-execution.adoc[040]
+| Vortex Coordinator and ephemeral Kubernetes Jobs, superseding 010
+
+| xref:adr-041-run-scoped-resource-telemetry.adoc[041]
+| Run-scoped resource telemetry is retained, not just its peak
+|===
+
+== Format
+
+*Context* — what forced a decision. +
+*Decision* — what was chosen. +
+*Consequences* — what it costs, including what becomes harder.

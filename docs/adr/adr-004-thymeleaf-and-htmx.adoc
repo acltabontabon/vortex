@@ -1,0 +1,61 @@
+= ADR-004: Spring Boot + Thymeleaf + htmx for the interface
+
+== Status
+
+Superseded by xref:adr-035-react-and-mantine-as-the-interface.adoc[ADR-035] — the page-by-page
+migration it describes below is complete. Kept as the historical record of why the interface was
+server-rendered in the first place.
+
+== Context
+
+The interface is a first-class feature and has to look like a credible developer tool. The obvious
+route is a single-page application, which brings a Node build, a bundler, a dependency graph and a
+second application to maintain — for an interface that is mostly text, tables and small charts.
+
+== Decision
+
+Server-rendered Thymeleaf, htmx for partial updates, a hand-written CSS design system, and the
+minimum JavaScript that genuinely improves the experience.
+
+JavaScript is limited to the live-progress stream, the theme toggle and typed-confirmation
+validation. Charts are server-rendered SVG (xref:adr-021-server-rendered-svg-charts.adoc[ADR-021]).
+
+No Electron. No separate frontend.
+
+== Consequences
+
+*Gained:* one language, one build, one deployable. No bundler, no lockfile, no framework upgrade
+treadmill. The interface works with JavaScript disabled apart from live progress. Reports print.
+
+*Cost:* highly interactive interactions would be harder. None are needed.
+
+*Watch for:* if the interface ever needs genuine client-side state, revisit rather than
+accumulating JavaScript.
+
+== Amendment (ADR-034): the command palette
+
+The redesign added one thing to the list: a ⌘K command palette over services, workloads and recent
+runs. That is a real extension of the budget above, so the terms are recorded rather than assumed.
+
+*It owns no domain or navigation state.* It fetches a small index from `/palette.json` once, filters
+it in the browser, and navigates to ordinary URLs. There is no request per keystroke, no server-side
+ranking, and no client-side model of anything.
+
+*Every destination it exposes is reachable without it.* Each entry is a route a controller already
+serves and that is already reachable by clicking — from the home page, the service switcher, or the
+workspace. The palette can be absent, broken or scripted-out and nothing becomes unreachable. This
+is asserted by test, not by intention.
+
+*Its trigger is revealed by script rather than rendered by the server*, so a browser without
+JavaScript is never shown a control that does nothing.
+
+The reasoning is unchanged: this is an accelerator for somebody who lives in a workbench all day,
+and the interface still has to work for everybody else.
+
+== Superseded (ADR-035): the interface, page by page
+
+xref:adr-035-react-and-mantine-as-the-interface.adoc[ADR-035] introduced React and Mantine as
+where the interface was going, starting with the home page. The page-by-page migration it describes
+has since reached every route: Thymeleaf, htmx, `vortex.css` and `vortex.js` are gone from the
+codebase, along with the Thymeleaf dependency itself. This ADR's reasoning is not wrong for what it
+was decided against at the time — it is simply no longer what runs.

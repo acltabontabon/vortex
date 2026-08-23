@@ -1,0 +1,298 @@
+= Interpreting a Vortex result
+:toc:
+:toclevels: 2
+
+A guide to every number on a result page, what it means, and — importantly — what it does not mean.
+
+'''
+
+== Start at the top: the question and the answer
+
+A Vortex result opens with the question the test asked and a one-line answer:
+
+----
+Question   Can checkout-service sustain its observed production peak?
+Answer     Yes. The service sustained 118.4 requests/sec and met every objective.
+----
+
+This is deliberate. A performance test is an experiment, and an experiment has a conclusion. Leading
+with a chart makes the reader do the interpretation; leading with the answer makes them check it.
+
+Everything below the answer is the evidence for it.
+
+'''
+
+== The verdict
+
+*Pass* — every objective was met.
+
+*Fail* — at least one objective was violated.
+
+*Not evaluated* — at least one objective could not be checked, because a measurement it needed was
+not collected. This is _not_ a pass. An objective that was never measured has not been met, and
+Vortex will not round that up in your favour.
+
+'''
+
+== The environment banner
+
+Immediately below the answer:
+
+[quote]
+____
+*Isolated performance test.* This run does not establish production capacity. Dependencies were
+simulated or controlled, so network effects, real dependency latency and platform limits are not
+represented.
+____
+
+This is the most important sentence on the page, and it is placed where it cannot be cropped out. An
+isolated run at 1000 requests/sec is not evidence that production handles 1000 requests/sec — it may
+not even be evidence that production handles 100. See xref:experiments.adoc[] for what distinguishes
+an isolated test from an integrated one.
+
+'''
+
+== Across the range tested
+
+Only shown when the workload actually held more than one level — a single level is a measurement,
+not a range.
+
+....
+                  compliant                      violated
+0 ───────●──────────●──────────┆──────────●────────●──────  requests/sec
+        50         100         │         150      200
+                          boundary
+....
+
+One mark per level, coloured by whether every objective still held there, with the table of the same
+numbers beneath it. The chart draws only what was actually established — no gradient toward an
+approaching limit, no boundary when compliance was not monotonic, no saturation band placed on the
+wrong scale. The rules the chart follows when refusing to draw something are explained in
+xref:../02-architecture/interface.adoc[the interface architecture].
+
+See xref:experiments.adoc[] for what the two limits mean.
+
+== The four headline numbers
+
+=== Offered rate — or concurrency
+
+What you asked for, *with its unit*. `120 requests/sec` and `50 VUs` are not the same kind of thing,
+and the page never shows one without saying which it is. See xref:workloads.adoc[] for what each unit
+means and why the two don't compare.
+
+Beneath it, where the number came from: observed in production, derived from an observation, or
+manually entered. A conclusion inherits the confidence of its weakest input.
+
+=== Achieved throughput
+
+What actually happened.
+
+Under an arrival-rate workload, Vortex shows this as a percentage of what was offered. A shortfall
+above 5% is flagged, and it means one of two things: the service could not absorb the traffic, or the
+load generator could not produce it. Vortex does not guess which; the raw output distinguishes them.
+
+Under a concurrency workload there is no shortfall to report, because nothing was offered. Throughput
+there is an *outcome* — falling throughput is the service slowing down, which is the finding rather
+than the workload easing off. See xref:workloads.adoc[].
+
+=== Requests
+
+The total issued, with the number that failed beneath it.
+
+=== Error rate
+
+The share of HTTP requests that failed, with the raw counts beneath it. A 4xx from looking up
+generated test data is a property of your test data, not a fault in the service — check what failed
+before concluding anything.
+
+'''
+
+== Objectives
+
+One row per objective, each with what was observed:
+
+----
+p95 latency below 500 ms      Pass    281 ms
+p99 latency below 1 s         Pass    474 ms
+error rate below 1%           Pass    0.08%
+----
+
+Computed by ordinary code from the measurements. No model is involved, and no model can change them.
+
+'''
+
+== Latency percentiles
+
+----
+p50    104 ms      half of requests were at least this fast
+p95    281 ms      95% were at least this fast
+p99    474 ms      99% were
+Max    2,140 ms    the worst single request
+----
+
+Percentiles, not averages, because an average hides the tail. A service with a 90 ms mean can still
+be failing one request in twenty at three seconds, and those users do not care about your mean.
+
+The gap between p95 and max is informative: a large one usually means occasional stalls — garbage
+collection, a cold cache, a lock, a retry.
+
+'''
+
+== Limits
+
+Only shown when the workload actually explored a range. Two figures, deliberately separate.
+
+=== SLO breakpoint
+
+----
+SLO breakpoint    212 requests/sec
+                  High evidence, from 8 traffic levels
+                  Highest compliant level: 190 requests/sec
+----
+
+The first traffic level at which an objective was violated — deterministic, and a statement about
+your _agreement_ rather than about the machine: raise the p95 objective and this number moves while
+the service behaves identically. *Evidence strength* says how tightly it is bracketed — two stages
+locate a breakpoint loosely, ten locate it well. See xref:experiments.adoc[] for the full model.
+
+=== System saturation
+
+----
+System saturation    approximately 260–280 requests/sec
+                     Signals: achieved rate fell 22% short at 280 requests/sec;
+                              error rate reached 14% at 280 requests/sec
+----
+
+or, very often:
+
+----
+System saturation    Not established by this test
+                     The service absorbed every traffic level this run offered,
+                     so its breaking point is above the range tested.
+----
+
+Where the system itself stopped coping, rather than stopping meeting an agreement — reported as a
+*range*, never a single confident number. *"Not established" is a real answer*; it usually means: run
+a longer or higher ramp. See xref:experiments.adoc[] for the full model, including why Vortex requires
+independent signals before naming a range at all.
+
+'''
+
+== Over time
+
+Two charts, each answering a question:
+
+*Latency over time*, with your objective as a dashed line. Look for the shape. Flat then sharply
+rising is queueing — something bounded is saturating. Gradually rising is usually resource growth.
+Sawtooth is often garbage collection or a cache cycle.
+
+*Throughput over time*, with the offered rate dashed. A widening gap between offered and achieved is
+one of the clearest signs that the service has stopped absorbing traffic.
+
+There is no dashed line for a concurrency workload, and its absence is deliberate: the target there
+is a virtual-user count, and drawing it on a requests-per-second axis would put two different
+quantities on one scale.
+
+Both are accompanied by the underlying numbers, because a shape on a screen is not something anyone
+can quote in a review.
+
+'''
+
+== By operation
+
+Per-operation counts, rates and latencies.
+
+This is the table to read before concluding anything about a specific endpoint. A run can pass overall
+while one operation is failing badly, and the aggregate hides it — usually the low-volume one, whose
+latency barely moves the average. A status check answering in 40 ms and a submission answering in
+900 ms average out to a number that describes neither.
+
+It is also where per-operation objectives are judged. An operation that issued no requests is reported
+as *not evaluated* rather than passed: it has not met its objective, it has simply never been asked.
+
+'''
+
+== From the service under test
+
+Measurements taken _inside_ the service, if it exposes a metrics endpoint:
+
+----
+checkout.pool.utilization    100%      Service metrics endpoint    max
+checkout.pool.pending        1594      Service metrics endpoint    max
+checkout.pool.acquire        5.05 s    Service metrics endpoint    max
+system.cpu.usage             35%       Service metrics endpoint    max
+jvm.memory.utilization       10.3%     Calculated by Vortex        max
+----
+
+This is where "what ran out?" gets answered. The example above says it plainly: the pool was fully
+saturated with 1594 requests queued and a five-second wait for a worker, while CPU sat at 35%. That
+service is not CPU-bound; it is bound by whatever that pool fronts.
+
+Values are the *maximum* observed during the run, sampled every five seconds. The peak is what
+caused the queueing — an average over a run including ramp-up and drain would smooth away the moment
+of interest.
+
+Every row carries its source and aggregation, so a claim built on it can be traced.
+
+'''
+
+== AI interpretation
+
+In a visibly separate panel, naming the model that produced it:
+
+[quote]
+____
+*Vortex AI analysis* · Generated locally using ollama · model qwen3:8b · prompt v1
+
+The service failed to meet p95 and error-rate objectives at 212 requests/sec, with pending pool
+requests and acquisition latency indicating the likely limiting factor.
+
+_High confidence_ — `metric:checkout.pool.pending` `metric:checkout.pool.acquire`
+____
+
+How to read it:
+
+* *It cannot change anything above it, and every finding cites evidence that actually exists.* The
+  verdict and the breakpoints were computed first; the panel sits on top of that result rather than
+  inside it. See xref:../02-architecture/execution-and-evidence.adoc[] for how Vortex keeps
+  measurement, deterministic findings and interpretation visibly distinct.
+* *Correlation, not causation.* "Correlated with", "the likely limiting factor", "the strongest
+  hypothesis". A load test observes what happened together. Going from that to cause is a step you
+  take, with context Vortex does not have.
+* *Confidence is a claim about the evidence*, not about the model's certainty.
+
+=== Not measured during this run
+
+[quote]
+____
+No telemetry was collected from the service under test. CPU, memory, JVM, connection-pool and
+database measurements are all unavailable for this run.
+____
+
+Stated plainly, because it tells you exactly what to do next. A confident bottleneck diagnosis drawn
+from data that does not exist would send you somewhere else entirely.
+
+'''
+
+== Reproduction details
+
+Under "raw evidence": the execution id, the plan fingerprint, the versions of Vortex, k6 and the
+Java runtime, the artifact directory, and the command line that would run the same test again.
+
+Two runs with the same plan fingerprint tested the same thing. That is what makes a regression
+comparison meaningful rather than arithmetic.
+
+'''
+
+== Questions this result cannot answer
+
+Worth being explicit about.
+
+* *"What will production do?"* — only if this was an integrated test, and even then only under the
+  recorded conditions.
+* *"What is our maximum throughput?"* — the highest level _tested_ at which objectives were met.
+  The real ceiling may be higher; nothing here establishes it.
+* *"Why is it slow?"* — Vortex shows what correlated with the degradation. Causation needs a
+  profiler, a trace, or someone who knows the code.
+* *"Is this better than last month?"* — only if the two runs are equivalent. Vortex will compare
+  anything and issue a verdict only when they are.

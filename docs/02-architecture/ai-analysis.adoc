@@ -1,0 +1,306 @@
+= AI analysis
+:toc:
+:toclevels: 2
+
+== Analysis lifecycle
+
+[source,mermaid]
+----
+stateDiagram-v2
+    [*] --> NOT_REQUESTED
+    NOT_REQUESTED --> PENDING
+    PENDING --> RUNNING
+    RUNNING --> COMPLETED
+    PENDING --> FAILED
+    RUNNING --> FAILED
+    COMPLETED --> [*]
+    FAILED --> [*]
+----
+
+Entirely separate from the execution lifecycle (see xref:execution-and-evidence.adoc[]): a run's
+`CREATED → … → COMPLETED` progression is deterministic and never blocked by AI, while analysis is a
+resource that only starts once a run already has a verdict.
+
+=== Why separate
+
+Three consequences, each of which would be lost by embedding analysis in the execution:
+
+*A model cannot fail a test.* An inference timeout, an unreachable Ollama or an unparsable response
+produces a failed _analysis_. The execution remains completed, with its verdict.
+
+*Continuous integration never needs AI.* `vortex run peak --headless` finishes deterministically and
+exits with a code derived entirely from measured results. A pipeline can gate on performance without
+an inference service existing.
+
+*Runs can be re-analysed.* A test measured in March by a small local model can be re-interpreted in
+September by a better one. The measurements do not change; a second interpretation is added.
+
+=== Many analyses per execution
+
+Additive by design. Re-analysing inserts a row; it never overwrites. Every one records which
+provider, model and prompt version produced it:
+
+----
+Generated locally using ollama · model qwen3:8b · prompt v1
+----
+
+That is not bookkeeping. Knowing an opinion came from a modest local model six months ago is part of
+knowing what it is worth.
+
+=== What happens during RUNNING
+
+----
+DeterministicSummary
+        ↓
+EvidenceAssembler          bounded context: already-calculated figures, never raw output
+        ↓
+PerformanceAssistant       the model call
+        ↓
+EvidenceReferenceValidator every citation resolved against measurements that exist
+        ↓
+EpistemicIntegrityValidator internal consistency: confidence capped to type, no contradiction with
+                            the verdict or an established breakpoint, no unscoped operation claim
+        ↓
+Analysis (COMPLETED)
+----
+
+The validators are the important step, and there are two of them for two different questions. The
+first asks whether a citation resolves at all: a finding citing `metric:cpu.max` in a run where CPU
+was never measured is *discarded*, and the gap is reported as missing telemetry instead. The second
+asks whether a finding that cites something real is nonetheless making a claim it is not entitled to
+— disagreeing with the verdict, denying an established breakpoint, or claiming more confidence than
+its stated type permits. Both treat the model's output as untrusted input to be checked, not as a
+result to be displayed once it parses. If every finding is unsupported, the conclusion becomes:
+
+[quote]
+____
+Vortex could not confidently interpret this run: every proposed explanation relied on measurements
+that were not collected.
+____
+
+Which is a true and useful statement, unlike the alternative.
+
+=== Failure is contained and honest
+
+An assistant that returns a failed result stays failed. Forcing the state to `COMPLETED` with an
+empty conclusion would present "the model rejected the request" as "the model had nothing to say" —
+very different things for someone deciding whether to trust the tool. This is covered by a test,
+because it was briefly a real bug.
+
+=== In the interface
+
+The analysis panel is fetched separately from the result page, so inference never delays the
+measurements. While one is running it polls; when it finishes it renders in its own visibly distinct
+container, with the model named.
+
+Earlier analyses stay available behind a disclosure.
+
+== AI architecture
+
+=== The boundary
+
+----
+┌────────────────────────────────────────┐
+│ DETERMINISTIC CODE                     │
+│                                        │
+│ measurements                           │
+│ threshold evaluation → PASS / FAIL     │
+│ SLO breakpoint                         │
+│ system saturation                      │
+│ capacity                               │
+│ headroom                               │
+│ regression deltas                      │
+│ calibration arithmetic                 │
+└────────────────────────────────────────┘
+                  ↓  already calculated
+┌────────────────────────────────────────┐
+│ LANGUAGE MODEL                         │
+│                                        │
+│ explanation                            │
+│ bottleneck hypotheses                  │
+│ suggested investigation                │
+│ workload explanation                   │
+│ next-test experiments                  │
+│ comparison interpretation               │
+└────────────────────────────────────────┘
+----
+
+Concretely: given an observed peak of 120 requests/sec and a 1.5× forecast policy, Vortex calculates
+180 and applies its documented rounding rule. The assistant says _"the forecast workload gives roughly
+1.5× headroom over your observed peak"_. It is never asked to multiply — not because it could not,
+but because a number that might come out differently on a second attempt has no place in capacity
+planning.
+
+=== Bounded context, not raw output
+
+`EvidenceAssembler` exposes accessors shaped as individual queries — `getTrafficSummary`,
+`getWorkloadConfiguration`, `getMeasurements`, `getThresholdResults`, `getStageObservations`,
+`getCapacityBreakpoints`, `getOperationSummary`, `getAbsentTelemetry` — each bounded, feeding the
+`AnalysisContext` that the model call in the lifecycle above actually receives.
+
+A whole analysis context is a few kilobytes. A twenty-minute run produces hundreds of megabytes of
+samples; sending those would cost far more, work worse, and put a language model in the position of
+doing arithmetic that ordinary code does exactly.
+
+Comparing two executions follows the identical shape, one level up: `ComparisonEvidenceAssembler`
+builds a `ComparisonContext` from a `ComparisonService.Result` the same way `EvidenceAssembler` builds
+an `AnalysisContext` from a `DeterministicSummary` — bounded, structured, never raw output.
+
+----
+ComparisonService.Result
+        ↓
+ComparisonEvidenceAssembler   deltas, compatibility and comparability — never raw execution data
+        ↓
+PerformanceAssistant.compareExecutions
+        ↓
+EvidenceReferenceValidator.validateComparison
+        ↓
+ComparisonAnalysis
+----
+
+`Comparability` (`HIGH`/`PARTIAL`/`INVALID`) is computed before the model is ever called. An
+`INVALID` pair — different workload models, or nothing measured on one side — never reaches the
+assistant: Vortex already knows the comparison would be meaningless, so no inference is spent
+reaching that conclusion a second time.
+
+==== Why not tool calling
+
+The accessors are deliberately shaped so they can become Spring AI `@Tool` methods later. They are
+not today, because tool calling is unreliable with the modestly-sized local models Vortex is designed
+around, and a feature that only works with a large model is not a local-first feature.
+
+Explicitly *not* built: agent loops, memory, vector stores, retrieval. None of them solve the
+problem, which is explaining one run's already-calculated results.
+
+=== Citing evidence
+
+Every finding cites one of the evidence identifiers defined in
+xref:execution-and-evidence.adoc#evidence-identifiers[the evidence model], and states what kind of
+claim it is:
+
+[source,json]
+----
+{
+  "statement": "Connection-pool saturation is the strongest bottleneck hypothesis.",
+  "type": "HYPOTHESIS",
+  "confidence": "LOW",
+  "evidence": ["metric:checkout.pool.pending", "metric:checkout.pool.acquire"]
+}
+----
+
+`type` (`OBSERVATION` / `CORRELATION` / `HYPOTHESIS` / `LIMITATION`) bounds `confidence`: only an
+`OBSERVATION` may claim `HIGH`. A `CORRELATION` or `HYPOTHESIS` claiming more than its type permits is
+not rejected outright — it is downgraded to the ceiling its type allows, by
+`EpistemicIntegrityValidator`, not by prompt instruction alone. Recommendations and `nextTest` carry
+the same `evidence` requirement as findings, for the same reason: a recommendation with no resolvable
+citation is discarded, which is the mechanism, not a keyword filter, that stops generic advice like
+"scale horizontally" from surviving unless this run's evidence specifically supports it.
+
+`EvidenceReferenceValidator` resolves each citation against `summary.availableEvidenceIds()` — the
+identifiers the run actually produced. Anything unresolvable is *discarded* from the finding,
+recommendation or `nextTest` it appeared on, and the gap becomes a `MissingTelemetry` entry instead of
+silently disappearing. The same validator has a `validateComparison` overload that resolves `delta:`
+identifiers against the computed differences, so a comparison finding is held to the identical
+discipline.
+
+`EpistemicIntegrityValidator` runs after evidence resolution and checks the surviving findings for
+internal consistency rather than for whether their citations exist. It drops a finding that
+contradicts the verdict or denies an established breakpoint (checked by a small, explicit phrase
+list, not natural-language understanding — an advisory, bounded heuristic, the same kind already used
+elsewhere in this codebase for signals that are hints rather than authoritative); it caps a finding's
+confidence to the ceiling its `type` permits; and it downgrades a finding that names a specific
+operation but cites only aggregate evidence to a `HYPOTHESIS`, since aggregate figures describe the
+mix, not any one operation in it. The model's output is treated as untrusted input throughout —
+validated and corrected, never trusted at face value.
+
+Untrusted input handling and prompt-injection defenses are covered in xref:security.adoc[].
+
+=== Prompts
+
+Versioned resources in `vortex-ai/src/main/resources/ai/`:
+
+----
+analyze-execution.st
+explain-workload.st
+compare-executions.st
+----
+
+Files rather than string literals, because they are long, edited far more often than the code around
+them, and reviewed by people thinking about wording. The version travels with every stored analysis.
+
+Deliberately kept narrow and capability-specific rather than one large "performance engineer" prompt.
+`compare-executions.st` exists because the domain already has a real comparison concept to interpret
+(`ComparisonEvidence`/`ExecutionComparison`); `explain-capacity`, `analyze-soak` and similar are not
+built, because no such domain concept exists yet to hang a prompt on.
+
+Each prompt states the rules the model must follow: do not contradict the verdict, cite evidence by
+identifier, never invent a measurement, describe association rather than causation, never compare
+figures across workload models, read per-operation figures before concluding anything about an
+operation, be brief. `analyze-execution.st` additionally defines what each finding type means and
+that a hypothesis or correlation may never claim more confidence than its type permits — stated in
+the prompt *and* enforced by `EpistemicIntegrityValidator`, because "encode it in code, not only in
+an increasingly elaborate prompt" is the standard this module holds itself to.
+
+There is deliberately no prompt that invents a workload. Operations are discovered from an API
+description with certainty, and how much traffic each one receives is a fact about production that a
+model cannot know — asking it to guess would produce a plausible mix with no provenance, which is
+precisely the fabricated precision this product exists to avoid.
+
+=== Response handling
+
+Models are asked for JSON and comply most of the time. `JsonResponses` recovers the object from
+markdown fences, prefixes, trailing remarks and reasoning tags, using a balanced-brace scan that
+ignores braces inside strings.
+
+Recovery is worth doing — the alternative is discarding a good analysis over a stray sentence.
+*Inventing content is not.* If no parsable object is present, the analysis fails visibly.
+
+=== Availability, and degrading well
+
+`OllamaAvailability` distinguishes situations that need different remedies:
+
+[cols="2,3", options="header"]
+|===
+| Situation
+| What the user is told
+
+| Not installed
+| Install from ollama.com, then `ollama serve`
+
+| Installed, not running
+| Start it
+
+| Running, no models
+| `ollama pull qwen3:4b`
+
+| Running, no model selected
+| Choose one; here are the models you have
+
+| Configured model missing
+| Pull it, or use one of these
+|===
+
+Every message begins by saying Vortex works without it.
+
+Results are cached for fifteen seconds, since the banner renders on every page.
+
+*Vortex never downloads a model.* `pull-model-strategy: never`. Fetching several gigabytes on
+someone's behalf is not a reasonable thing for a developer tool to do.
+
+=== Single configuration point
+
+`vortex.ai.*` is the only place a user configures the assistant; Spring AI's own properties are
+driven from it. Two sources of truth for "which model" would eventually disagree, and the settings
+page would then be showing something other than what runs.
+
+=== Testing without a model
+
+`FakePerformanceAssistant` covers unavailable, timeout, invalid output, missing evidence, and
+returned-failure. Live Ollama is behind an opt-in profile and never in the default build.
+
+Real inference is non-deterministic; a suite that required it would fail for reasons unrelated to the
+code and would teach everyone to ignore it.
+
+The paths worth testing are the failure ones. A tool that produces a confident bottleneck diagnosis
+from telemetry it never collected is worse than one with no AI at all, because the diagnosis looks
+like evidence.

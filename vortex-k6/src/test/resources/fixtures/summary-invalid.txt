@@ -1,0 +1,1 @@
+k6 could not start: unknown option --nonsense

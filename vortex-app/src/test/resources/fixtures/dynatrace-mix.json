@@ -1,0 +1,32 @@
+{
+  "totalCount": 3,
+  "resolution": "1h",
+  "result": [
+    {
+      "metricId": "builtin:service.requestCount.total:splitBy(\"dt.entity.service_method\"):sum",
+      "data": [
+        {
+          "dimensions": ["SERVICE_METHOD-AAA"],
+          "dimensionMap": { "dt.entity.service_method": "SERVICE_METHOD-AAA",
+                            "dt.entity.service_method.name": "GET /orders/{id}" },
+          "timestamps": [1755772800000],
+          "values": [50000]
+        },
+        {
+          "dimensions": ["SERVICE_METHOD-BBB"],
+          "dimensionMap": { "dt.entity.service_method": "SERVICE_METHOD-BBB",
+                            "dt.entity.service_method.name": "POST /orders" },
+          "timestamps": [1755772800000],
+          "values": [30000]
+        },
+        {
+          "dimensions": ["SERVICE_METHOD-CCC"],
+          "dimensionMap": { "dt.entity.service_method": "SERVICE_METHOD-CCC",
+                            "dt.entity.service_method.name": "GET /internal/health" },
+          "timestamps": [1755772800000],
+          "values": [20000]
+        }
+      ]
+    }
+  ]
+}

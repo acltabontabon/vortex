@@ -1,0 +1,675 @@
+package dev.vortex.app.web;
+
+import dev.vortex.app.service.LocalLabRunner;
+import dev.vortex.app.web.ConfigurationDtos.CatalogDto;
+import dev.vortex.app.web.ConfigurationDtos.ConfigurationDto;
+import dev.vortex.app.web.ConfigurationDtos.ConfigurationFileDto;
+import dev.vortex.app.web.ConfigurationDtos.DependencyModeOptionDto;
+import dev.vortex.app.web.ConfigurationDtos.EnvironmentDto;
+import dev.vortex.app.web.ConfigurationDtos.EnvironmentTypeOptionDto;
+import dev.vortex.app.web.ConfigurationDtos.FetchProductionResponse;
+import dev.vortex.app.web.ConfigurationDtos.LabActivityDto;
+import dev.vortex.app.web.ConfigurationDtos.LabStatusDto;
+import dev.vortex.app.web.ConfigurationDtos.LocalLabDto;
+import dev.vortex.app.web.ConfigurationDtos.ObservationSourceDto;
+import dev.vortex.app.web.ConfigurationDtos.OperationDto;
+import dev.vortex.app.web.ConfigurationDtos.TestConnectionResponse;
+import dev.vortex.app.web.ConfigurationDtos.ThresholdEditDto;
+import dev.vortex.app.web.ConfigurationDtos.WorkloadSuggestionDto;
+import dev.vortex.core.application.CalibrationService;
+import dev.vortex.core.application.CatalogImportService;
+import dev.vortex.core.application.ProjectService;
+import dev.vortex.core.calibration.CalibrationPolicy;
+import dev.vortex.core.capacity.ObservationSource;
+import dev.vortex.core.capacity.ProductionObservation;
+import dev.vortex.core.catalog.Operation;
+import dev.vortex.core.catalog.ServiceCatalog;
+import dev.vortex.core.environment.DependencyMode;
+import dev.vortex.core.environment.Environment;
+import dev.vortex.core.environment.EnvironmentCapabilities;
+import dev.vortex.core.environment.EnvironmentType;
+import dev.vortex.core.environment.SecretReferences;
+import dev.vortex.core.environment.TargetUrl;
+import dev.vortex.core.lab.LocalLabSettings;
+import dev.vortex.core.port.LocalLab;
+import dev.vortex.core.port.ProductionObservationSource.NotRetrieved;
+import dev.vortex.core.port.ProductionObservationSource.Retrieved;
+import dev.vortex.core.port.ServiceCatalogImporter;
+import dev.vortex.core.project.Project;
+import dev.vortex.core.project.ProjectConfiguration;
+import dev.vortex.core.shared.EnvironmentId;
+import dev.vortex.core.shared.OperationId;
+import dev.vortex.core.shared.ProjectId;
+import dev.vortex.core.shared.RequestsPerSecond;
+import dev.vortex.core.shared.Percentile;
+import dev.vortex.core.threshold.Durations;
+import dev.vortex.core.threshold.ErrorRateThreshold;
+import dev.vortex.core.threshold.LatencyThreshold;
+import dev.vortex.core.threshold.Threshold;
+import dev.vortex.core.threshold.ThresholdScope;
+import dev.vortex.core.threshold.ThresholdSet;
+import dev.vortex.core.workload.OperationMix;
+import dev.vortex.core.workload.Observation;
+import dev.vortex.core.workload.WeightedOperation;
+import java.net.http.HttpClient;
+import java.nio.file.Files;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+/**
+ * Configuration: what Vortex currently knows about a service, and every form that changes it.
+ *
+ * <p>Consolidates what was Understand's eight Thymeleaf sections — environments, local lab,
+ * release, production traffic, observation source, objectives, the committed YAML preview, and
+ * operations/review — behind one page. Mirrors each Thymeleaf-era {@code ProjectController} and
+ * {@code LocalLabController} method exactly: same validation, same domain calls, same messages.
+ * Only the wire shape at the edge is new.
+ *
+ * <p>Every mutation here saves and returns a small outcome; the page refetches the whole
+ * {@link #configuration} read afterwards rather than each action returning its own partial shape —
+ * a full round trip is cheap for a local tool, and it is the one place all eight sections'
+ * cross-dependencies (e.g. a new environment changing readiness) are guaranteed consistent.
+ */
+@RestController
+@RequestMapping("/api/services/{id}")
+public class ConfigurationApiController {
+
+    /** Guards against pointing the importer at something enormous. Mirrors ProjectController. */
+    private static final int MAX_SPECIFICATION_BYTES = 8 * 1024 * 1024;
+
+    private final ProjectService projects;
+    private final CatalogImportService catalogs;
+    private final CalibrationPolicy calibration;
+    private final CalibrationService calibrationService;
+    private final LocalLabRunner lab;
+    private final WorkspaceAssembler assembler;
+    private final HttpClient http = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+
+    public ConfigurationApiController(ProjectService projects, CatalogImportService catalogs,
+            CalibrationPolicy calibration, CalibrationService calibrationService,
+            LocalLabRunner lab, WorkspaceAssembler assembler) {
+        this.projects = Objects.requireNonNull(projects, "projects");
+        this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
+        this.calibration = Objects.requireNonNull(calibration, "calibration");
+        this.calibrationService = Objects.requireNonNull(calibrationService, "calibrationService");
+        this.lab = Objects.requireNonNull(lab, "lab");
+        this.assembler = Objects.requireNonNull(assembler, "assembler");
+    }
+
+    // ==================================================================== the read
+
+    @GetMapping("/configuration")
+    public ConfigurationDto configuration(@PathVariable String id) {
+        ProjectId projectId = ProjectId.of(id);
+        Project project = projects.find(projectId).orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No service with id " + id));
+        ProjectConfiguration configuration = projects.configuration(projectId);
+        ServiceCatalog catalog = projects.catalog(projectId).orElse(null);
+
+        return new ConfigurationDto(
+                configuration.serviceVersionIfPresent().orElse(null),
+                configuration.environments().stream().map(this::toDto).toList(),
+                environmentTypeOptions(),
+                dependencyModeOptions(),
+                localLab(project, configuration),
+                assembler.production(configuration.productionObservation(), catalog),
+                calibrationSuggestions(configuration),
+                configuration.observationSourceIfPresent().map(this::toDto).orElse(null),
+                thresholds(configuration),
+                catalogDto(configuration, catalog),
+                configurationFile(project, projectId));
+    }
+
+    private List<EnvironmentTypeOptionDto> environmentTypeOptions() {
+        return List.of(EnvironmentType.values()).stream()
+                .map(type -> new EnvironmentTypeOptionDto(type.name(), type.label(), type.description()))
+                .toList();
+    }
+
+    private List<DependencyModeOptionDto> dependencyModeOptions() {
+        return List.of(DependencyMode.values()).stream()
+                .map(mode -> new DependencyModeOptionDto(mode.name(), mode.label(), mode.description()))
+                .toList();
+    }
+
+    private EnvironmentDto toDto(Environment environment) {
+        return new EnvironmentDto(
+                environment.name(),
+                environment.baseUrl().value(),
+                environment.type().name(),
+                environment.type().label(),
+                environment.dependencyMode().name(),
+                environment.dependencyMode().label(),
+                environment.classification().name(),
+                environment.classification().label(),
+                environment.classification().caveat(),
+                environment.hasSecretReferences(),
+                environment.headerNames());
+    }
+
+    private List<WorkloadSuggestionDto> calibrationSuggestions(ProjectConfiguration configuration) {
+        return configuration.productionObservationIfPresent()
+                .map(calibration::propose).orElseGet(List::of).stream()
+                .map(s -> new WorkloadSuggestionDto(s.name(), s.rate().display(), s.derivation()))
+                .toList();
+    }
+
+    private ObservationSourceDto toDto(ObservationSource source) {
+        return new ObservationSourceDto(source.kind().name(), source.endpoint(),
+                source.serviceIdentifier(), Durations.display(source.window()), maskedHeaders(source));
+    }
+
+    private Map<String, String> maskedHeaders(ObservationSource source) {
+        Map<String, String> masked = new LinkedHashMap<>();
+        source.headers().forEach((key, value) -> masked.put(key, SecretReferences.mask(value)));
+        return masked;
+    }
+
+    private ThresholdEditDto thresholds(ProjectConfiguration configuration) {
+        ThresholdSet set = configuration.thresholds();
+        Long p95 = null;
+        Long p99 = null;
+        Double errorPercent = null;
+        for (Threshold threshold : set.thresholds()) {
+            if (threshold instanceof LatencyThreshold latency && latency.scope().equals(ThresholdScope.OVERALL)) {
+                if (latency.percentile().equals(Percentile.P95)) {
+                    p95 = latency.maximum().toMillis();
+                } else if (latency.percentile().equals(Percentile.P99)) {
+                    p99 = latency.maximum().toMillis();
+                }
+            } else if (threshold instanceof ErrorRateThreshold errorRate
+                    && errorRate.scope().equals(ThresholdScope.OVERALL)) {
+                errorPercent = errorRate.maximum().asPercent();
+            }
+        }
+        return new ThresholdEditDto(p95, p99, errorPercent,
+                set.thresholds().stream().map(Threshold::describe).toList());
+    }
+
+    private ConfigurationFileDto configurationFile(Project project, ProjectId projectId) {
+        String yaml = projects.renderConfiguration(projectId);
+        String path = project.workspacePathIfPresent().map(p -> p + "/.vortex/vortex.yaml").orElse(null);
+        return new ConfigurationFileDto(yaml, path);
+    }
+
+    private CatalogDto catalogDto(ProjectConfiguration configuration, ServiceCatalog catalog) {
+        if (catalog == null) {
+            return new CatalogDto(false, null, null, 0, 0, List.of());
+        }
+        List<OperationDto> operations = catalog.operations().stream()
+                .map(op -> {
+                    boolean reviewed = configuration.binding(op.id()).map(b -> b.reviewed()).orElse(false);
+                    return new OperationDto(op.id().value(), op.method().name(), op.path(), op.summary(),
+                            op.primaryTag(), op.kind().name(), op.requiresReview(), reviewed);
+                })
+                .toList();
+        return new CatalogDto(true, catalog.title(), catalog.sourceRef(), catalog.operationCount(),
+                catalog.mutatingOperations().size(), operations);
+    }
+
+    private LocalLabDto localLab(Project project, ProjectConfiguration configuration) {
+        LocalLabSettings settings = configuration.localLabIfPresent().orElse(null);
+        if (settings == null) {
+            return new LocalLabDto(false, null, toDto(lab.status()), false, null);
+        }
+        ProjectId projectId = project.id();
+        boolean running = lab.isRunning(projectId);
+        LabActivityDto activityDto = lab.activity(projectId).map(this::toDto).orElse(null);
+        return new LocalLabDto(true, settings.describe(), toDto(lab.status()), running, activityDto);
+    }
+
+    private LabStatusDto toDto(LocalLab.LabStatus status) {
+        return new LabStatusDto(status.isUsable(), status.dockerAvailable(), status.daemonRunning(),
+                status.composeAvailable(), status.version(), status.remedy());
+    }
+
+    private LabActivityDto toDto(LocalLabRunner.Activity activity) {
+        boolean succeeded = activity.succeeded();
+        boolean failed = activity.failed();
+        var result = activity.resultIfPresent().orElse(null);
+        return new LabActivityDto(activity.operation().label(), activity.operation().command(),
+                activity.composeFile().toString(), succeeded, failed,
+                result == null ? null : result.message(),
+                result == null ? List.of() : result.output());
+    }
+
+    // ==================================================================== environments
+
+    public record EnvironmentRequest(String name, String baseUrl, String type, String dependencies,
+            Boolean productionLike, String headerNames, String headerValues) {
+    }
+
+    public record MessageResponse(String message) {
+    }
+
+    @PostMapping("/environments")
+    public MessageResponse addEnvironment(@PathVariable String id, @RequestBody EnvironmentRequest request) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+
+        try {
+            EnvironmentType type = EnvironmentType.valueOf(request.type());
+            DependencyMode dependencies = DependencyMode.valueOf(request.dependencies());
+            String slug = slug(request.name());
+
+            EnvironmentCapabilities capabilities = new EnvironmentCapabilities(
+                    dependencies == DependencyMode.MOCKED || dependencies == DependencyMode.MIXED,
+                    false, Boolean.TRUE.equals(request.productionLike()),
+                    type != EnvironmentType.LOCAL_ISOLATED, false);
+
+            Environment environment = new Environment(EnvironmentId.of(slug), slug, type,
+                    TargetUrl.of(request.baseUrl()), capabilities, dependencies,
+                    parseHeaders(request.headerNames(), request.headerValues()));
+
+            List<Environment> updated = new ArrayList<>();
+            boolean replaced = false;
+            for (Environment existing : configuration.environments()) {
+                if (existing.name().equalsIgnoreCase(slug)) {
+                    updated.add(environment);
+                    replaced = true;
+                } else {
+                    updated.add(existing);
+                }
+            }
+            if (!replaced) {
+                updated.add(environment);
+            }
+
+            projects.saveConfiguration(projectId, configuration.withEnvironments(updated));
+            return new MessageResponse("Environment '" + slug + "' saved. Vortex classifies runs "
+                    + "against it as " + environment.classification().label().toLowerCase() + "s.");
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    private String slug(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("A name is required");
+        }
+        StringBuilder slug = new StringBuilder();
+        for (char c : raw.trim().toLowerCase(java.util.Locale.ROOT).toCharArray()) {
+            if (Character.isLetterOrDigit(c)) {
+                slug.append(c);
+            } else if (!slug.isEmpty() && slug.charAt(slug.length() - 1) != '-') {
+                slug.append('-');
+            }
+        }
+        while (!slug.isEmpty() && slug.charAt(slug.length() - 1) == '-') {
+            slug.setLength(slug.length() - 1);
+        }
+        if (slug.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "'" + raw + "' contains no letters or digits Vortex can use as a name");
+        }
+        return slug.toString();
+    }
+
+    private Map<String, String> parseHeaders(String names, String values) {
+        List<String> nameLines = names == null ? List.of() : List.of(names.split("\\R", -1));
+        List<String> valueLines = values == null ? List.of() : List.of(values.split("\\R", -1));
+        Map<String, String> headers = new LinkedHashMap<>();
+        for (int i = 0; i < nameLines.size(); i++) {
+            String name = nameLines.get(i).trim();
+            if (name.isBlank()) {
+                continue;
+            }
+            String value = i < valueLines.size() ? valueLines.get(i).trim() : "";
+            headers.put(name, value);
+        }
+        return headers;
+    }
+
+    // ==================================================================== release
+
+    public record ReleaseRequest(String serviceVersion) {
+    }
+
+    @PostMapping("/release")
+    public MessageResponse setReleaseUnderTest(@PathVariable String id, @RequestBody ReleaseRequest request) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+        String release = request.serviceVersion() == null ? "" : request.serviceVersion().trim();
+        projects.saveConfiguration(projectId, configuration.withServiceVersion(release));
+        return new MessageResponse(release.isBlank()
+                ? "Release identifier cleared. Runs will record no release until one is set."
+                : "Runs will record release " + release + " until this changes.");
+    }
+
+    // ==================================================================== objectives
+
+    public record ThresholdsRequest(Long p95Millis, Long p99Millis, Double errorPercent) {
+    }
+
+    @PostMapping("/thresholds")
+    public MessageResponse setThresholds(@PathVariable String id, @RequestBody ThresholdsRequest request) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+
+        List<Threshold> thresholds = new ArrayList<>();
+        if (request.p95Millis() != null && request.p95Millis() > 0) {
+            thresholds.add(LatencyThreshold.of(Percentile.P95, Duration.ofMillis(request.p95Millis())));
+        }
+        if (request.p99Millis() != null && request.p99Millis() > 0) {
+            thresholds.add(LatencyThreshold.of(Percentile.P99, Duration.ofMillis(request.p99Millis())));
+        }
+        if (request.errorPercent() != null && request.errorPercent() >= 0) {
+            thresholds.add(ErrorRateThreshold.ofPercent(request.errorPercent()));
+        }
+
+        try {
+            projects.saveConfiguration(projectId, configuration.withThresholds(new ThresholdSet(thresholds)));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+        return new MessageResponse(thresholds.isEmpty()
+                ? "Objectives cleared. Runs will produce measurements but no verdict."
+                : "Objectives saved.");
+    }
+
+    // ==================================================================== production
+
+    public record ProductionRequest(Double averageRate, Double p95ObservedRate, double peakRate,
+            List<String> mixOperation, List<Integer> mixWeight, String source, String observedFrom,
+            String observedTo, String note) {
+    }
+
+    @PostMapping("/production")
+    public MessageResponse setProductionObservation(@PathVariable String id, @RequestBody ProductionRequest request) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+
+        try {
+            Optional<OperationMix> mix = parseMix(request.mixOperation(), request.mixWeight());
+            OperationMix resolvedMix = mix.orElseGet(() -> configuration.productionObservationIfPresent()
+                    .flatMap(ProductionObservation::observedMixIfPresent).orElse(null));
+
+            Observation observation = observationFrom(request.observedFrom(), request.observedTo());
+
+            ProductionObservation built = new ProductionObservation(
+                    request.averageRate() == null ? null : RequestsPerSecond.of(request.averageRate()),
+                    request.p95ObservedRate() == null ? null : RequestsPerSecond.of(request.p95ObservedRate()),
+                    RequestsPerSecond.of(request.peakRate()),
+                    resolvedMix, request.source(), observation, request.note());
+
+            projects.saveConfiguration(projectId, configuration.withProductionObservation(built));
+            return new MessageResponse("Observed production traffic saved. Vortex can now propose "
+                    + "workloads based on what your service actually receives, rather than an "
+                    + "invented number.");
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    private Optional<OperationMix> parseMix(List<String> operations, List<Integer> weights) {
+        if (operations == null || operations.isEmpty()) {
+            return Optional.empty();
+        }
+        List<WeightedOperation> entries = new ArrayList<>();
+        for (int i = 0; i < operations.size(); i++) {
+            String operationId = operations.get(i);
+            if (operationId == null || operationId.isBlank()) {
+                continue;
+            }
+            int weight = i < weights.size() && weights.get(i) != null ? weights.get(i) : 1;
+            if (weight <= 0) {
+                continue;
+            }
+            entries.add(WeightedOperation.of(OperationId.of(operationId), weight));
+        }
+        return entries.isEmpty() ? Optional.empty() : Optional.of(OperationMix.of(entries));
+    }
+
+    private Observation observationFrom(String from, String to) {
+        Instant fromInstant = parseLocal(from);
+        Instant toInstant = parseLocal(to);
+        if (fromInstant == null) {
+            return Observation.unknown();
+        }
+        if (toInstant == null || !toInstant.isAfter(fromInstant)) {
+            return Observation.at(fromInstant);
+        }
+        return Observation.over(fromInstant, toInstant);
+    }
+
+    private Instant parseLocal(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(raw);
+        } catch (DateTimeParseException e) {
+            try {
+                return LocalDateTime.parse(raw).toInstant(ZoneOffset.UTC);
+            } catch (DateTimeParseException e2) {
+                return null;
+            }
+        }
+    }
+
+    /** Never saves — see the class-level note on fetch/test being read-only actions. */
+    @PostMapping("/production/fetch")
+    public FetchProductionResponse fetchProductionObservation(@PathVariable String id) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+        ServiceCatalog catalog = projects.catalog(projectId).orElse(null);
+
+        var retrieval = calibrationService.fetch(configuration, catalog, null);
+        return switch (retrieval) {
+            case Retrieved retrieved ->
+                    new FetchProductionResponse(true, null, assembler.production(retrieved.observation(), catalog));
+            case NotRetrieved notRetrieved -> new FetchProductionResponse(false, notRetrieved.describe(), null);
+        };
+    }
+
+    // ==================================================================== observation source
+
+    public record ObservationSourceRequest(String source, String endpoint, String serviceIdentifier,
+            String window, List<String> headerName, List<String> headerValue) {
+    }
+
+    @PostMapping("/observation")
+    public MessageResponse setObservationSource(@PathVariable String id, @RequestBody ObservationSourceRequest request) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+
+        try {
+            ObservationSource source = observationSourceFrom(request);
+            projects.saveConfiguration(projectId, configuration.withObservationSource(source));
+            return new MessageResponse("Saved. Vortex can now fetch observed production traffic from "
+                    + source.kind().label() + " — test the connection, then fetch when you are ready.");
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    @PostMapping("/observation/test")
+    public TestConnectionResponse testObservationSource(@PathVariable String id, @RequestBody ObservationSourceRequest request) {
+        try {
+            ObservationSource source = observationSourceFrom(request);
+            var retrieval = calibrationService.verify(source, null);
+            return switch (retrieval) {
+                case Retrieved retrieved -> new TestConnectionResponse(true,
+                        source.kind().label() + " answered: a peak of "
+                                + retrieved.observation().peakRate().display() + " requests/sec over the last "
+                                + Durations.display(source.window()) + ". Nothing has been saved or fetched.");
+                case NotRetrieved notRetrieved -> new TestConnectionResponse(false, notRetrieved.describe());
+            };
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    private ObservationSource observationSourceFrom(ObservationSourceRequest request) {
+        ObservationSource.Kind kind = switch (request.source() == null ? "" : request.source().toLowerCase()) {
+            case "prometheus" -> ObservationSource.Kind.PROMETHEUS;
+            case "dynatrace" -> ObservationSource.Kind.DYNATRACE;
+            default -> throw new IllegalArgumentException("'" + request.source()
+                    + "' is not a system Vortex can ask. Choose Prometheus or Dynatrace.");
+        };
+        String names = request.headerName() == null ? "" : String.join("\n", request.headerName());
+        String values = request.headerValue() == null ? "" : String.join("\n", request.headerValue());
+        return new ObservationSource(kind, request.endpoint(), request.serviceIdentifier(),
+                Durations.parse(request.window()), parseHeaders(names, values), Map.of());
+    }
+
+    // ==================================================================== operations / import / review
+
+    public record ImportRequest(String url, String content) {
+    }
+
+    public record ImportResponse(boolean succeeded, String message, String info, String error,
+            List<String> errorDetails) {
+    }
+
+    @PostMapping("/import")
+    public ImportResponse importSpecification(@PathVariable String id, @RequestBody ImportRequest request) {
+        ProjectId projectId = ProjectId.of(id);
+        String reference;
+        String document;
+
+        if (request.content() != null && !request.content().isBlank()) {
+            reference = "pasted-openapi.yaml";
+            document = request.content();
+        } else if (request.url() != null && !request.url().isBlank()) {
+            reference = request.url().trim();
+            try {
+                document = fetch(reference);
+            } catch (RuntimeException e) {
+                return new ImportResponse(false, null, null,
+                        "Vortex could not read that API description: " + e.getMessage(), List.of());
+            }
+        } else {
+            return new ImportResponse(false, null, null,
+                    "Provide either a URL or the contents of your OpenAPI document.", List.of());
+        }
+
+        try {
+            var catalog = catalogs.importCatalog(projectId, reference, document);
+            String message = "Imported " + catalog.operationCount() + " operations from "
+                    + (catalog.title().isBlank() ? reference : catalog.title()) + ".";
+            String info = catalog.mutatingOperations().isEmpty() ? null
+                    : catalog.mutatingOperations().size() + " of them can change data. Vortex will "
+                            + "not run those until you have reviewed the request data it would send "
+                            + "— schema-valid is not the same as business-valid.";
+            return new ImportResponse(true, message, info, null, List.of());
+        } catch (ServiceCatalogImporter.ImportException e) {
+            return new ImportResponse(false, null, null, e.getMessage(), e.problems());
+        }
+    }
+
+    private String fetch(String url) {
+        return SpecificationFetch.fetch(http, url, MAX_SPECIFICATION_BYTES);
+    }
+
+    @PostMapping("/operations/{operationId}/review")
+    public MessageResponse reviewOperation(@PathVariable String id, @PathVariable String operationId) {
+        ProjectId projectId = ProjectId.of(id);
+        projects.setOperationReviewed(projectId, OperationId.of(operationId), true);
+        return new MessageResponse("Reviewed. This operation can now be used in a workload.");
+    }
+
+    // ==================================================================== local lab
+
+    public record ComposeFileRequest(String composeFile) {
+    }
+
+    @PostMapping("/lab")
+    public MessageResponse setComposeFile(@PathVariable String id, @RequestBody ComposeFileRequest request) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+        try {
+            LocalLabSettings settings = new LocalLabSettings(request.composeFile());
+            projects.saveConfiguration(projectId, configuration.withLocalLab(settings));
+            lab.forget(projectId);
+            return new MessageResponse("Saved. Vortex will run " + settings.describe()
+                    + " when you start this service's dependencies.");
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    @PostMapping("/lab/clear")
+    public MessageResponse clearComposeFile(@PathVariable String id) {
+        ProjectId projectId = ProjectId.of(id);
+        projects.saveConfiguration(projectId, projects.configuration(projectId).withLocalLab(null));
+        lab.forget(projectId);
+        return new MessageResponse("This service no longer has a local lab configured.");
+    }
+
+    @PostMapping("/lab/up")
+    public MessageResponse labUp(@PathVariable String id) {
+        return runLab(id, LocalLabRunner.Operation.UP);
+    }
+
+    @PostMapping("/lab/down")
+    public MessageResponse labDown(@PathVariable String id) {
+        return runLab(id, LocalLabRunner.Operation.DOWN);
+    }
+
+    @PostMapping("/lab/dismiss")
+    public void dismissLab(@PathVariable String id) {
+        lab.forget(ProjectId.of(id));
+    }
+
+    private MessageResponse runLab(String id, LocalLabRunner.Operation operation) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+
+        Optional<LocalLabSettings> settings = configuration.localLabIfPresent();
+        if (settings.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "This service has no Compose file configured, so there is nothing to "
+                            + operation.label() + ".");
+        }
+
+        String workspacePath = projects.find(projectId).flatMap(Project::workspacePathIfPresent).orElse(null);
+        if (workspacePath == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "This service has no repository on this machine, so Vortex cannot find "
+                            + settings.get().describe() + ".");
+        }
+
+        java.nio.file.Path composeFile;
+        try {
+            composeFile = settings.get().resolveAgainst(workspacePath);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+
+        if (!Files.isRegularFile(composeFile)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No Compose file was found at " + composeFile + ". Check the path against the repository.");
+        }
+
+        var status = lab.status();
+        if (!status.isUsable()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, status.remedy());
+        }
+
+        boolean started = lab.start(projectId, operation, composeFile);
+        return new MessageResponse(started
+                ? "Running docker compose " + operation.command() + " on " + settings.get().describe() + "."
+                : "A Compose command is already running for this service.");
+    }
+}

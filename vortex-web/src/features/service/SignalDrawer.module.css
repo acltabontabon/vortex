@@ -1,0 +1,51 @@
+/*
+ * The drawer owns almost no styling on purpose — what it holds is the Configuration page's own
+ * sections, and those already know how they look. Three rules for the frame around them.
+ */
+.title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 650;
+  font-size: 1rem;
+}
+
+/* The same word, in the same register, as the readiness checklist and the vortex's own shards. */
+.optional {
+  font-size: 0.62rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mantine-color-dimmed);
+}
+
+.why {
+  margin-bottom: var(--mantine-spacing-lg);
+  max-width: 62ch;
+}
+
+/* -------------------------------------------------------------- blocked */
+
+.blocked {
+  max-width: 52ch;
+}
+
+.blockedWhat {
+  font-weight: 620;
+}
+
+.prerequisites {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+/* The verb, so the prerequisite's own label never has to be bent into one. */
+.prerequisitesLead {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mantine-color-dimmed);
+}
