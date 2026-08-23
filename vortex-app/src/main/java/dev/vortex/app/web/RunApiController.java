@@ -572,6 +572,7 @@ public class RunApiController {
     private RunEvidenceDtos.ResourcesDto toResourcesDto(RunEvidence evidence) {
         List<RunEvidenceDtos.ResourceSignalDto> service = new java.util.ArrayList<>();
         List<RunEvidenceDtos.ResourceSignalDto> generator = new java.util.ArrayList<>();
+        List<RunEvidenceDtos.ResourceSignalDto> generatorHost = new java.util.ArrayList<>();
 
         for (var signal : evidence.observability().signals()) {
             signal.resourceIfPresent().ifPresent(resource -> {
@@ -581,6 +582,9 @@ public class RunApiController {
                 } else if (resource.scope()
                         == dev.vortex.core.resource.ResourceScope.LOAD_GENERATOR) {
                     generator.add(row);
+                } else if (resource.scope()
+                        == dev.vortex.core.resource.ResourceScope.LOAD_GENERATOR_HOST) {
+                    generatorHost.add(row);
                 }
             });
         }
@@ -590,8 +594,10 @@ public class RunApiController {
                 .toList();
 
         return new RunEvidenceDtos.ResourcesDto(
-                !service.isEmpty() || !generator.isEmpty() || !gaps.isEmpty(),
-                service, generator, !generator.isEmpty(), gaps);
+                !service.isEmpty() || !generator.isEmpty() || !generatorHost.isEmpty()
+                        || !gaps.isEmpty(),
+                service, generator, generatorHost,
+                !generator.isEmpty() || !generatorHost.isEmpty(), gaps);
     }
 
     /**

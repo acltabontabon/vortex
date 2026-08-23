@@ -86,10 +86,19 @@ class RunQualityAssessorTest {
 
     private static ResourceSignal generatorCpu(double ratio) {
         return new ResourceSignal(
-                MetricObservation.of("metric:generator.cpu.utilization", "Load generator CPU",
+                MetricObservation.of("metric:generator.process.cpu.utilization",
+                        "Load generator process CPU", MetricSource.DERIVED, MetricUnit.RATIO,
+                        Aggregation.MAX, ratio, new TimeWindow(START, START.plusSeconds(600))),
+                ResourceKind.CPU, ResourceScope.LOAD_GENERATOR,
+                ResourceLimit.inherentTo(MetricUnit.RATIO));
+    }
+
+    private static ResourceSignal generatorHostCpu(double ratio) {
+        return new ResourceSignal(
+                MetricObservation.of("metric:generator.host.cpu.utilization", "Load generator host CPU",
                         MetricSource.DERIVED, MetricUnit.RATIO, Aggregation.MAX, ratio,
                         new TimeWindow(START, START.plusSeconds(600))),
-                ResourceKind.CPU, ResourceScope.LOAD_GENERATOR,
+                ResourceKind.CPU, ResourceScope.LOAD_GENERATOR_HOST,
                 ResourceLimit.inherentTo(MetricUnit.RATIO));
     }
 
@@ -283,7 +292,7 @@ class RunQualityAssessorTest {
             assertThat(assessment.has(ValidityReason.GENERATOR_SATURATED)).isTrue();
             assertThat(assessment.quality()).isEqualTo(RunQuality.INVALID);
             assertThat(assessment.finding(ValidityReason.GENERATOR_SATURATED).orElseThrow()
-                    .evidenceIds()).contains("metric:generator.cpu.utilization");
+                    .evidenceIds()).contains("metric:generator.process.cpu.utilization");
         }
 
         @Test
@@ -305,6 +314,71 @@ class RunQualityAssessorTest {
             assertThat(assess(healthy(), List.of()).has(ValidityReason.GENERATOR_SATURATED))
                     .isFalse();
             assertThat(healthy().observedTheLoadGenerator()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a host-scoped signal at its limit never fires this — only the generator's own does")
+        void aHostScopedSignalDoesNotFireSaturation() {
+            // The regression this whole redesign exists to fix: ordinary host memory or CPU pressure,
+            // caused by anything at all sharing the machine, must not read as the generator's own
+            // limit. LOAD_GENERATOR_HOST is excluded from this rule entirely — see
+            // GeneratorHostUnderPressure below for what it fires instead.
+            var hostSaturated = rebuild(healthy(), healthy().window(), healthy().series(), reported(0),
+                    allSucceeded(30_852), List.of(), List.of(), List.of(generatorHostCpu(1.0)));
+
+            assertThat(assess(hostSaturated, List.of()).has(ValidityReason.GENERATOR_SATURATED))
+                    .isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("the load generator's host was under resource pressure")
+    class GeneratorHostUnderPressure {
+
+        @Test
+        @DisplayName("fires on a host-scoped signal near its limit, and qualifies rather than withholds")
+        void firesAndQualifies() {
+            var pressured = rebuild(healthy(), healthy().window(), healthy().series(), reported(0),
+                    allSucceeded(30_852), List.of(), List.of(), List.of(generatorHostCpu(0.95)));
+
+            var assessment = assess(pressured, List.of());
+
+            assertThat(assessment.has(ValidityReason.GENERATOR_HOST_UNDER_PRESSURE)).isTrue();
+            assertThat(assessment.finding(ValidityReason.GENERATOR_HOST_UNDER_PRESSURE).orElseThrow()
+                    .effect()).isEqualTo(ValidityEffect.QUALIFIES);
+            // Weaker than GENERATOR_SATURATED by design: this qualifies confidence, it does not
+            // withhold the capacity claim.
+            assertThat(assessment.permitsAnyCapacityClaim()).isTrue();
+            assertThat(assessment.quality()).isEqualTo(RunQuality.DEGRADED);
+        }
+
+        @Test
+        @DisplayName("a generator-scoped signal (not its host) never fires this")
+        void aGeneratorScopedSignalDoesNotFire() {
+            var busyGenerator = rebuild(healthy(), healthy().window(), healthy().series(), reported(0),
+                    allSucceeded(30_852), List.of(), List.of(), List.of(generatorCpu(0.95)));
+
+            assertThat(assess(busyGenerator, List.of())
+                    .has(ValidityReason.GENERATOR_HOST_UNDER_PRESSURE)).isFalse();
+        }
+
+        @Test
+        @DisplayName("a comfortable host does not fire")
+        void aComfortableHostDoesNotFire() {
+            var comfortable = rebuild(healthy(), healthy().window(), healthy().series(), reported(0),
+                    allSucceeded(30_852), List.of(), List.of(), List.of(generatorHostCpu(0.31)));
+
+            assertThat(assess(comfortable, List.of())
+                    .has(ValidityReason.GENERATOR_HOST_UNDER_PRESSURE)).isFalse();
+        }
+
+        @Test
+        @DisplayName("host-only telemetry still counts as having observed the generator")
+        void hostOnlyTelemetryCountsAsObserved() {
+            var hostOnly = rebuild(healthy(), healthy().window(), healthy().series(), reported(0),
+                    allSucceeded(30_852), List.of(), List.of(), List.of(generatorHostCpu(0.31)));
+
+            assertThat(hostOnly.observedTheLoadGenerator()).isTrue();
         }
     }
 

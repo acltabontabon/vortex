@@ -425,7 +425,11 @@ export interface ResourceSignal {
 export interface Resources {
   present: boolean;
   service: ResourceSignal[];
+  /** The load generator's own process or container — the narrowest measurement Vortex could isolate. */
   generator: ResourceSignal[];
+  /** The whole machine running the load generator — supporting telemetry, never proof by itself that
+   *  the generator was constrained. */
+  generatorHost: ResourceSignal[];
   /** False means nobody looked at the machine producing the traffic — never that it was healthy. */
   generatorObserved: boolean;
   gaps: ObservabilityGap[];

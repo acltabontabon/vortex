@@ -126,6 +126,51 @@ class DockerContainerObservabilityProviderTest {
         assertThat(collected.gaps()).isNotEmpty();
     }
 
+    @Test
+    void aNonServiceScopeIsCarriedThroughToBothSignals() {
+        // The load-generator case: the same class watches k6's own container, and must never label
+        // what it reports as the service under test's.
+        var provider = new DockerContainerObservabilityProvider(CONTAINER_ID, null,
+                new ScriptedDockerProcess("{\"CPUPerc\":\"10.00%\",\"MemUsage\":\"32MiB / 256MiB\"}"),
+                "docker", ResourceScope.LOAD_GENERATOR, false);
+
+        var collected = provider.collect(query());
+
+        assertThat(collected.resourceSignals())
+                .allSatisfy(signal -> assertThat(signal.scope()).isEqualTo(ResourceScope.LOAD_GENERATOR));
+    }
+
+    @Test
+    void withoutRetryAFailedStreamStartSticksPermanently() {
+        // The system-under-test case: that container is already running by the time this provider is
+        // built, so a failure to attach is a real, permanent problem — never silently retried away.
+        var flaky = new FailsOnceThenStartsDockerProcess(
+                "{\"CPUPerc\":\"10.00%\",\"MemUsage\":\"32MiB / 256MiB\"}");
+        var provider = new DockerContainerObservabilityProvider(CONTAINER_ID, null, flaky, "docker",
+                ResourceScope.SYSTEM_UNDER_TEST, false);
+
+        assertThat(provider.collect(query()).resourceSignals()).isEmpty();
+        assertThat(provider.collect(query()).resourceSignals())
+                .as("without retryStreamStartup, a failed attempt is never retried, even though the "
+                        + "underlying stream would now succeed")
+                .isEmpty();
+    }
+
+    @Test
+    void withRetryAFailedStreamStartRecoversOnceTheContainerExists() {
+        // The load-generator case: the engine may start that container after this provider's session
+        // has already begun sampling, so the first attempt failing is not proof it never will exist.
+        var flaky = new FailsOnceThenStartsDockerProcess(
+                "{\"CPUPerc\":\"10.00%\",\"MemUsage\":\"32MiB / 256MiB\"}");
+        var provider = new DockerContainerObservabilityProvider(CONTAINER_ID, null, flaky, "docker",
+                ResourceScope.LOAD_GENERATOR, true);
+
+        assertThat(provider.collect(query()).resourceSignals()).isEmpty();
+        assertThat(provider.collect(query()).resourceSignals())
+                .as("with retryStreamStartup, the next collect() tries again rather than staying gapped")
+                .isNotEmpty();
+    }
+
     private static ResourceSignal signalOf(ObservabilityProvider.Collected collected, ResourceKind kind) {
         return collected.resourceSignals().stream()
                 .filter(signal -> signal.kind() == kind)
@@ -162,6 +207,29 @@ class DockerContainerObservabilityProviderTest {
         @Override
         public StreamHandle stream(List<String> command, Consumer<String> stdoutSink) {
             throw new RuntimeException("simulated: docker binary not found");
+        }
+    }
+
+    /** Simulates a container that does not exist yet on the first attempt — e.g. the engine has not
+     *  started it — but does by the second, so a caller can tell retried recovery apart from a
+     *  permanent failure. */
+    private static final class FailsOnceThenStartsDockerProcess extends DockerProcess {
+
+        private final String cannedLine;
+        private int attempts;
+
+        FailsOnceThenStartsDockerProcess(String cannedLine) {
+            this.cannedLine = cannedLine;
+        }
+
+        @Override
+        public StreamHandle stream(List<String> command, Consumer<String> stdoutSink) {
+            attempts++;
+            if (attempts == 1) {
+                throw new RuntimeException("simulated: no such container");
+            }
+            stdoutSink.accept(cannedLine);
+            return StreamHandle.noop();
         }
     }
 }

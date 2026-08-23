@@ -154,7 +154,10 @@ describe('the evidence sections', () => {
     render(baseEvidence());
 
     expect(
-      screen.getByText('The machine generating the traffic was not observed')
+      screen.getByText("The generator's own process or container was not observed"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('The machine running the load generator was not observed'),
     ).toBeInTheDocument();
   });
 
@@ -347,7 +350,121 @@ describe('resource telemetry', () => {
     });
 
     expect(screen.getByText('Run timeline')).toBeInTheDocument();
-    expect(screen.getByText('CPU — system under test vs load generator')).toBeInTheDocument();
+    expect(
+      screen.getByText('CPU — system under test vs load generator vs load generator host'),
+    ).toBeInTheDocument();
+  });
+
+  it('splits memory into three charts — service, generator process/container, and generator host — never overlaid', () => {
+    const evidence = baseEvidence();
+    render({
+      ...evidence,
+      timeline: { ...evidence.timeline, present: true },
+      resourceTimeline: {
+        present: true,
+        completenessStatus: 'COMPLETE',
+        completenessReason: '',
+        plots: [
+          {
+            kind: 'MEMORY',
+            kindLabel: 'Memory',
+            series: [
+              {
+                signalId: 'metric:docker.memory.used',
+                providerId: 'docker',
+                scope: 'SYSTEM_UNDER_TEST',
+                scopeLabel: 'System under test',
+                seriesLabel: 'Container memory',
+                unitSymbol: 'bytes',
+                points: [{ atIso: '2026-08-22T09:00:00Z', value: 200_000_000 }],
+                display: '190.7 MB',
+                limitDisplay: '512 MB',
+                utilisationDisplay: '37%',
+                atItsLimit: false,
+                utilisationFraction: 0.37,
+              },
+              {
+                signalId: 'metric:generator.process.memory.used',
+                providerId: 'generator',
+                scope: 'LOAD_GENERATOR',
+                scopeLabel: 'Load generator',
+                seriesLabel: 'Load generator process memory',
+                unitSymbol: 'bytes',
+                points: [{ atIso: '2026-08-22T09:00:00Z', value: 300_000_000 }],
+                display: '286.1 MB',
+                limitDisplay: '16.8 GB',
+                utilisationDisplay: '2%',
+                atItsLimit: false,
+                utilisationFraction: 0.02,
+              },
+              {
+                signalId: 'metric:generator.host.memory.used',
+                providerId: 'generator',
+                scope: 'LOAD_GENERATOR_HOST',
+                scopeLabel: 'Load generator host',
+                seriesLabel: 'Load generator host memory',
+                unitSymbol: 'bytes',
+                points: [{ atIso: '2026-08-22T09:00:00Z', value: 15_900_000_000 }],
+                display: '14.8 GB',
+                limitDisplay: '16.8 GB',
+                utilisationDisplay: '95%',
+                atItsLimit: false,
+                utilisationFraction: 0.95,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText('Memory — system under test')).toBeInTheDocument();
+    expect(screen.getByText('Memory — load generator')).toBeInTheDocument();
+    expect(screen.getByText('Memory — load generator host')).toBeInTheDocument();
+  });
+
+  it('separates the resources table into service, generator process/container, and generator host groups', () => {
+    const evidence = baseEvidence();
+    const signal = (overrides: Partial<RunEvidence['resources']['service'][number]>) => ({
+      id: 'metric:x',
+      name: 'x',
+      kind: 'MEMORY',
+      kindLabel: 'Memory',
+      scope: 'SYSTEM_UNDER_TEST',
+      scopeLabel: 'System under test',
+      display: '1 MB',
+      limitDisplay: '',
+      utilisationDisplay: '',
+      atItsLimit: false,
+      describe: 'x',
+      utilisationFraction: null,
+      ...overrides,
+    });
+    render({
+      ...evidence,
+      resources: {
+        present: true,
+        service: [signal({ id: 'svc', name: 'Container memory' })],
+        generator: [signal({ id: 'gen', name: 'Load generator process memory', atItsLimit: true })],
+        generatorHost: [
+          signal({
+            id: 'gen-host',
+            name: 'Load generator host memory',
+            atItsLimit: true,
+            utilisationDisplay: '95%',
+          }),
+        ],
+        generatorObserved: true,
+        gaps: [],
+      },
+    });
+
+    expect(screen.getByText('Container memory')).toBeInTheDocument();
+    expect(screen.getByText('Load generator process memory')).toBeInTheDocument();
+    expect(screen.getByText('Load generator host memory')).toBeInTheDocument();
+    // A generator process/container at its limit withholds capacity — a stronger warning than a
+    // shared host under pressure, which only qualifies confidence. Both must render distinctly.
+    expect(screen.getByText('Load generator pressure')).toBeInTheDocument();
+    expect(screen.getByText('Load generator host pressure')).toBeInTheDocument();
   });
 
   it('a partial series is captioned as partial rather than rendered as though it were complete', () => {

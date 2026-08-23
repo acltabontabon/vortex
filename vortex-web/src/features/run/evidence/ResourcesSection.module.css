@@ -1,7 +1,13 @@
 .groups {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: var(--mantine-spacing-xl);
+}
+
+@media (max-width: 64em) {
+  .groups {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 48em) {
@@ -16,6 +22,15 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--mantine-radius-md);
   padding: 0.6rem 0.75rem;
+}
+
+/* The load-generator-host group is supporting, machine-wide telemetry, not the generator's own
+ * limit — visually quieter than the other two so a reader does not mistake it for an equally direct
+ * measurement. */
+.groupMuted {
+  composes: group;
+  border-style: dashed;
+  opacity: 0.85;
 }
 
 .row {

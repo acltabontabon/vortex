@@ -30,6 +30,7 @@ export function phaseFourEvidence(): Pick<
       present: false,
       service: [],
       generator: [],
+      generatorHost: [],
       generatorObserved: false,
       gaps: [],
     },

@@ -172,8 +172,14 @@ public class EngineConfiguration {
      * faster" is not an optional enrichment.
      */
     @Bean
-    dev.vortex.app.adapter.observability.LoadGeneratorObservabilityProvider loadGeneratorObserver() {
-        return new dev.vortex.app.adapter.observability.LoadGeneratorObservabilityProvider();
+    dev.vortex.app.adapter.observability.LoadGeneratorObservabilityProvider loadGeneratorObserver(
+            VortexProperties properties) {
+        // Process-scoped memory can only trust ProcessHandle descendants when the generator runs
+        // directly on this machine — a Dockerized k6 makes that descendant the `docker` CLI client,
+        // not k6 itself. See that class's Javadoc for why, and telemetryCollector below for how the
+        // container case is covered instead.
+        return new dev.vortex.app.adapter.observability.LoadGeneratorObservabilityProvider(
+                !properties.engine().usesDocker());
     }
 
     /**
@@ -217,7 +223,7 @@ public class EngineConfiguration {
         // per run, the same way dockerImageTargetExecutor below builds its own.
         return new dev.vortex.app.adapter.observability.ObservabilityTelemetryCollector(
                 ofTheService, generator, resourceSampleSinkFactory, new DockerProcess(),
-                properties.engine().dockerExecutable());
+                properties.engine().dockerExecutable(), properties.engine().usesDocker());
     }
 
     @Bean

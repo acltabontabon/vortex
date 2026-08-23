@@ -1,14 +1,28 @@
 import { LineChart } from '@mantine/charts';
+import { Text } from '@mantine/core';
 import type { ResourceKindPlot } from '../../api/run';
 import { type ChartMarker, formatBytes, formatElapsed, toEpochSeconds, verticalMarkerLines } from './chartTime';
 
-/** One color per scope, so "system under test" and "load generator" are visually distinct on sight
- *  rather than only by hovering a legend — the single most damaging confusion a resource chart can
- *  produce is reading one system's saturation as the other's. */
+/** One color per scope, so "system under test", "load generator" and "load generator host" are
+ *  visually distinct on sight rather than only by hovering a legend — the single most damaging
+ *  confusion a resource chart can produce is reading one system's saturation as another's. */
 const SERIES_COLOR: Record<string, string> = {
   SYSTEM_UNDER_TEST: 'brand.6',
   LOAD_GENERATOR: 'neutral.6',
+  LOAD_GENERATOR_HOST: 'ai.6',
   DEPENDENCY: 'warn.6',
+};
+
+/** What each scope actually measures, in one line — shown as a caption beneath any chart that mixes
+ *  scopes, so a reader does not have to guess what "load generator" versus "load generator host"
+ *  means or where the number came from. */
+const SCOPE_DESCRIPTION: Record<string, string> = {
+  SYSTEM_UNDER_TEST: 'System under test — the service being tested.',
+  LOAD_GENERATOR:
+    "Load generator — the generator's own process or container, the narrowest measurement Vortex could isolate.",
+  LOAD_GENERATOR_HOST:
+    'Load generator host — the whole machine running the generator; supporting context, not the generator’s own limit.',
+  DEPENDENCY: 'Dependency — something the service under test depends on.',
 };
 
 interface MergedRow {
@@ -90,6 +104,8 @@ export function ResourceKindChart({
   const lastElapsedSeconds = data[data.length - 1].elapsedSeconds;
   const markerLines = verticalMarkerLines(markers, origin, lastElapsedSeconds);
 
+  const scopesPresent = Array.from(new Set(withPoints.map((series) => series.scope)));
+
   const unitSymbol = withPoints[0].unitSymbol;
   // A ratio's own unit symbol is blank by domain design — "0.3" alone means nothing on an axis.
   // CPU is the one resource kind Vortex measures as a bare ratio (a fraction of one core), so this
@@ -104,29 +120,36 @@ export function ResourceKindChart({
   };
 
   return (
-    <LineChart
-      h={height}
-      data={data}
-      dataKey="elapsedSeconds"
-      series={withPoints.map((series) => ({
-        name: seriesKey(series.signalId, series.providerId),
-        label: series.scopeLabel,
-        color: SERIES_COLOR[series.scope] ?? 'ai.6',
-        ...(series.scope !== 'SYSTEM_UNDER_TEST' ? { strokeDasharray: '4 3' } : {}),
-      }))}
-      connectNulls={false}
-      withDots={false}
-      withLegend={withPoints.length > 1}
-      strokeWidth={2}
-      valueFormatter={valueFormatter}
-      xAxisProps={{
-        type: 'number',
-        domain: ['dataMin', 'dataMax'],
-        tickFormatter: formatElapsed,
-      }}
-      tooltipProps={{ labelFormatter: (label) => formatElapsed(Number(label)) }}
-      {...(syncId ? { lineChartProps: { syncId } } : {})}
-      referenceLines={markerLines}
-    />
+    <div>
+      <LineChart
+        h={height}
+        data={data}
+        dataKey="elapsedSeconds"
+        series={withPoints.map((series) => ({
+          name: seriesKey(series.signalId, series.providerId),
+          label: series.scopeLabel,
+          color: SERIES_COLOR[series.scope] ?? 'ai.6',
+          ...(series.scope !== 'SYSTEM_UNDER_TEST' ? { strokeDasharray: '4 3' } : {}),
+        }))}
+        connectNulls={false}
+        withDots={false}
+        withLegend={withPoints.length > 1}
+        strokeWidth={2}
+        valueFormatter={valueFormatter}
+        xAxisProps={{
+          type: 'number',
+          domain: ['dataMin', 'dataMax'],
+          tickFormatter: formatElapsed,
+        }}
+        tooltipProps={{ labelFormatter: (label) => formatElapsed(Number(label)) }}
+        {...(syncId ? { lineChartProps: { syncId } } : {})}
+        referenceLines={markerLines}
+      />
+      {scopesPresent.length > 1 && (
+        <Text size="xs" c="dimmed" mt={2}>
+          {scopesPresent.map((scope) => SCOPE_DESCRIPTION[scope] ?? scope).join(' ')}
+        </Text>
+      )}
+    </div>
   );
 }

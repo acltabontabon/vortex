@@ -201,6 +201,7 @@ public record MeasuredResults(
      * looked — never that the generator was healthy.
      */
     public boolean observedTheLoadGenerator() {
-        return !resourcesScopedTo(ResourceScope.LOAD_GENERATOR).isEmpty();
+        return !resourcesScopedTo(ResourceScope.LOAD_GENERATOR).isEmpty()
+                || !resourcesScopedTo(ResourceScope.LOAD_GENERATOR_HOST).isEmpty();
     }
 }

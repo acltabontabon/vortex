@@ -10,6 +10,8 @@ import dev.vortex.core.resource.ResourceScope;
 import dev.vortex.core.resource.ResourceSignal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -17,10 +19,12 @@ import org.junit.jupiter.api.Test;
 /**
  * Vortex measuring its own machine.
  *
- * <p>Nothing here asserts a CPU figure. The properties that matter are structural: every signal is
- * scoped to the generator and never to the service, a limit is present where one genuinely exists,
- * and — the one that carries the whole phase — an unavailable reading produces a gap with a cause
- * rather than a zero that would read as a healthy generator.
+ * <p>Nothing here asserts a CPU or memory figure by value. The properties that matter are
+ * structural: a signal describing the generator's own process or container is told apart from one
+ * describing the whole machine it happens to share — {@link ResourceScope#LOAD_GENERATOR} versus
+ * {@link ResourceScope#LOAD_GENERATOR_HOST} — a limit is present where one genuinely exists, and —
+ * the one that carries the whole phase — an unavailable reading produces a gap with a cause rather
+ * than a zero that would read as a healthy generator.
  */
 class LoadGeneratorObservabilityProviderTest {
 
@@ -48,14 +52,40 @@ class LoadGeneratorObservabilityProviderTest {
         }
 
         @Test
-        @DisplayName("every signal it produces is scoped to the generator, and none to the service")
-        void everySignalIsScopedToTheGenerator() {
+        @DisplayName("every signal it produces is scoped to the generator or its host, never the service")
+        void everySignalIsScopedToTheGeneratorOrItsHost() {
             var collected = provider.collect(query());
 
             assertThat(collected.resourceSignals()).allSatisfy(signal ->
-                    assertThat(signal.scope()).isEqualTo(ResourceScope.LOAD_GENERATOR));
+                    assertThat(signal.scope())
+                            .isIn(ResourceScope.LOAD_GENERATOR, ResourceScope.LOAD_GENERATOR_HOST));
             assertThat(collected.resourceSignals())
                     .noneMatch(signal -> signal.scope().describesTheServiceUnderTest());
+        }
+
+        @Test
+        @DisplayName("host readings are host-scoped, process readings are generator-scoped — never the reverse")
+        void hostAndProcessSignalsAreScopedDistinctly() {
+            var byId = collected(provider).stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            signal -> signal.signalId(), signal -> signal));
+
+            if (byId.containsKey("metric:generator.host.cpu.utilization")) {
+                assertThat(byId.get("metric:generator.host.cpu.utilization").scope())
+                        .isEqualTo(ResourceScope.LOAD_GENERATOR_HOST);
+            }
+            if (byId.containsKey("metric:generator.host.memory.used")) {
+                assertThat(byId.get("metric:generator.host.memory.used").scope())
+                        .isEqualTo(ResourceScope.LOAD_GENERATOR_HOST);
+            }
+            if (byId.containsKey("metric:generator.process.cpu.utilization")) {
+                assertThat(byId.get("metric:generator.process.cpu.utilization").scope())
+                        .isEqualTo(ResourceScope.LOAD_GENERATOR);
+            }
+            if (byId.containsKey("metric:generator.process.memory.used")) {
+                assertThat(byId.get("metric:generator.process.memory.used").scope())
+                        .isEqualTo(ResourceScope.LOAD_GENERATOR);
+            }
         }
 
         @Test
@@ -87,7 +117,7 @@ class LoadGeneratorObservabilityProviderTest {
         @DisplayName("host CPU is a ratio measured against a ratio, so it can reach its limit")
         void hostCpuCanReachItsLimit() {
             var cpu = provider.collect(query()).resourceSignals().stream()
-                    .filter(signal -> signal.signalId().equals("metric:generator.cpu.utilization"))
+                    .filter(signal -> signal.signalId().equals("metric:generator.host.cpu.utilization"))
                     .findFirst();
 
             // The unit trap from ADR-037, on the signal GENERATOR_SATURATED will read. A limit in
@@ -100,6 +130,90 @@ class LoadGeneratorObservabilityProviderTest {
                                 .isEqualTo(MetricUnit.RATIO));
                 assertThat(signal.utilisation()).isPresent();
             });
+        }
+
+        private List<ResourceSignal> collected(LoadGeneratorObservabilityProvider provider) {
+            return provider.collect(query()).resourceSignals();
+        }
+    }
+
+    @Nested
+    @DisplayName("when the generator runs as a local process")
+    class ProcessMemory {
+
+        private Process spawned;
+
+        @AfterEach
+        void cleanup() {
+            if (spawned != null) {
+                spawned.destroyForcibly();
+            }
+        }
+
+        @Test
+        @DisplayName("process memory is reported for a real descendant, scoped to the generator and limited")
+        void reportsResidentMemoryOfADescendant() throws Exception {
+            spawned = new ProcessBuilder("sleep", "5").start();
+            // Give ProcessHandle a moment to see the freshly spawned child, and ps a moment to have a
+            // reading for its pid — both are effectively instant on a real machine, but not guaranteed
+            // synchronous with start().
+            Thread.sleep(200);
+
+            var provider = new LoadGeneratorObservabilityProvider(true);
+            var signal = provider.collect(query()).resourceSignals().stream()
+                    .filter(s -> s.signalId().equals("metric:generator.process.memory.used"))
+                    .findFirst();
+
+            assertThat(signal).hasValueSatisfying(s -> {
+                assertThat(s.scope()).isEqualTo(ResourceScope.LOAD_GENERATOR);
+                assertThat(s.observation().unit()).isEqualTo(MetricUnit.BYTES);
+                assertThat(s.observation().value()).isGreaterThan(0);
+                assertThat(s.limitIfPresent()).isPresent();
+            });
+        }
+
+        @Test
+        @DisplayName("with no descendant visible, it gaps rather than reports a fabricated zero")
+        void gapsWhenNoDescendantIsVisible() {
+            var provider = new LoadGeneratorObservabilityProvider(true);
+
+            var gaps = provider.collect(query()).gaps();
+
+            assertThat(gaps)
+                    .anyMatch(gap -> gap.metricName().equals("metric:generator.process.memory.used")
+                            && gap.availability() == TelemetryAvailability.NO_DATA);
+        }
+    }
+
+    @Nested
+    @DisplayName("when the generator runs in a container")
+    class ContainerisedGenerator {
+
+        @Test
+        @DisplayName("process memory is gapped as unsupported, never attributed to the docker client process")
+        void processMemoryIsGapped() {
+            var provider = new LoadGeneratorObservabilityProvider(false);
+
+            var collected = provider.collect(query());
+
+            assertThat(collected.resourceSignals())
+                    .noneMatch(signal -> signal.signalId().equals("metric:generator.process.memory.used"));
+            assertThat(collected.gaps())
+                    .anyMatch(gap -> gap.metricName().equals("metric:generator.process.memory.used")
+                            && gap.availability() == TelemetryAvailability.UNSUPPORTED);
+        }
+
+        @Test
+        @DisplayName("host and process CPU are unaffected — only process memory is a container-mode gap")
+        void onlyProcessMemoryIsGapped() {
+            var provider = new LoadGeneratorObservabilityProvider(false);
+
+            var collected = provider.collect(query());
+
+            assertThat(collected.resourceSignals().stream().map(ResourceSignal::signalId)
+                    .collect(java.util.stream.Collectors.toSet()))
+                    .isSubsetOf(Set.of("metric:generator.host.cpu.utilization",
+                            "metric:generator.host.memory.used"));
         }
     }
 

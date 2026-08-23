@@ -148,6 +148,12 @@ public final class DockerK6Runner implements K6Runner {
         command.add("run");
         command.add("--rm");
         command.add("-i");
+        // A deterministic name, derived from the same execution id ObservabilityTelemetryCollector
+        // already receives, so it can watch this exact container's own CPU/memory via `docker stats`
+        // without Vortex having to thread a container id back across the module boundary — see
+        // LoadGeneratorObservabilityProvider's class Javadoc for why that measurement matters.
+        command.add("--name");
+        command.add("vortex-k6-" + workingDir.getFileName());
         command.add("--add-host");
         command.add(HOST_GATEWAY + ":host-gateway");
         command.add("-v");

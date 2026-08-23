@@ -30,6 +30,17 @@ public enum ValidityReason {
     /** A resource scoped to the load generator reached its declared limit. */
     GENERATOR_SATURATED("The load generator was saturated"),
 
+    /**
+     * The machine running the load generator — not the generator's own process or container — was
+     * under resource pressure.
+     *
+     * <p>Weaker than {@link #GENERATOR_SATURATED} by design: shared host contention does not
+     * establish that the generator's own request budget was constrained, only that something on that
+     * machine was near a limit. Qualifies a run's confidence rather than withholding its capacity
+     * conclusion.
+     */
+    GENERATOR_HOST_UNDER_PRESSURE("The load generator's host was under resource pressure"),
+
     /** The run was shorter than its test type's declared minimum. */
     RUN_TOO_SHORT("The run was too short"),
 

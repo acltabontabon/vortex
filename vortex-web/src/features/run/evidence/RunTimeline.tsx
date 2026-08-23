@@ -34,12 +34,20 @@ export function RunTimeline({
   // generator's machine are different quantities by orders of magnitude (hundreds of MiB versus tens
   // of GiB), so one shared axis would flatten the container's own line to invisible. Split by scope,
   // each on the axis its own numbers actually need — the same "never let generator limits look like
-  // service limits" rule that already keeps their tables apart.
+  // service limits" rule that already keeps their tables apart. The generator's own process/container
+  // memory gets its own chart, separate again from its host's — a shared machine's memory is broader
+  // than either and would flatten both onto an axis built for a much bigger number.
   const memorySutPlot = memoryPlot ? scopedPlot(memoryPlot, 'SYSTEM_UNDER_TEST') : null;
   const memoryGeneratorPlot = memoryPlot ? scopedPlot(memoryPlot, 'LOAD_GENERATOR') : null;
+  const memoryGeneratorHostPlot = memoryPlot ? scopedPlot(memoryPlot, 'LOAD_GENERATOR_HOST') : null;
 
   const hasAnyTrack = Boolean(
-    throughputPlot || latencyPlot || cpuPlot || memorySutPlot || memoryGeneratorPlot,
+    throughputPlot
+      || latencyPlot
+      || cpuPlot
+      || memorySutPlot
+      || memoryGeneratorPlot
+      || memoryGeneratorHostPlot,
   );
   if (!hasAnyTrack) return null;
 
@@ -78,7 +86,7 @@ export function RunTimeline({
         {cpuPlot && (
           <div>
             <Text size="sm" fw={650} mb={4}>
-              CPU — system under test vs load generator
+              CPU — system under test vs load generator vs load generator host
             </Text>
             <ResourceKindChart plot={cpuPlot} height={110} origin={origin ?? undefined} syncId={syncId} markers={markers} />
           </div>
@@ -97,6 +105,14 @@ export function RunTimeline({
               Memory — load generator
             </Text>
             <ResourceKindChart plot={memoryGeneratorPlot} height={110} origin={origin ?? undefined} syncId={syncId} markers={markers} />
+          </div>
+        )}
+        {memoryGeneratorHostPlot && (
+          <div>
+            <Text size="sm" fw={650} mb={4}>
+              Memory — load generator host
+            </Text>
+            <ResourceKindChart plot={memoryGeneratorHostPlot} height={110} origin={origin ?? undefined} syncId={syncId} markers={markers} />
           </div>
         )}
       </Stack>

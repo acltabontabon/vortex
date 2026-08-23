@@ -117,14 +117,25 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
     private final DockerProcess dockerProcess;
     private final String dockerExecutable;
 
+    /** Whether the engine runs k6 in a Docker container ({@code DockerK6Runner}) rather than as a
+     *  local binary — see {@link #start} for the container-scoped generator provider this enables. */
+    private final boolean generatorRunsInDocker;
+
     public ObservabilityTelemetryCollector(List<ObservabilityProvider> providers,
             ObservabilityProvider generator, ResourceSampleSinkFactory sinkFactory,
             DockerProcess dockerProcess, String dockerExecutable) {
+        this(providers, generator, sinkFactory, dockerProcess, dockerExecutable, false);
+    }
+
+    public ObservabilityTelemetryCollector(List<ObservabilityProvider> providers,
+            ObservabilityProvider generator, ResourceSampleSinkFactory sinkFactory,
+            DockerProcess dockerProcess, String dockerExecutable, boolean generatorRunsInDocker) {
         this.providers = List.copyOf(providers);
         this.generator = generator;
         this.sinkFactory = sinkFactory;
         this.dockerProcess = dockerProcess;
         this.dockerExecutable = dockerExecutable;
+        this.generatorRunsInDocker = generatorRunsInDocker;
     }
 
     @Override
@@ -183,15 +194,30 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
         // The confirmed EffectiveResourceEnvelope travels with it unchanged from Step 8's own
         // docker-inspect confirmation, so a limit this provider reports is never re-derived or
         // re-guessed — it is the same number, carried forward.
-        DockerContainerObservabilityProvider dockerProvider = null;
+        List<DockerContainerObservabilityProvider> dockerProviders = new ArrayList<>();
         if (resolvedTarget != null && resolvedTarget.ownership() == TargetOwnership.VORTEX_MANAGED) {
             var containerId = resolvedTarget.telemetryHandleIfPresent();
             if (containerId.isPresent()) {
-                dockerProvider = new DockerContainerObservabilityProvider(containerId.get(),
+                var dockerProvider = new DockerContainerObservabilityProvider(containerId.get(),
                         resolvedTarget.resourcesIfPresent().orElse(null), dockerProcess,
                         dockerExecutable);
+                dockerProviders.add(dockerProvider);
                 reachable.add(dockerProvider);
             }
+        }
+
+        // The load generator's own container, when the engine runs k6 in Docker rather than as a
+        // local binary — same treatment, keyed by the deterministic name DockerK6Runner gives that
+        // container from this same executionId, so nothing has to be threaded across the module
+        // boundary to learn it. Retried on failure, unlike the system-under-test case above: that
+        // container is already running by the time this method is called; this one is started later,
+        // by the engine, and may not exist yet on the first sampling attempt.
+        if (generatorRunsInDocker && executionId != null) {
+            var generatorContainerProvider = new DockerContainerObservabilityProvider(
+                    "vortex-k6-" + executionId.value(), null, dockerProcess, dockerExecutable,
+                    dev.vortex.core.resource.ResourceScope.LOAD_GENERATOR, true);
+            dockerProviders.add(generatorContainerProvider);
+            reachable.add(generatorContainerProvider);
         }
 
         if (reachable.isEmpty()) {
@@ -200,7 +226,7 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
 
         return new SamplingSession(reachable, endpoint,
                 StageWindows.fromPlan(plan.stages(), now), correlation, gaps,
-                openSink(executionId), watchdogFor(plan), dockerProvider);
+                openSink(executionId), watchdogFor(plan), dockerProviders);
     }
 
     /**
@@ -255,11 +281,12 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
         private final ResourceSampleSink sink;
         private final Duration watchdog;
 
-        /** The Docker container provider this session owns, if this run's target is Vortex-managed —
-         *  {@code null} otherwise. Stopped exactly once, here, when the session ends, since {@link
-         *  ObservabilityProvider} itself has no lifecycle hook and this is the one provider in this
-         *  class that holds a real subprocess open across the whole run. */
-        private final DockerContainerObservabilityProvider dockerProvider;
+        /** The Docker container providers this session owns — the system under test's, the load
+         *  generator's, both, or neither, depending on this run's target and engine. Each is stopped
+         *  exactly once, here, when the session ends, since {@link ObservabilityProvider} itself has
+         *  no lifecycle hook and these are the only providers in this class that hold a real
+         *  subprocess open across the whole run. */
+        private final List<DockerContainerObservabilityProvider> dockerProviders;
         private final Instant startedAt = Instant.now();
         private final AtomicBoolean running = new AtomicBoolean(true);
         private final Map<SignalKey, Readings> runReadings = new LinkedHashMap<>();
@@ -283,7 +310,7 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
                 List<StageWindows.StageWindow> stages,
                 ObservabilityProvider.RunCorrelation correlation, List<TelemetryGap> startupGaps,
                 ResourceSampleSink sink, Duration watchdog,
-                DockerContainerObservabilityProvider dockerProvider) {
+                List<DockerContainerObservabilityProvider> dockerProviders) {
             this.providers = providers;
             this.endpoint = endpoint;
             this.stages = stages;
@@ -291,7 +318,7 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
             this.gaps.addAll(startupGaps);
             this.sink = sink;
             this.watchdog = watchdog;
-            this.dockerProvider = dockerProvider;
+            this.dockerProviders = List.copyOf(dockerProviders);
             this.sampler = Thread.ofVirtual().name("vortex-telemetry").start(this::sampleUntilStopped);
         }
 
@@ -398,16 +425,15 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
             }
         }
 
-        /** Stops the Docker container stream, if this run had one — best-effort, since a telemetry
-         *  shutdown failure must never be the reason a run's own result is lost. */
+        /** Stops every Docker container stream this run had — best-effort, since a telemetry shutdown
+         *  failure must never be the reason a run's own result is lost. */
         private void closeDockerProviderQuietly() {
-            if (dockerProvider == null) {
-                return;
-            }
-            try {
-                dockerProvider.close();
-            } catch (RuntimeException e) {
-                log.debug("Could not stop container telemetry cleanly: {}", e.getMessage());
+            for (DockerContainerObservabilityProvider dockerProvider : dockerProviders) {
+                try {
+                    dockerProvider.close();
+                } catch (RuntimeException e) {
+                    log.debug("Could not stop container telemetry cleanly: {}", e.getMessage());
+                }
             }
         }
 

@@ -6,13 +6,15 @@ import shared from './shared.module.css';
 import classes from './ResourcesSection.module.css';
 
 /**
- * CPU and memory, split into two unmistakably separate groups — the system under test and the load
- * generator — because reading one system's resource as the other's is the single most damaging
+ * CPU and memory, split into unmistakably separate groups — the system under test, the load
+ * generator's own process or container, and (as supporting, machine-wide context) the load
+ * generator's host — because reading one system's resource as another's is the single most damaging
  * confusion a resource section can produce, and this page never lets a merged table make that mistake
  * possible.
  */
 export function ResourcesSection({ resources }: { resources: Resources }) {
   const generatorSaturated = resources.generator.filter((s) => s.atItsLimit);
+  const generatorHostUnderPressure = resources.generatorHost.filter((s) => s.atItsLimit);
 
   return (
     <section>
@@ -45,8 +47,23 @@ export function ResourcesSection({ resources }: { resources: Resources }) {
           ) : (
             <Unknown
               compact
-              what="The machine generating the traffic was not observed"
+              what="The generator's own process or container was not observed"
               reason="That is not evidence it kept up: whether the offered load was actually produced is unknown for this run."
+            />
+          )}
+        </div>
+
+        <div className={classes.groupMuted}>
+          <Text size="xs" c="dimmed" tt="uppercase" fw={600} mb={4}>
+            Load generator host
+          </Text>
+          {resources.generatorHost.length > 0 ? (
+            <ResourceList signals={resources.generatorHost} />
+          ) : (
+            <Unknown
+              compact
+              what="The machine running the load generator was not observed"
+              reason="Supporting context only — its absence says nothing about whether the generator's own process or container kept up."
             />
           )}
         </div>
@@ -58,6 +75,15 @@ export function ResourcesSection({ resources }: { resources: Resources }) {
           {generatorSaturated.map((s) => s.utilisationDisplay).join(', ')} of limit. High
           load-generator utilisation may reduce confidence that the requested workload can continue to
           be generated accurately.
+        </Alert>
+      )}
+
+      {generatorHostUnderPressure.length > 0 && (
+        <Alert color="warn" variant="light" title="Load generator host pressure" mt="sm">
+          {generatorHostUnderPressure.map((s) => s.name).join(', ')} at{' '}
+          {generatorHostUnderPressure.map((s) => s.utilisationDisplay).join(', ')} of limit. This is the
+          whole machine running the generator, not its own process or container — it qualifies
+          confidence in this run rather than proving the generator itself was constrained.
         </Alert>
       )}
     </section>

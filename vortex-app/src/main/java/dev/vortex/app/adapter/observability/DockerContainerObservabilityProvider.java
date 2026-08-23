@@ -30,13 +30,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Container-scoped CPU/memory for a Vortex-managed Docker target — {@link
- * dev.vortex.core.resource.ResourceScope#SYSTEM_UNDER_TEST}, keyed by container id rather than by
- * endpoint URL, which is why this provider is constructed fresh per run and handed directly to
- * {@link ObservabilityTelemetryCollector}'s reachable-provider list rather than being probed through
- * the endpoint-keyed {@link ObservabilityQuery} loop every other provider goes through (see that
- * class's treatment of {@code generator}, which this mirrors for the same reason: a container id is
- * not an HTTP endpoint, and forcing it into one would be a category error, not a simplification).
+ * Container-scoped CPU/memory for a Docker container Vortex itself started — the system under test
+ * when the target is Vortex-managed, or the load generator when k6 runs in a container. Keyed by
+ * container id rather than by endpoint URL, which is why this provider is constructed fresh per run
+ * and handed directly to {@link ObservabilityTelemetryCollector}'s reachable-provider list rather than
+ * being probed through the endpoint-keyed {@link ObservabilityQuery} loop every other provider goes
+ * through (see that class's treatment of {@code generator}, which this mirrors for the same reason: a
+ * container id is not an HTTP endpoint, and forcing it into one would be a category error, not a
+ * simplification).
  *
  * <h2>Investigation: how this reads {@code docker stats} (plan §9)</h2>
  * Measured in this sandbox against a real {@code hashicorp/http-echo} container under a background
@@ -103,6 +104,19 @@ public final class DockerContainerObservabilityProvider implements Observability
     private final EffectiveResourceEnvelope resources;
     private final DockerProcess dockerProcess;
     private final String dockerExecutable;
+    private final ResourceScope scope;
+
+    /**
+     * Whether a failed stream start should be retried on the next {@link #collect}, instead of
+     * sticking permanently.
+     *
+     * <p>{@code false} for the system-under-test case this class originally handled, where the
+     * container is already running by the time telemetry starts — a stream failure there is a real,
+     * permanent problem. {@code true} for a load-generator container: it is started later, by the
+     * engine, possibly after this provider's session has already begun sampling, so the first
+     * attempt may simply be too early rather than wrong.
+     */
+    private final boolean retryStreamStartup;
 
     private final Object streamLock = new Object();
 
@@ -120,13 +134,24 @@ public final class DockerContainerObservabilityProvider implements Observability
     private volatile DockerProcess.StreamHandle handle;
     private volatile String streamStartupFailure;
 
+    /** The system-under-test case: scoped to {@link ResourceScope#SYSTEM_UNDER_TEST}, and a failed
+     *  stream start is permanent — the container this watches is already running by construction. */
     public DockerContainerObservabilityProvider(String containerId, EffectiveResourceEnvelope resources,
             DockerProcess dockerProcess, String dockerExecutable) {
+        this(containerId, resources, dockerProcess, dockerExecutable, ResourceScope.SYSTEM_UNDER_TEST,
+                false);
+    }
+
+    public DockerContainerObservabilityProvider(String containerId, EffectiveResourceEnvelope resources,
+            DockerProcess dockerProcess, String dockerExecutable, ResourceScope scope,
+            boolean retryStreamStartup) {
         this.containerId = Objects.requireNonNull(containerId, "containerId");
         this.resources = resources;
         this.dockerProcess = Objects.requireNonNull(dockerProcess, "dockerProcess");
         this.dockerExecutable = dockerExecutable == null || dockerExecutable.isBlank()
                 ? "docker" : dockerExecutable.trim();
+        this.scope = Objects.requireNonNull(scope, "scope");
+        this.retryStreamStartup = retryStreamStartup;
     }
 
     @Override
@@ -185,14 +210,14 @@ public final class DockerContainerObservabilityProvider implements Observability
         MetricObservation cpuObservation =
                 observation(CPU, "Container CPU", MetricUnit.RATIO, reading.get().cpuRatio(), query);
         ResourceSignal cpuSignal = new ResourceSignal(cpuObservation, ResourceKind.CPU,
-                ResourceScope.SYSTEM_UNDER_TEST, cpuLimitIfConfigured());
+                scope, cpuLimitIfConfigured());
         observations.add(cpuObservation);
         signals.add(cpuSignal);
 
         MetricObservation memoryObservation = observation(MEMORY, "Container memory", MetricUnit.BYTES,
                 reading.get().memoryUsedBytes(), query);
         ResourceSignal memorySignal = new ResourceSignal(memoryObservation, ResourceKind.MEMORY,
-                ResourceScope.SYSTEM_UNDER_TEST, memoryLimitIfConfigured());
+                scope, memoryLimitIfConfigured());
         observations.add(memoryObservation);
         signals.add(memorySignal);
 
@@ -228,20 +253,33 @@ public final class DockerContainerObservabilityProvider implements Observability
                 null);
     }
 
-    /** Starts the long-lived {@code docker stats} stream on first use, exactly once — a container
-     *  this provider watches never changes mid-run, so there is nothing to restart. */
+    /**
+     * Starts the long-lived {@code docker stats} stream on first use.
+     *
+     * <p>Normally exactly once — a container this provider watches never changes mid-run, so there is
+     * nothing to restart. When {@link #retryStreamStartup} is set, a failed attempt is retried on the
+     * next {@link #collect} instead of sticking permanently, since the container this provider names
+     * may not exist yet the first time this runs — see that field's Javadoc.
+     */
     private void ensureStreamStarted() {
-        if (handle != null || streamStartupFailure != null) {
+        if (handle != null) {
+            return;
+        }
+        if (streamStartupFailure != null && !retryStreamStartup) {
             return;
         }
         synchronized (streamLock) {
-            if (handle != null || streamStartupFailure != null) {
+            if (handle != null) {
+                return;
+            }
+            if (streamStartupFailure != null && !retryStreamStartup) {
                 return;
             }
             try {
                 handle = dockerProcess.stream(
                         List.of(dockerExecutable, "stats", "--format", "{{json .}}", containerId),
                         this::onLine);
+                streamStartupFailure = null;
             } catch (RuntimeException e) {
                 streamStartupFailure = "the docker stats stream for container " + containerId
                         + " could not be started: " + e.getMessage();

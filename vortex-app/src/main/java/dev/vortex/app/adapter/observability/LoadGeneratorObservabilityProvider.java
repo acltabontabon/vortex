@@ -12,12 +12,14 @@ import dev.vortex.core.resource.ResourceKind;
 import dev.vortex.core.resource.ResourceLimit;
 import dev.vortex.core.resource.ResourceScope;
 import dev.vortex.core.resource.ResourceSignal;
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Vortex observing itself.
@@ -27,20 +29,36 @@ import java.util.Map;
  * from "we could not ask faster" — the single most damaging failure mode in load testing, and the one
  * that turns a generator's ceiling into a quoted service capacity.
  *
+ * <h2>Two scopes, not one</h2>
+ * A signal here is never simply "the generator" — it is either {@link ResourceScope#LOAD_GENERATOR},
+ * the generator's own process or container (the narrowest measurement Vortex could isolate, and the
+ * only one {@code GENERATOR_SATURATED} may rest on), or {@link ResourceScope#LOAD_GENERATOR_HOST},
+ * the whole machine running it — broader, always available, and never proof by itself that the
+ * generator was constrained, since anything else sharing that machine could be the actual cause.
+ * Folding the two together previously meant ordinary host memory or CPU pressure, caused by anything
+ * at all sharing the machine, looked identical to the generator hitting its own limit.
+ *
  * <h2>Why this is an ordinary provider</h2>
- * It implements the same port as Prometheus and Dynatrace, and answers with
- * {@link ResourceScope#LOAD_GENERATOR}-scoped signals. {@code vortex-core} learns nothing new: it
- * already reasons over a kind and a scope, and a signal describing Vortex's host is told apart from
- * one describing the service by its scope alone. A separate port would have been a second way to say
- * the same thing.
+ * It implements the same port as Prometheus and Dynatrace, and answers with scoped signals.
+ * {@code vortex-core} learns nothing new: it already reasons over a kind and a scope, and a signal
+ * describing Vortex's host is told apart from one describing the service by its scope alone. A
+ * separate port would have been a second way to say the same thing.
  *
  * <h2>Reading the JDK does not make Vortex JVM-specific</h2>
- * The system measured here is the machine Vortex is running on, which is a JVM host by definition —
- * it is running Vortex. Resource telemetry for the <em>service</em> must stay language-neutral
- * (ADR-037); telemetry for the <em>generator</em> is Vortex looking in a mirror. So this takes no new
- * dependency: {@code com.sun.management.OperatingSystemMXBean} is container-aware on a modern JVM and
- * reports a cgroup quota rather than the host's, and {@link ProcessHandle} is the only JDK-native way
- * to see a child process that is not a JVM.
+ * The host-scoped signals come from {@code com.sun.management.OperatingSystemMXBean}, which is
+ * container-aware on a modern JVM and reports a cgroup quota rather than the host's. Process-scoped
+ * CPU sums {@link ProcessHandle} descendants; process-scoped memory does the same, differenced
+ * against {@code ps -o rss=} rather than a JDK API, because {@link ProcessHandle.Info} exposes CPU
+ * time but no memory accessor at all.
+ *
+ * <h2>The generator may run in a container, and descendants then lie</h2>
+ * When k6 runs inside a Docker container ({@code DockerK6Runner}), {@link
+ * ProcessHandle#descendants()} only reaches the {@code docker} CLI client process on the host — not
+ * k6 itself, running in a different PID namespace. Summing that descendant's memory would be a
+ * smaller, still-wrong version of the same mislabeling this class exists to prevent, so
+ * process-scoped memory is gapped rather than reported in that mode; the generator's actual container
+ * memory is instead measured by a separate, per-run {@code DockerContainerObservabilityProvider}
+ * scoped to {@link ResourceScope#LOAD_GENERATOR} (see {@code ObservabilityTelemetryCollector}).
  *
  * <h2>Absence carries a cause, and silence is never health</h2>
  * Where the host bean is unavailable, or no child process is visible — a restricted PID namespace, a
@@ -52,11 +70,23 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
 
     public static final String ID = "generator";
 
-    private static final String CPU = "metric:generator.cpu.utilization";
-    private static final String MEMORY = "metric:generator.memory.used";
+    private static final String HOST_CPU = "metric:generator.host.cpu.utilization";
+    private static final String HOST_MEMORY = "metric:generator.host.memory.used";
     private static final String PROCESS_CPU = "metric:generator.process.cpu.utilization";
+    private static final String PROCESS_MEMORY = "metric:generator.process.memory.used";
 
     private final com.sun.management.OperatingSystemMXBean os;
+
+    /**
+     * Whether the load generator runs directly as a child process of this JVM (the local-binary
+     * engine) rather than inside a Docker container.
+     *
+     * <p>{@code false} when {@code DockerK6Runner} is configured — see the class Javadoc on why
+     * process-scoped memory cannot be trusted through {@link ProcessHandle} in that mode.
+     */
+    private final boolean generatorRunsAsLocalProcess;
+
+    private final ProcessMemoryReader processMemoryReader;
 
     /**
      * The previous CPU-time reading, so the next one can be turned into a rate.
@@ -68,16 +98,72 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
     private CpuTimeSample previous;
 
     public LoadGeneratorObservabilityProvider() {
-        this(defaultBean());
+        this(defaultBean(), true);
+    }
+
+    public LoadGeneratorObservabilityProvider(boolean generatorRunsAsLocalProcess) {
+        this(defaultBean(), generatorRunsAsLocalProcess);
     }
 
     LoadGeneratorObservabilityProvider(com.sun.management.OperatingSystemMXBean os) {
+        this(os, true);
+    }
+
+    LoadGeneratorObservabilityProvider(com.sun.management.OperatingSystemMXBean os,
+            boolean generatorRunsAsLocalProcess) {
+        this(os, generatorRunsAsLocalProcess, defaultProcessMemoryReader());
+    }
+
+    LoadGeneratorObservabilityProvider(com.sun.management.OperatingSystemMXBean os,
+            boolean generatorRunsAsLocalProcess, ProcessMemoryReader processMemoryReader) {
         this.os = os;
+        this.generatorRunsAsLocalProcess = generatorRunsAsLocalProcess;
+        this.processMemoryReader = processMemoryReader;
     }
 
     private static com.sun.management.OperatingSystemMXBean defaultBean() {
         var bean = ManagementFactory.getOperatingSystemMXBean();
         return bean instanceof com.sun.management.OperatingSystemMXBean extended ? extended : null;
+    }
+
+    /** Reads resident memory for one process, so real sampling can shell out to {@code ps} while a
+     *  test supplies canned values without spawning anything. */
+    @FunctionalInterface
+    interface ProcessMemoryReader {
+        /** Resident memory in bytes for {@code pid}, or empty if it could not be read — the process
+         *  already exited, {@code ps} is unavailable, or its output did not parse. */
+        java.util.Optional<Long> residentBytes(long pid);
+    }
+
+    private static ProcessMemoryReader defaultProcessMemoryReader() {
+        return pid -> {
+            try {
+                Process ps = new ProcessBuilder("ps", "-o", "rss=", "-p", String.valueOf(pid))
+                        .redirectErrorStream(true)
+                        .start();
+                String line;
+                try (var reader = ps.inputReader()) {
+                    line = reader.readLine();
+                }
+                boolean finished = ps.waitFor(2, TimeUnit.SECONDS);
+                if (!finished) {
+                    ps.destroyForcibly();
+                    return java.util.Optional.empty();
+                }
+                if (line == null || line.isBlank()) {
+                    return java.util.Optional.empty();
+                }
+                long kilobytes = Long.parseLong(line.trim());
+                return java.util.Optional.of(kilobytes * 1024);
+            } catch (IOException e) {
+                return java.util.Optional.empty();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return java.util.Optional.empty();
+            } catch (NumberFormatException e) {
+                return java.util.Optional.empty();
+            }
+        };
     }
 
     /** Two readings of a cumulative counter, and when each was taken. */
@@ -91,7 +177,7 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
 
     @Override
     public List<String> defaultMetrics() {
-        return List.of(CPU, MEMORY, PROCESS_CPU);
+        return List.of(HOST_CPU, HOST_MEMORY, PROCESS_CPU, PROCESS_MEMORY);
     }
 
     /**
@@ -117,19 +203,19 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
             // A JVM whose management bean is not the extended one cannot report host load at all.
             // Rare, and reported rather than approximated from the load average, which measures
             // something else entirely.
-            gaps.add(new TelemetryGap(ID, CPU, TelemetryAvailability.UNSUPPORTED,
+            gaps.add(new TelemetryGap(ID, HOST_CPU, TelemetryAvailability.UNSUPPORTED,
                     "this JVM does not expose the extended operating-system metrics Vortex reads"));
             return new Collected(observations, gaps, resources);
         }
 
         hostCpu(query).ifPresentOrElse(
                 signal -> add(observations, resources, signal),
-                () -> gaps.add(new TelemetryGap(ID, CPU, TelemetryAvailability.NO_DATA,
+                () -> gaps.add(new TelemetryGap(ID, HOST_CPU, TelemetryAvailability.NO_DATA,
                         "the operating system did not report a CPU load for this interval")));
 
         hostMemory(query).ifPresentOrElse(
                 signal -> add(observations, resources, signal),
-                () -> gaps.add(new TelemetryGap(ID, MEMORY, TelemetryAvailability.NO_DATA,
+                () -> gaps.add(new TelemetryGap(ID, HOST_MEMORY, TelemetryAvailability.NO_DATA,
                         "the operating system did not report physical memory for this interval")));
 
         processCpu(query).ifPresentOrElse(
@@ -137,6 +223,18 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
                 () -> gaps.add(new TelemetryGap(ID, PROCESS_CPU, TelemetryAvailability.NO_DATA,
                         "no load-generator process was visible to Vortex, or this was the first "
                                 + "sample and there is nothing yet to measure a rate against")));
+
+        if (generatorRunsAsLocalProcess) {
+            processMemory(query).ifPresentOrElse(
+                    signal -> add(observations, resources, signal),
+                    () -> gaps.add(new TelemetryGap(ID, PROCESS_MEMORY, TelemetryAvailability.NO_DATA,
+                            "no load-generator process was visible to Vortex")));
+        } else {
+            gaps.add(new TelemetryGap(ID, PROCESS_MEMORY, TelemetryAvailability.UNSUPPORTED,
+                    "the load generator runs in a container; its process memory is not visible "
+                            + "through this machine's process table, and is reported instead by the "
+                            + "container-scoped provider for that container"));
+        }
 
         return new Collected(observations, gaps, resources);
     }
@@ -158,18 +256,20 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
             return java.util.Optional.empty();
         }
         return java.util.Optional.of(new ResourceSignal(
-                observation(CPU, "Load generator CPU", MetricUnit.RATIO, load, query,
+                observation(HOST_CPU, "Load generator host CPU", MetricUnit.RATIO, load, query,
                         "com.sun.management.OperatingSystemMXBean#getCpuLoad"),
-                ResourceKind.CPU, ResourceScope.LOAD_GENERATOR,
+                ResourceKind.CPU, ResourceScope.LOAD_GENERATOR_HOST,
                 ResourceLimit.inherentTo(MetricUnit.RATIO)));
     }
 
     /**
-     * Memory in use on the generator, against the total it is allowed.
+     * Memory in use on the machine running the generator, against the total it is allowed.
      *
      * <p>A published limit rather than an inherent one, and container-aware: a Vortex under a cgroup
-     * quota reports the quota. That distinction matters here more than anywhere else, because the
-     * machine generating load is very often the smallest one in the experiment.
+     * quota reports the quota. Scoped to the host, not the generator's own process or container —
+     * anything else sharing that machine contributes to this number too, which is exactly why it
+     * cannot alone establish that the generator was constrained; see {@link
+     * ResourceScope#LOAD_GENERATOR_HOST}.
      */
     private java.util.Optional<ResourceSignal> hostMemory(ObservabilityQuery query) {
         long total = os.getTotalMemorySize();
@@ -178,9 +278,9 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
             return java.util.Optional.empty();
         }
         return java.util.Optional.of(new ResourceSignal(
-                observation(MEMORY, "Load generator memory", MetricUnit.BYTES, total - free, query,
-                        "com.sun.management.OperatingSystemMXBean#getFreeMemorySize"),
-                ResourceKind.MEMORY, ResourceScope.LOAD_GENERATOR,
+                observation(HOST_MEMORY, "Load generator host memory", MetricUnit.BYTES, total - free,
+                        query, "com.sun.management.OperatingSystemMXBean#getFreeMemorySize"),
+                ResourceKind.MEMORY, ResourceScope.LOAD_GENERATOR_HOST,
                 ResourceLimit.published(total, MetricUnit.BYTES,
                         "the memory available to this machine")));
     }
@@ -234,6 +334,45 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
                         "ProcessHandle.Info#totalCpuDuration, differenced across samples"),
                 ResourceKind.CPU, ResourceScope.LOAD_GENERATOR,
                 ResourceLimit.inherentTo(MetricUnit.RATIO)));
+    }
+
+    /**
+     * Resident memory of the spawned load generator, summed across every descendant process of this
+     * JVM.
+     *
+     * <p>Only called when {@link #generatorRunsAsLocalProcess} — see the class Javadoc for why a
+     * containerised generator's descendants are the {@code docker} CLI client, not k6, and would make
+     * this actively misleading rather than merely absent.
+     *
+     * <p>The limit is the same host/cgroup total {@link #hostMemory} reads, but described as a shared
+     * ceiling rather than a dedicated one: the generator process does not have its own memory budget
+     * on a local run, it shares whatever the machine has.
+     */
+    private java.util.Optional<ResourceSignal> processMemory(ObservabilityQuery query) {
+        long total = 0;
+        boolean sawAny = false;
+
+        for (ProcessHandle child : ProcessHandle.current().descendants().toList()) {
+            var rss = processMemoryReader.residentBytes(child.pid());
+            if (rss.isPresent()) {
+                total += rss.get();
+                sawAny = true;
+            }
+        }
+        if (!sawAny) {
+            return java.util.Optional.empty();
+        }
+
+        long hostTotal = os.getTotalMemorySize();
+        ResourceLimit limit = hostTotal > 0
+                ? ResourceLimit.published(hostTotal, MetricUnit.BYTES,
+                        "the memory available on the machine the generator process shares")
+                : null;
+
+        return java.util.Optional.of(new ResourceSignal(
+                observation(PROCESS_MEMORY, "Load generator process memory", MetricUnit.BYTES, total,
+                        query, "ps -o rss=, summed across the load generator's descendant processes"),
+                ResourceKind.MEMORY, ResourceScope.LOAD_GENERATOR, limit));
     }
 
     private MetricObservation observation(String id, String name, MetricUnit unit, double value,

@@ -69,6 +69,7 @@ public final class RunQualityAssessor {
         List<ValidityFinding> findings = new ArrayList<>();
         interrupted(terminalState, failureReason).ifPresent(findings::add);
         generatorSaturated(results).ifPresent(findings::add);
+        generatorHostUnderPressure(results).ifPresent(findings::add);
         offeredLoadNotGenerated(results, byLevel, policy).ifPresent(findings::add);
         runTooShort(plan, results, policy).ifPresent(findings::add);
         insufficientSamples(byLevel, policy).ifPresent(findings::add);
@@ -241,9 +242,32 @@ public final class RunQualityAssessor {
         // correct: this rule never fires on a guess, and its silence is not proof of health.
         return saturated.map(signal -> new ValidityFinding(ValidityReason.GENERATOR_SATURATED,
                 ValidityEffect.WITHHOLDS_CAPACITY,
-                "The machine generating the traffic reached its own limit: " + signal.describe()
-                        + ". A capacity figure from this run would describe Vortex's host rather "
-                        + "than the service under test.",
+                "The load generator's own process or container reached its limit: " + signal.describe()
+                        + ". A capacity figure from this run would describe the generator's own "
+                        + "ceiling rather than the service under test.",
+                List.of(signal.signalId())));
+    }
+
+    /**
+     * The machine running the generator — not the generator's own process or container — was under
+     * pressure.
+     *
+     * <p>Deliberately weaker than {@link #generatorSaturated}: anything else sharing that machine
+     * could be the actual cause, so this qualifies a run's confidence rather than withholding its
+     * capacity conclusion the way a signal scoped to the generator itself does.
+     */
+    private Optional<ValidityFinding> generatorHostUnderPressure(MeasuredResults results) {
+        Optional<ResourceSignal> pressured =
+                results.resourcesScopedTo(ResourceScope.LOAD_GENERATOR_HOST).stream()
+                        .filter(ResourcePressure::isUnderPressure)
+                        .findFirst();
+
+        return pressured.map(signal -> new ValidityFinding(ValidityReason.GENERATOR_HOST_UNDER_PRESSURE,
+                ValidityEffect.QUALIFIES,
+                "The machine running the load generator was under resource pressure (not the "
+                        + "generator's own process or container): " + signal.describe() + ". This "
+                        + "does not by itself mean the generator could not keep up, but it qualifies "
+                        + "confidence in the load this run generated.",
                 List.of(signal.signalId())));
     }
 

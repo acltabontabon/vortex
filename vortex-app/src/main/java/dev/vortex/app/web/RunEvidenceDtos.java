@@ -141,8 +141,9 @@ public final class RunEvidenceDtos {
     /**
      * A measurement a provider classified, with the system it describes and its limit.
      *
-     * @param scope       {@code system_under_test} or {@code load_generator}. Rendered distinctly:
-     *                    reading one as the other is the failure this phase exists to prevent
+     * @param scope       {@code system_under_test}, {@code load_generator}, or
+     *                    {@code load_generator_host}. Rendered distinctly: reading one as another is
+     *                    the failure this phase exists to prevent
      * @param limitDisplay empty when the provider published no limit, which is not the same as a
      *                    resource that stayed clear of one
      */
@@ -157,12 +158,16 @@ public final class RunEvidenceDtos {
     /**
      * What was observed about each system's resources.
      *
+     * @param generator     the load generator's own process or container — the narrowest measurement
+     *                      Vortex could isolate, and the only one generator saturation may rest on
+     * @param generatorHost the whole machine running the load generator — broader supporting
+     *                      telemetry, never proof by itself that the generator was constrained
      * @param generatorObserved false means nobody looked at the machine producing the traffic - never
      *                          that it was healthy
      */
     public record ResourcesDto(boolean present, List<ResourceSignalDto> service,
-            List<ResourceSignalDto> generator, boolean generatorObserved,
-            List<ObservabilityGapDto> gaps) {
+            List<ResourceSignalDto> generator, List<ResourceSignalDto> generatorHost,
+            boolean generatorObserved, List<ObservabilityGapDto> gaps) {
     }
 
     // ------------------------------------------------------------------ Resource timeline
