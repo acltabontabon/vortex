@@ -241,7 +241,7 @@ export function SettingsPage() {
           )}
           <Text size="sm" c="dimmed" mt="md">
             This is what this machine can do. Which Compose file a service starts is configured
-            per service, under its <a href="/services">settings</a>.
+            per service, under its <a href="/">settings</a>.
           </Text>
         </Card>
 

@@ -3,7 +3,6 @@ import { AppShell } from '../app-shell/AppShell';
 import { PrintLayout } from '../app-shell/PrintLayout';
 import { Home } from '../pages/Home';
 import { NotFound } from '../pages/NotFound';
-import { ServicesPage } from '../pages/ServicesPage';
 import { NewServicePage } from '../pages/NewServicePage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { RuntimePage } from '../pages/RuntimePage';
@@ -33,7 +32,6 @@ export const router = createBrowserRouter([
     errorElement: <RouteErrorFallback />,
     children: [
       { path: '/', element: <Home /> },
-      { path: '/services', element: <ServicesPage /> },
       { path: '/services/new', element: <NewServicePage /> },
       { path: '/settings', element: <SettingsPage /> },
       { path: '/runtime', element: <RuntimePage /> },

@@ -185,7 +185,7 @@ export function NewServicePage() {
               <Button type="submit" loading={mutation.isPending} disabled={!form.values.name.trim()}>
                 Add service
               </Button>
-              <Button component="a" href="/services" variant="subtle" color="gray">
+              <Button component="a" href="/" variant="subtle" color="gray">
                 Cancel
               </Button>
             </Group>

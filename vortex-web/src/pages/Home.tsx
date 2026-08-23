@@ -86,7 +86,7 @@ function startTestHref(cards: ServiceCard[]): string {
 function trafficHref(cards: ServiceCard[]): string {
   if (cards.length === 0) return '/services/new';
   if (cards.length === 1) return `/services/${cards[0].id}`;
-  return '/services';
+  return '/';
 }
 
 /** The onboarding a first-time installation sees — unchanged once services exist, see Home(). */

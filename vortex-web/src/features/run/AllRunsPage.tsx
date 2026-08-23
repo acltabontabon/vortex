@@ -125,7 +125,7 @@ export function AllRunsPage() {
               : null
           }
           actionLabel={data.totalBeforeFilters === 0 ? 'Choose a service' : 'Clear filters'}
-          actionHref={data.totalBeforeFilters === 0 ? '/services' : undefined}
+          actionHref={data.totalBeforeFilters === 0 ? '/' : undefined}
         />
       ) : (
         <>
