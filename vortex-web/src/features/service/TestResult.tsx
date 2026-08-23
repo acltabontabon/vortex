@@ -102,6 +102,7 @@ export function TestResult({ test, production }: { test: Test; production: Produ
             run={run}
             evidence={evidence}
             hideHeadroom={plan.primitive === 'load-summary'}
+            hideLatency={plan.primitive === 'load-summary'}
           />
 
           {/* Not for `load-summary` — `LoadSummary` above already renders this exact same list (the
@@ -275,6 +276,7 @@ function MetricsTable({
   run,
   evidence,
   hideHeadroom,
+  hideLatency,
 }: {
   test: Test;
   run: NonNullable<Test['latestRun']>;
@@ -283,9 +285,14 @@ function MetricsTable({
    *  load — so this table doesn't say the same figure twice. Every other kind's headroom lives only
    *  here, unchanged. */
   hideHeadroom?: boolean;
+  /** True when the instrument above already states the full percentile breakdown itself —
+   *  `LoadSummary`, for Average load — so p95/p99 aren't stated there and then restated here. Every
+   *  other kind's latency breakdown lives only here, unchanged. */
+  hideLatency?: boolean;
 }) {
-  const latency =
-    evidence && evidence.performance.latencyRows.length > 0
+  const latency = hideLatency
+    ? []
+    : evidence && evidence.performance.latencyRows.length > 0
       ? evidence.performance.latencyRows.map((row) => ({ label: row.percentileLabel, value: row.durationDisplay }))
       : run.p95
         ? [{ label: 'p95 latency', value: run.p95 as ReactNode }]

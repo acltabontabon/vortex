@@ -369,11 +369,14 @@ describe('a test\'s inline result', () => {
     ).toBeInTheDocument();
   });
 
-  it('states p95 latency and duration as quick metrics beside the graph, before the full evidence resolves', () => {
+  it('states p95 latency as a quick metric in the summary, before the full evidence resolves', () => {
     renderWithProviders(<TestResult test={aTest()} production={null} />);
 
-    expect(screen.getByText('120 ms')).toBeInTheDocument();
-    expect(screen.getByText('p95 latency')).toBeInTheDocument();
+    // Average load's own instrument (LoadSummary) is where this lives — never a separate metrics
+    // table row repeating it.
+    expect(
+      screen.getByText((_content, node) => node?.textContent === 'p95 — 120 ms' && node.children.length === 0),
+    ).toBeInTheDocument();
   });
 
   it('replaces the single p95 figure with the full latency breakdown once the run\'s evidence resolves', () => {
@@ -403,9 +406,11 @@ describe('a test\'s inline result', () => {
     expect(screen.getByText('38 ms')).toBeInTheDocument();
     expect(screen.getByText('p99')).toBeInTheDocument();
     expect(screen.getByText('180 ms')).toBeInTheDocument();
-    // The single p95 metric label is gone — the full breakdown replaces it rather than sitting
-    // alongside it, so p95 itself is now only stated once, as one row of that breakdown.
-    expect(screen.queryByText('p95 latency')).not.toBeInTheDocument();
+    // The single "p95 — value" quick metric is gone — the full breakdown replaces it rather than
+    // sitting alongside it, so p95 itself is now only stated once, as one row of that breakdown.
+    expect(
+      screen.queryByText((_content, node) => node?.textContent === 'p95 — 120 ms' && node.children.length === 0),
+    ).not.toBeInTheDocument();
   });
 
   it('lists each objective\'s own verdict and observed value once the run\'s evidence resolves', () => {
@@ -474,6 +479,19 @@ describe('a test\'s inline result', () => {
           },
         ],
         absenceExplanation: null,
+      },
+      performance: {
+        latencyRows: [{ percentileLabel: 'p95', durationDisplay: '48 ms' }],
+        maxLatencyDisplay: '48 ms',
+        hasLimitsCard: false,
+        sloBreakpointDisplay: null,
+        sloBreakpointStrengthLabel: null,
+        sloBreakpointStagesText: null,
+        systemSaturationDescribe: null,
+        systemSaturationExplanation: null,
+        headroomDisplay: null,
+        headroomRefusal: null,
+        baselineQuality: [],
       },
     });
 
@@ -562,7 +580,15 @@ describe('a test\'s inline result', () => {
   });
 
   it('lays out its metrics as a genuine table, one column per figure', () => {
-    renderWithProviders(<TestResult test={aTest()} production={null} />);
+    // Not Average load — its own LoadSummary instrument is where the latency breakdown lives now
+    // (see the tests above), so this generic "is it a real table" check uses a kind that still shows
+    // its latency figure here.
+    renderWithProviders(
+      <TestResult
+        test={aTest({ testType: 'BREAKPOINT', testTypeLabel: 'Breakpoint' })}
+        production={null}
+      />,
+    );
 
     const table = screen.getByRole('table');
     expect(within(table).getByRole('columnheader', { name: 'p95 latency' })).toBeInTheDocument();

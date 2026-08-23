@@ -1,6 +1,6 @@
 import { Text } from '@mantine/core';
 import type { Capacity, CapacityRange, TestRow as Test, Verdict } from '../../api/workspace';
-import type { AcceptanceResult, RunEvidence } from '../../api/run';
+import type { AcceptanceResult, LatencyRow, RunEvidence } from '../../api/run';
 import { Fact, Facts } from '../Fact';
 import { VerdictBadge } from '../VerdictBadge';
 import { UnknownInline } from '../Unknown';
@@ -26,18 +26,23 @@ export function LoadSummary({
 }) {
   const production = markerFor(test.range, 'PRODUCTION');
   const tested = markerFor(test.range, 'TESTED_CAPACITY');
-  const latency = evidence?.acceptance.results.filter((r) => r.kind === 'LATENCY') ?? [];
+  const latencyObjectives = evidence?.acceptance.results.filter((r) => r.kind === 'LATENCY') ?? [];
   const errorRate = evidence?.acceptance.results.filter((r) => r.kind === 'ERROR_RATE') ?? [];
+  const latencyRows = evidence?.performance.latencyRows ?? [];
 
   return (
     <Facts>
       {production && <Fact label="Production requirement">{production.displayWithUnit}</Fact>}
       {tested && <Fact label="Tested level">{tested.displayWithUnit}</Fact>}
       {test.capacity && <Fact label="Headroom">{headroom(test.capacity)}</Fact>}
-      {latency.length > 0 && (
-        <Fact label="Latency objective">
-          <ObjectiveList results={latency} />
+      {latencyRows.length > 0 ? (
+        <Fact label="Latency">
+          <LatencyBreakdown rows={latencyRows} objectives={latencyObjectives} />
         </Fact>
+      ) : (
+        // Evidence hasn't resolved yet — `test.latestRun.p95` is the one figure Overview already
+        // sent, standing in for a moment rather than showing nothing.
+        test.latestRun?.p95 && <Fact label="Latency">p95 — {test.latestRun.p95}</Fact>
       )}
       {errorRate.length > 0 && (
         <Fact label="Error rate objective">
@@ -45,6 +50,42 @@ export function LoadSummary({
         </Fact>
       )}
     </Facts>
+  );
+}
+
+/**
+ * Every measured percentile once, each carrying its own objective's verdict where it has one — never
+ * a percentile stated here and then restated in a separate metrics table below. `p50`/`p90` (say)
+ * have no threshold of their own, so they read as plain figures beside the ones that do, rather than
+ * being dropped or manufactured a pass/fail they were never evaluated against.
+ */
+function LatencyBreakdown({ rows, objectives }: { rows: LatencyRow[]; objectives: AcceptanceResult[] }) {
+  return (
+    <>
+      {rows.map((row) => {
+        const objective = objectives.find((o) => o.describe.toLowerCase().includes(row.percentileLabel.toLowerCase()));
+        if (!objective) {
+          return (
+            <div key={row.percentileLabel}>
+              <Text component="span" size="sm" c="dimmed">
+                {row.percentileLabel}
+              </Text>{' '}
+              <Text component="span" size="sm">
+                {row.durationDisplay}
+              </Text>
+            </div>
+          );
+        }
+        return (
+          <div key={row.percentileLabel}>
+            <VerdictBadge verdict={objective.verdict as Verdict} label={objective.verdictLabel} subtleText />{' '}
+            <Text component="span" size="sm">
+              {objective.describe} — {objective.observed}
+            </Text>
+          </div>
+        );
+      })}
+    </>
   );
 }
 
