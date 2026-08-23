@@ -1,6 +1,6 @@
 # Build output
 # Anchored to the root and to each module's own top-level target/ directory (one path segment
-# deep) rather than a bare "target/", which would also match dev.vortex.core.target — a source
+# deep) rather than a bare "target/", which would also match com.acltabontabon.vortex.core.target — a source
 # package, not build output.
 /target/
 */target/

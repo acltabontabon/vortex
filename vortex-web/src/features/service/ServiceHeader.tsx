@@ -1,6 +1,11 @@
-import { ActionIcon, Title, Tooltip } from '@mantine/core';
-import { IconSettings } from '@tabler/icons-react';
+import { ActionIcon, Text, Title, Tooltip } from '@mantine/core';
+import { modals } from '@mantine/modals';
+import { notifications } from '@mantine/notifications';
+import { useNavigate } from 'react-router-dom';
+import { IconPencil, IconTrash } from '@tabler/icons-react';
 import type { RunRef, ServiceHeader as Header } from '../../api/workspace';
+import { ApiError } from '../../api/client';
+import { useDeleteServiceMutation } from '../../api/services';
 import { ServiceBadge } from '../../components/ServiceBadge';
 import { ClassificationChip } from '../../components/ClassificationChip';
 import { ReadinessPill } from './ReadinessPill';
@@ -29,6 +34,39 @@ import classes from './ServiceHeader.module.css';
  * already in flight, since that fact is true on every tab under this header, not only Overview's.
  */
 export function ServiceHeader({ header }: { header: Header }) {
+  const navigate = useNavigate();
+  const remove = useDeleteServiceMutation();
+
+  function confirmDelete() {
+    modals.openConfirmModal({
+      title: `Delete '${header.name}'?`,
+      children: (
+        <Text size="sm">
+          This removes every run, analysis and piece of evidence Vortex has recorded for this
+          service. There is no undo. The service's own <code>vortex.yaml</code>, if it has one, is
+          left where it is — this only removes it from Vortex.
+        </Text>
+      ),
+      labels: { confirm: 'Delete', cancel: 'Cancel' },
+      confirmProps: { color: 'fail' },
+      onConfirm: () =>
+        remove.mutate(header.id, {
+          onSuccess: () => {
+            notifications.show({ message: `'${header.name}' deleted.`, color: 'pass' });
+            navigate('/');
+          },
+          onError: (error) =>
+            notifications.show({
+              message:
+                error instanceof ApiError && error.detail
+                  ? error.detail
+                  : `Vortex could not delete '${header.name}'.`,
+              color: 'fail',
+            }),
+        }),
+    });
+  }
+
   return (
     <header className={classes.header}>
       <div className={classes.identity}>
@@ -74,15 +112,30 @@ export function ServiceHeader({ header }: { header: Header }) {
         <ReadinessPill readiness={header.readiness} />
         <RunningIndicator running={header.running} />
         <span className={classes.controlsDivider} aria-hidden="true" />
-        <Tooltip label="Service configuration" openDelay={400} withArrow>
+        <Tooltip label="Edit configuration" openDelay={400} withArrow>
           <ActionIcon
             component="a"
             href={`/services/${header.id}/configuration`}
-            variant="default"
+            variant="subtle"
+            color="gray"
             size="lg"
-            aria-label="Service configuration"
+            aria-label="Edit configuration"
+            className={classes.editAction}
           >
-            <IconSettings size={17} stroke={1.6} />
+            <IconPencil size={16} stroke={1.6} />
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label="Delete service" openDelay={400} withArrow>
+          <ActionIcon
+            variant="subtle"
+            color="fail"
+            size="lg"
+            aria-label="Delete service"
+            className={classes.deleteAction}
+            loading={remove.isPending}
+            onClick={confirmDelete}
+          >
+            <IconTrash size={16} stroke={1.6} />
           </ActionIcon>
         </Tooltip>
       </div>

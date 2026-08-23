@@ -34,7 +34,7 @@ for the SUT's own lifecycle would conflate two concepts that only happen to both
 === Service identity and execution target are separate concepts
 
 A service (`Project`) is the logical system being tested. How it is reached for a given experiment is
-a new, separate concept: `dev.vortex.core.target.ExecutionTarget`, a sealed interface with three
+a new, separate concept: `com.acltabontabon.vortex.core.target.ExecutionTarget`, a sealed interface with three
 variants — `ExternalEndpointTarget`, `DockerImageTarget`, `DockerComposeTarget` — replacing
 `Environment`'s bare `TargetUrl` field. Deliberately, the sealed interface declares no common address
 accessor: only `ExternalEndpointTarget` has a genuine pre-run URL, because it is the only variant that
@@ -77,7 +77,7 @@ identity.
 
 === A capability-oriented executor, not `instanceof`
 
-`dev.vortex.core.port.TargetExecutor` — `supports(target)`, `capabilities()`, `prepare(request)`,
+`com.acltabontabon.vortex.core.port.TargetExecutor` — `supports(target)`, `capabilities()`, `prepare(request)`,
 `checkAvailability(target, workspacePath)` — is the one seam `ExecutionService.run()` reaches through.
 It holds `List<TargetExecutor>` and picks whichever one supports a given run's declared target; nothing
 in the application layer branches on which `ExecutionTarget` subtype it is holding. `PreparedTarget` is

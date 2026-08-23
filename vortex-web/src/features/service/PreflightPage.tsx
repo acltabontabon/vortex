@@ -83,6 +83,8 @@ export function PreflightPage() {
             pending={startMutation.isPending}
             onStart={onStart}
             onCancel={() => navigate(`/services/${id}`)}
+            onRecheck={() => preflightQuery.refetch()}
+            rechecking={preflightQuery.isFetching}
           />
         </Card>
       </div>

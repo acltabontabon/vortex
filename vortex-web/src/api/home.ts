@@ -1,4 +1,4 @@
-// Field-for-field against dev.vortex.app.web.HomeApiController's DTO records.
+// Field-for-field against com.acltabontabon.vortex.app.web.HomeApiController's DTO records.
 
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from './client';

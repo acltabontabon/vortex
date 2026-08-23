@@ -71,7 +71,7 @@ vortex-web          React + TypeScript + Mantine SPA, built by Vite, compiled in
                     vortex-app/src/main/resources/static/app/ and shipped inside the same jar
 ```
 
-Everything external to the domain sits behind a port in `dev.vortex.core.port` (`PerformanceEngine`,
+Everything external to the domain sits behind a port in `com.acltabontabon.vortex.core.port` (`PerformanceEngine`,
 `PerformanceAssistant`, `ObservabilityProvider`, `ProductionObservationSource`,
 `TelemetryCollector`, `ServiceCatalogImporter`, `ConfigurationStore`, `ArtifactStore`, `LocalLab`,
 `Clock`, repositories). The web UI is the only supported interface, and it calls application
@@ -139,7 +139,7 @@ These are tested; if a change makes one of these tests fail, the test is probabl
 
 ## Common extension points
 
-- **Evidence writer**: `EvidenceJsonWriter`/`EvidenceMarkdownWriter` in `dev.vortex.app.evidence`
+- **Evidence writer**: `EvidenceJsonWriter`/`EvidenceMarkdownWriter` in `com.acltabontabon.vortex.app.evidence`
   write every completed run's evidence to its artifact directory. Add a case to
   `SecretsNeverExportTest`. A writer only ever takes a `RunEvidence` — never reach around
   `EvidenceSanitizer` for the execution or plan (ArchUnit-enforced).

@@ -85,6 +85,8 @@ export function PreflightDrawer({
               pending={startMutation.isPending}
               onStart={onStart}
               onCancel={onClose}
+              onRecheck={() => preflightQuery.refetch()}
+              rechecking={preflightQuery.isFetching}
             />
           </div>
         </>

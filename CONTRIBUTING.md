@@ -193,7 +193,7 @@ service are ordinary outcomes of asking, and each has a different remedy.
 
 ### Changing what evidence is written
 
-`EvidenceJsonWriter` and `EvidenceMarkdownWriter` (`dev.vortex.app.evidence`) write every completed
+`EvidenceJsonWriter` and `EvidenceMarkdownWriter` (`com.acltabontabon.vortex.app.evidence`) write every completed
 run's evidence into its artifact directory. Both take a `RunEvidence` and nothing else — reaching
 for the execution or the plan reaches around `EvidenceSanitizer`, which is the only gate between a
 stored configuration and a written document, and an ArchUnit rule in `ApplicationArchitectureTest`

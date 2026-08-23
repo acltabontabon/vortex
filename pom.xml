@@ -11,7 +11,7 @@
     <relativePath/>
   </parent>
 
-  <groupId>dev.vortex</groupId>
+  <groupId>com.acltabontabon</groupId>
   <artifactId>vortex-parent</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
@@ -52,34 +52,34 @@
 
       <!-- Vortex modules -->
       <dependency>
-        <groupId>dev.vortex</groupId>
+        <groupId>com.acltabontabon</groupId>
         <artifactId>vortex-core</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>dev.vortex</groupId>
+        <groupId>com.acltabontabon</groupId>
         <artifactId>vortex-core</artifactId>
         <version>${project.version}</version>
         <type>test-jar</type>
         <scope>test</scope>
       </dependency>
       <dependency>
-        <groupId>dev.vortex</groupId>
+        <groupId>com.acltabontabon</groupId>
         <artifactId>vortex-openapi</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>dev.vortex</groupId>
+        <groupId>com.acltabontabon</groupId>
         <artifactId>vortex-k6</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>dev.vortex</groupId>
+        <groupId>com.acltabontabon</groupId>
         <artifactId>vortex-ai</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>dev.vortex</groupId>
+        <groupId>com.acltabontabon</groupId>
         <artifactId>vortex-persistence</artifactId>
         <version>${project.version}</version>
       </dependency>

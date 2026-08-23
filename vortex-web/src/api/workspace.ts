@@ -1,4 +1,4 @@
-// Field-for-field against dev.vortex.app.web.WorkspaceDtos.
+// Field-for-field against com.acltabontabon.vortex.app.web.WorkspaceDtos.
 //
 // Two conventions run through every type here, and both are the server's, not this file's:
 //

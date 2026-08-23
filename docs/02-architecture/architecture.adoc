@@ -218,7 +218,7 @@ If Vortex ever consolidates into fewer Maven modules, Modulith becomes the right
 
 == Ports
 
-Everything external sits behind an interface in `dev.vortex.core.port`:
+Everything external sits behind an interface in `com.acltabontabon.vortex.core.port`:
 
 [cols="2,2,3", options="header"]
 |===

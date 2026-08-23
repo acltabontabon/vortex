@@ -27,9 +27,9 @@ had to be kept in sync with every change to the run and safety-confirmation flow
 == Decision
 
 The CLI is removed: `VortexCommandRunner`, `ExitCode`, and the command-dispatch branch in
-`VortexApplication.main` are deleted. `dev.vortex.app.VortexApplication` now only starts the web
+`VortexApplication.main` are deleted. `com.acltabontabon.vortex.app.VortexApplication` now only starts the web
 server. `DoctorReport` — a shared readiness check, not a CLI concern despite its former package —
-moves to `dev.vortex.app.readiness` and continues to back the web UI's runtime-status pill via
+moves to `com.acltabontabon.vortex.app.readiness` and continues to back the web UI's runtime-status pill via
 `RuntimeStatus`/`RuntimeApiController`.
 
 `TestRunner.runToCompletion`, `RunRequest`, `Outcome` and `unmetChallenges` — the CLI's synchronous

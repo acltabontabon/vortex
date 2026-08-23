@@ -4,7 +4,7 @@
  *
  * <p>The rule this file enforces: a test's primary visualization must visually answer the primary
  * engineering question that test type exists to answer (see each `TestType`'s own `question()` in
- * {@code dev.vortex.core.workload.TestType}). Concretely:
+ * {@code com.acltabontabon.vortex.core.workload.TestType}). Concretely:
  *
  * <ul>
  *   <li><strong>Smoke</strong> — "is the workload valid and the service reachable?" has no position

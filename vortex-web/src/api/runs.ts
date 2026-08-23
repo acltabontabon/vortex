@@ -1,4 +1,4 @@
-// Field-for-field against the payload dev.vortex.app.web.RunApiController's SSE stream sends (see
+// Field-for-field against the payload com.acltabontabon.vortex.app.web.RunApiController's SSE stream sends (see
 // toProgressDto in RunApiController.java) — one pre-aggregated bucket every five seconds, not
 // individual samples, so the browser cost stays negligible next to the run itself.
 

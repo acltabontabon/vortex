@@ -19,7 +19,7 @@ import.
 
 == Decision
 
-`com.github.librepdf:openpdf`, used only inside `dev.vortex.report.pdf`, in a new module
+`com.github.librepdf:openpdf`, used only inside `com.acltabontabon.vortex.report.pdf`, in a new module
 `vortex-report`.
 
 === Why a module
@@ -92,7 +92,7 @@ the product is localised, and embedding a font is a separate decision about lice
 subsetting.
 
 *Enforced by.* Maven's banned-dependencies rule in `vortex-report/pom.xml`, and an ArchUnit rule
-asserting that `com.lowagie..` is visible only inside `dev.vortex.report.pdf..`. The PDF exporter
+asserting that `com.lowagie..` is visible only inside `com.acltabontabon.vortex.report.pdf..`. The PDF exporter
 lives in that package for exactly this reason.
 
 *Not done.* PDF/A-3 with `plan.json` embedded as an attachment is the natural sequel for archival

@@ -1,20 +1,24 @@
+/* Quiet by default — "Ready" is the unremarkable, expected state, so it reads as plain status
+   text rather than a badge shouting for attention. Only .blocked (something needs doing) earns
+   the bordered, tinted treatment that makes a pill worth noticing. */
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   padding: 3px 10px;
   border-radius: 999px;
-  border: 1px solid var(--mantine-color-default-border);
-  background: var(--mantine-color-body);
+  border: 1px solid transparent;
+  background: transparent;
   font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--mantine-color-text);
+  font-weight: 500;
+  color: var(--mantine-color-dimmed);
   cursor: pointer;
-  transition: border-color 120ms ease-out, background-color 120ms ease-out;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out;
 }
 
 .pill:hover {
-  border-color: light-dark(#a1aea7, #56635b);
+  border-color: var(--mantine-color-default-border);
+  color: var(--mantine-color-text);
 }
 
 .pill:focus-visible {
@@ -25,6 +29,8 @@
 .blocked {
   border-color: light-dark(#e0b45a, #795009);
   background: light-dark(#fdf4e3, #241d0e);
+  font-weight: 600;
+  color: var(--mantine-color-text);
 }
 
 .dot {

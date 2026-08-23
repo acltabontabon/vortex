@@ -555,7 +555,7 @@ Concrete and testable. Each criterion is a thing a test can assert, not a thing 
 . *Comparison.* Two runs of the same experiment across two service versions produce deltas covering
   latency, reliability, throughput, capacity and run quality — and two runs that differ in telemetry
   availability say so rather than presenting the difference as a regression.
-. *Protocol independence.* No type in `dev.vortex.core.metrics`, `dev.vortex.core.analysis` or the
+. *Protocol independence.* No type in `com.acltabontabon.vortex.core.metrics`, `com.acltabontabon.vortex.core.analysis` or the
   resource-signal model names HTTP. Enforceable as an ArchUnit rule, which is how it should be
   enforced.
 

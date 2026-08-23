@@ -74,10 +74,10 @@ describe('the service header', () => {
     expect(screen.queryByRole('button', { name: /Run/ })).not.toBeInTheDocument();
   });
 
-  it('opens service configuration from a quiet settings action, not a full-size button', () => {
+  it('opens service configuration from a quiet edit action, not a full-size button', () => {
     renderWithProviders(<ServiceHeader header={aHeader()} />);
 
-    expect(screen.getByRole('link', { name: 'Service configuration' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Edit configuration' })).toHaveAttribute(
       'href',
       '/services/checkout/configuration',
     );

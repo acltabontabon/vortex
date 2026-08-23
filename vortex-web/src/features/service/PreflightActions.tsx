@@ -18,6 +18,8 @@ export function PreflightActions({
   pending,
   onStart,
   onCancel,
+  onRecheck,
+  rechecking,
 }: {
   preflight: Preflight;
   confirmation: string;
@@ -30,6 +32,8 @@ export function PreflightActions({
   pending: boolean;
   onStart: () => void;
   onCancel: () => void;
+  onRecheck: () => void;
+  rechecking: boolean;
 }) {
   return (
     <>
@@ -59,9 +63,15 @@ export function PreflightActions({
       )}
 
       <Group>
-        <Button size="lg" disabled={!preflight.canRun || !confirmed} loading={pending} onClick={onStart}>
-          Run
-        </Button>
+        {preflight.canRun ? (
+          <Button size="lg" disabled={!confirmed} loading={pending} onClick={onStart}>
+            Run
+          </Button>
+        ) : (
+          <Button size="lg" variant="light" loading={rechecking} onClick={onRecheck}>
+            Recheck
+          </Button>
+        )}
         <Button size="lg" variant="default" onClick={onCancel}>
           Cancel
         </Button>

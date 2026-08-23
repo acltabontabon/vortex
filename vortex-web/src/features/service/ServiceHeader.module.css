@@ -120,3 +120,24 @@
   flex-shrink: 0;
   background: var(--mantine-color-live-6);
 }
+
+/* Present, not prominent — same quiet-until-touched treatment as .deleteAction, so the two actions
+   read as one calm pair rather than one plain control next to one loud one. */
+.editAction {
+  color: var(--mantine-color-dimmed);
+}
+
+.editAction:hover,
+.editAction:focus-visible {
+  color: var(--mantine-color-text);
+}
+
+.deleteAction {
+  color: var(--mantine-color-dimmed);
+}
+
+.deleteAction:hover,
+.deleteAction:focus-visible {
+  color: var(--mantine-color-fail-6);
+  background: var(--mantine-color-fail-light);
+}

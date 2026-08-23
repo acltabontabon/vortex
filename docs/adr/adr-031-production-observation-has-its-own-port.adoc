@@ -33,7 +33,7 @@ does not use.
 
 == Decision
 
-A separate port, `ProductionObservationSource`, in `dev.vortex.core.port`.
+A separate port, `ProductionObservationSource`, in `com.acltabontabon.vortex.core.port`.
 
 === The query language stops at the adapter
 

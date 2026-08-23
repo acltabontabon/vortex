@@ -110,7 +110,7 @@ management:
 logging:
   level:
     root: INFO
-    dev.vortex: INFO
+    com.acltabontabon.vortex: INFO
     org.springframework.jdbc: WARN
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level %-40.40logger{39} : %msg%n"

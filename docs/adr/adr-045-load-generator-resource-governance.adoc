@@ -33,7 +33,7 @@ as such would have been exactly the distortion ADR-037 exists to prevent.
 
 === A new domain type, reusing existing value types
 
-`LoadGeneratorResourceBudget` (`dev.vortex.core.resource`) — `mode: AUTOMATIC | CUSTOM` plus a
+`LoadGeneratorResourceBudget` (`com.acltabontabon.vortex.core.resource`) — `mode: AUTOMATIC | CUSTOM` plus a
 `ResourceEnvelopeRequest`, the same independently-optional cpu/memory type an `ExecutionTarget`
 already carries for the system under test. `AUTOMATIC` names an intent; it never carries a concrete
 envelope. Resolving one — `LoadGeneratorResourceBudgetResolver`, backed by the existing

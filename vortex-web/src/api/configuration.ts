@@ -1,4 +1,4 @@
-// Field-for-field against dev.vortex.app.web.ConfigurationApiController / ConfigurationDtos.
+// Field-for-field against com.acltabontabon.vortex.app.web.ConfigurationApiController / ConfigurationDtos.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from './client';
@@ -11,7 +11,7 @@ export interface EnvironmentOption {
   description: string;
 }
 
-/** Mirrors `dev.vortex.app.web.ConfigurationDtos.ExecutionTargetSummaryDto`. */
+/** Mirrors `com.acltabontabon.vortex.app.web.ConfigurationDtos.ExecutionTargetSummaryDto`. */
 export interface ExecutionTargetSummary {
   /** `EXTERNAL_ENDPOINT` | `DOCKER_IMAGE` | `DOCKER_COMPOSE`. */
   kind: string;

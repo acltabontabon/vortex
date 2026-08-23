@@ -1,0 +1,164 @@
+package com.acltabontabon.vortex.core.port;
+
+import com.acltabontabon.vortex.core.execution.ExecutionProgress;
+import com.acltabontabon.vortex.core.metrics.MeasuredResults;
+import com.acltabontabon.vortex.core.plan.EffectiveTestPlan;
+import com.acltabontabon.vortex.core.plan.ToolVersions;
+import com.acltabontabon.vortex.core.shared.ExecutionId;
+import com.acltabontabon.vortex.core.target.ResourceEnvelopeRequest;
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Consumer;
+
+/**
+ * Generates load and reports what happened.
+ *
+ * <p>The boundary that keeps Vortex from becoming a load-testing engine. k6 is excellent at
+ * generating traffic, scheduling virtual users, evaluating thresholds and running distributed — all
+ * of it commodity infrastructure that would be foolish to rebuild. Vortex's contribution is
+ * everything around it: knowing what workload to model, how to run it safely, what the numbers
+ * mean, and how to compare them next month.
+ *
+ * <p>Because the domain talks to this interface rather than to k6, adding a second engine or moving
+ * to distributed execution through the k6 Operator means implementing this and nothing else.
+ */
+public interface PerformanceEngine {
+
+    /** Whether the engine is usable right now, and what to do if not. */
+    EngineAvailability availability();
+
+    /**
+     * Checks a plan without generating traffic.
+     *
+     * <p>Catches workload and configuration errors before anything is sent to a real service.
+     */
+    ValidationResult validate(EffectiveTestPlan plan);
+
+    /**
+     * Runs a plan to completion, reporting progress as it goes.
+     *
+     * <p>Blocking. Callers run it on a virtual thread. Progress arrives as pre-aggregated buckets,
+     * not raw samples — see {@code com.acltabontabon.vortex.core.metrics.SamplePoint}.
+     *
+     * @param executionId    identifies the run and its artifact directory
+     * @param plan           what to execute
+     * @param loadGeneratorResources the load generator's resolved resource budget for this run —
+     *                       independently optional on each axis, and empty when nothing was
+     *                       configured; an engine that can enforce it does so and reports what it
+     *                       actually applied, one that cannot simply runs unconstrained rather than
+     *                       claiming a limit it cannot guarantee
+     * @param progressSink   receives periodic progress; must not block
+     * @param cancellation   polled between buckets so a run can be stopped
+     * @return the normalised measurements
+     */
+    EngineOutcome execute(ExecutionId executionId, EffectiveTestPlan plan,
+            ResourceEnvelopeRequest loadGeneratorResources, Consumer<ExecutionProgress> progressSink,
+            Cancellation cancellation);
+
+    /** Versions of the engine and its runtime, recorded for reproducibility. */
+    ToolVersions toolVersions();
+
+    /**
+     * The rewrite this engine requires to actually reach a plan's configured target, if any — e.g.
+     * because the engine itself runs inside a container, where {@code localhost} means the container
+     * and not the host machine.
+     *
+     * <p>Defaults to "no rewrite needed," which is correct for an engine with nothing container-side
+     * to account for. {@code K6PerformanceEngine} is the one implementation with something to say
+     * here today; {@code ExecutionService} composes this with target resolution (see {@code
+     * com.acltabontabon.vortex.core.target.TargetExecutor}) to build the plan copy actually handed to {@link
+     * #execute}, without ever persisting the result back onto the plan a run was created with.
+     */
+    default Optional<TargetRewrite> targetRewriteFor(EffectiveTestPlan plan) {
+        return Optional.empty();
+    }
+
+    /** Cooperative cancellation, polled by the engine between aggregation buckets. */
+    @FunctionalInterface
+    interface Cancellation {
+
+        boolean isCancelled();
+
+        static Cancellation never() {
+            return () -> false;
+        }
+    }
+
+    /**
+     * Whether the engine can run, and how to fix it when it cannot.
+     *
+     * @param available whether a run could start now
+     * @param version   the detected engine version
+     * @param problem   what is wrong, in plain language
+     * @param remedy    what the user should do about it
+     */
+    record EngineAvailability(boolean available, String version, String problem, String remedy) {
+
+        public static EngineAvailability ready(String version) {
+            return new EngineAvailability(true, version, "", "");
+        }
+
+        public static EngineAvailability unavailable(String problem, String remedy) {
+            return new EngineAvailability(false, "", problem, remedy);
+        }
+    }
+
+    /**
+     * The result of validating a plan.
+     *
+     * @param valid    whether the plan can be executed
+     * @param problems what would prevent it, each phrased as something a user can act on
+     */
+    record ValidationResult(boolean valid, List<String> problems) {
+
+        public ValidationResult {
+            problems = problems == null ? List.of() : List.copyOf(problems);
+        }
+
+        public static ValidationResult ok() {
+            return new ValidationResult(true, List.of());
+        }
+
+        public static ValidationResult invalid(List<String> problems) {
+            return new ValidationResult(false, problems);
+        }
+    }
+
+    /**
+     * What a completed run produced.
+     *
+     * @param results       normalised measurements, absent when the run failed before producing any
+     * @param exitCode      the engine's exit code
+     * @param failureDetail diagnostic detail preserved for troubleshooting
+     * @param artifactNames artifacts written to the execution directory
+     */
+    record EngineOutcome(
+            MeasuredResults results,
+            int exitCode,
+            String failureDetail,
+            List<String> artifactNames) {
+
+        public EngineOutcome {
+            artifactNames = artifactNames == null ? List.of() : List.copyOf(artifactNames);
+            failureDetail = failureDetail == null ? "" : failureDetail;
+        }
+
+        public Optional<MeasuredResults> resultsIfPresent() {
+            return Optional.ofNullable(results);
+        }
+
+        public boolean producedResults() {
+            return results != null;
+        }
+    }
+
+    /**
+     * An adjustment to the target address the engine actually needs, versus the one that was
+     * resolved.
+     *
+     * @param newHost the host component the engine requires
+     * @param reason  why, in terms a reader of preflight or a run's evidence can understand
+     */
+    record TargetRewrite(String newHost, String reason) {
+    }
+}

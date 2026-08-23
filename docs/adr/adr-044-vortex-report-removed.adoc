@@ -36,16 +36,16 @@ writes or offers PDF in any form.
 
 The two still-used renderers move into `vortex-app`:
 
-* `EvidenceEnvelope` and `JsonEvidenceExporter` → `dev.vortex.app.evidence.EvidenceEnvelope` /
+* `EvidenceEnvelope` and `JsonEvidenceExporter` → `com.acltabontabon.vortex.app.evidence.EvidenceEnvelope` /
   `EvidenceJsonWriter`
-* `MarkdownEvidenceExporter` → `dev.vortex.app.evidence.EvidenceMarkdownWriter`
+* `MarkdownEvidenceExporter` → `com.acltabontabon.vortex.app.evidence.EvidenceMarkdownWriter`
 
 Neither implements a port any more. There is no runtime dispatch on format left to abstract over —
 `TestRunner` calls both directly, unconditionally, on every completed run. An interface with exactly
 one implementation and one caller was ceremony, not extensibility. The invariant that mattered —
 a writer sees a `RunEvidence` and nothing else, never the execution or the plan, so it cannot reach
 around `EvidenceSanitizer` — is now an ArchUnit rule in `ApplicationArchitectureTest`
-(`evidence_writers_do_not_reach_past_the_evidence_model`) scoped to `dev.vortex.app.evidence..`,
+(`evidence_writers_do_not_reach_past_the_evidence_model`) scoped to `com.acltabontabon.vortex.app.evidence..`,
 carrying forward the rule `vortex-report`'s own `ReportArchitectureTest` enforced.
 
 `SecretsNeverExportTest`, `PublishedContractIsExhaustiveTest`, and the golden-file tests for both
@@ -62,7 +62,7 @@ this change either — reintroducing it needs a reason and a caller, not a resur
 
 *Not affected:* the automatic `evidence.json`/`report.md` write on every completed run, which has
 nothing to do with the removed on-demand export path and continues exactly as before, just called
-from `dev.vortex.app.evidence` instead of `dev.vortex.report`.
+from `com.acltabontabon.vortex.app.evidence` instead of `com.acltabontabon.vortex.report`.
 
 *Reversible:* a future on-demand export feature — a download button, a scriptable interface reached
 through the roadmap's optional automation phase — is an adapter calling `EvidenceJsonWriter`/

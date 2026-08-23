@@ -37,4 +37,4 @@ management:
 logging:
   level:
     root: INFO
-    dev.vortex.demo: INFO
+    com.acltabontabon.vortex.demo: INFO

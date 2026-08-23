@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 
-// Mirrors dev.vortex.app.web.RuntimeApiController.CheckDto
+// Mirrors com.acltabontabon.vortex.app.web.RuntimeApiController.CheckDto
 export interface RuntimeCheck {
   name: string;
   required: boolean;
@@ -11,7 +11,7 @@ export interface RuntimeCheck {
   remedy: string;
 }
 
-// Mirrors dev.vortex.app.web.RuntimeApiController.RuntimeSummaryDto
+// Mirrors com.acltabontabon.vortex.app.web.RuntimeApiController.RuntimeSummaryDto
 export interface RuntimeSummary {
   checks: RuntimeCheck[];
   satisfied: number;
@@ -19,7 +19,7 @@ export interface RuntimeSummary {
   requirementsMet: boolean;
 }
 
-// Mirrors dev.vortex.app.web.ServicesApiController.ServiceSummaryDto
+// Mirrors com.acltabontabon.vortex.app.web.ServicesApiController.ServiceSummaryDto
 export interface ServiceSummary {
   id: string;
   name: string;
@@ -54,7 +54,7 @@ export function useServicesQuery() {
   });
 }
 
-// Mirrors dev.vortex.app.web.PaletteController.Entry
+// Mirrors com.acltabontabon.vortex.app.web.PaletteController.Entry
 export interface PaletteEntry {
   kind: string;
   label: string;
