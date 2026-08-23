@@ -1,4 +1,4 @@
-package dev.vortex.report;
+package dev.vortex.app.evidence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

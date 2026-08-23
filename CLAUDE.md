@@ -64,7 +64,6 @@ vortex-k6           workload generation, process execution, k6 output parsing (q
 vortex-ai           assistant, prompts, response handling (quarantines Spring AI / Ollama)
 vortex-persistence  SQLite, Flyway migrations, repositories, artifacts, vortex.yaml (quarantines
                     sqlite-jdbc, Flyway, YAML)
-vortex-report       evidence exporters: JSON, Markdown, PDF (quarantines OpenPDF)
 vortex-app          composition root: web (React SPA, served over a JSON API), SSE, small
                     adapters (Docker, Actuator, HTTP probe) — the only module depending on Spring Boot
 vortex-demo-service sample service with a deliberate, documented bottleneck for demos/tests
@@ -140,10 +139,10 @@ These are tested; if a change makes one of these tests fail, the test is probabl
 
 ## Common extension points
 
-- **Report/export format**: implement `EvidenceExporter` in `vortex-report`, add it to
-  `ExportFormat`, register in `ReportConfiguration`, add a case to `SecretsNeverExportTest`. An
-  exporter only ever takes a `RunEvidence` — never reach around `EvidenceSanitizer` for the
-  execution or plan (ArchUnit-enforced).
+- **Evidence writer**: `EvidenceJsonWriter`/`EvidenceMarkdownWriter` in `dev.vortex.app.evidence`
+  write every completed run's evidence to its artifact directory. Add a case to
+  `SecretsNeverExportTest`. A writer only ever takes a `RunEvidence` — never reach around
+  `EvidenceSanitizer` for the execution or plan (ArchUnit-enforced).
 - **AI capability**: prompt as a resource under `vortex-ai/src/main/resources/ai/`, bump
   `PromptLibrary.VERSION` if response shape/substance could change, add a `PerformanceAssistant`
   method, extend `FakePerformanceAssistant` with its failure modes, and if it produces findings they
@@ -163,7 +162,8 @@ These are tested; if a change makes one of these tests fail, the test is probabl
   `ValidityPolicy` rather than in the rule. Every finding must state the number it crossed, cite
   evidence ids that resolve, and — the test that matters — not fire when its measurement is absent.
 - **Report section**: belongs in `core.evidence` plus a fragment in `templates/evidence.html` — the
-  result page, printable report, and all exporters read the same model, so it stays consistent everywhere.
+  result page, printable report, and both evidence writers read the same model, so it stays
+  consistent everywhere.
 
 ## Testing notes
 

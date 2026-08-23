@@ -19,14 +19,12 @@ flowchart TB
     CORE --> K6A[vortex-k6]
     CORE --> AIA[vortex-ai]
     CORE --> PER[vortex-persistence]
-    CORE --> REP[vortex-report]
     CORE --> ADP[app adapters<br/>Docker · Actuator · HTTP probe]
 
     OAI --> SWAG[(swagger-parser)]
     K6A --> K6[(k6)]
     AIA --> OLL[(Ollama)]
     PER --> DB[(SQLite + filesystem)]
-    REP --> PDFLIB[(OpenPDF)]
     ADP --> DOCK[(Docker)]
     ADP --> ACT[(Service metrics endpoint)]
 ----
@@ -89,10 +87,6 @@ without benefit, and the friction is paid on every change forever.
 | SQLite, migrations, repositories, artifacts, `vortex.yaml`
 | sqlite-jdbc, Flyway, YAML
 
-| `vortex-report`
-| Evidence exporters: JSON, Markdown, PDF
-| OpenPDF
-
 | `vortex-app`
 | Composition root, web UI, SSE, small adapters
 | Spring Boot
@@ -107,17 +101,17 @@ Dependencies point one way, and no adapter depends on another adapter:
 ----
         vortex-app
              │
-   ┌────┬────┼────┬────────┐
-   ▼    ▼    ▼    ▼        ▼
- k6   ai  openapi persistence report
-   └────┴────┴────┼────────┘
+   ┌────┬────┼────┬───┐
+   ▼    ▼    ▼    ▼   ▼
+ k6   ai  openapi  persistence
+   └────┴────┴────┼───┘
                   ▼
              vortex-core
 ----
 
-See xref:../adr/adr-014-seven-modules-not-eight.adoc[ADR-014] and its amendment in
-xref:../adr/adr-029-openpdf-quarantined-in-a-report-module.adoc[ADR-029], which added the eighth
-module under that same rule rather than in spite of it.
+See xref:../adr/adr-014-seven-modules-not-eight.adoc[ADR-014]. `vortex-report`, added later under
+this same rule to quarantine OpenPDF, was removed again once PDF export had no reachable caller left
+— see xref:../adr/adr-044-vortex-report-removed.adoc[ADR-044]. Seven modules, once more.
 
 === What was dropped, and why
 
@@ -129,11 +123,12 @@ They live instead as adapter packages inside `vortex-app`, with ArchUnit enforci
 the domain reaches them, and they graduate to a module if they grow. See
 xref:../adr/adr-014-seven-modules-not-eight.adoc[ADR-014].
 
-`vortex-report` is what that graduation looks like. It was added later, under the same rule rather
-than in spite of it: a third-party PDF rendering engine with a distinctive licence is exactly the
-substantial dependency the rule contemplates, and `com.lowagie..` is confined to
-`dev.vortex.report.pdf..` by an ArchUnit rule so the quarantine is checked rather than intended.
-See xref:../adr/adr-029-openpdf-quarantined-in-a-report-module.adoc[ADR-029].
+`vortex-report` was, for a time, what that graduation looked like: a module added under the same
+rule to quarantine OpenPDF, a third-party PDF rendering engine with a distinctive licence. It was
+removed once nothing reachable called PDF export any more — the module existed to quarantine a
+dependency, and a dependency with no caller is not being quarantined, it is dead weight. Its two
+still-used renderers (JSON, Markdown) moved into `vortex-app/evidence`, which never depended on
+OpenPDF. See xref:../adr/adr-044-vortex-report-removed.adoc[ADR-044].
 
 === The core's constraint
 
@@ -204,9 +199,6 @@ If Vortex ever consolidates into fewer Maven modules, Modulith becomes the right
 
 | A new engine
 | new module, implementing `PerformanceEngine`
-
-| An export format
-| `vortex-report`, implementing `EvidenceExporter`
 
 | A report section
 | `core.evidence`, plus a fragment in `templates/evidence.html`

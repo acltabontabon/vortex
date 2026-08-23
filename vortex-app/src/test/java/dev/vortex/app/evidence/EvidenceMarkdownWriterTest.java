@@ -1,4 +1,4 @@
-package dev.vortex.report;
+package dev.vortex.app.evidence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -21,9 +21,9 @@ import org.junit.jupiter.api.Test;
  * a look. The semantic assertions below still carry the meaning, so a golden mismatch is never the
  * only thing that fails.
  */
-class MarkdownEvidenceExporterTest {
+class EvidenceMarkdownWriterTest {
 
-    private final MarkdownEvidenceExporter exporter = new MarkdownEvidenceExporter();
+    private final EvidenceMarkdownWriter exporter = new EvidenceMarkdownWriter();
 
     private String export(RunEvidence evidence) {
         return new String(exporter.export(evidence), StandardCharsets.UTF_8);
@@ -36,7 +36,7 @@ class MarkdownEvidenceExporterTest {
         @Test
         @DisplayName("the verdict is in the first line, before anything has to be read")
         void verdictLeads() {
-            assertThat(export(ReportFixtures.rich()).lines().findFirst().orElseThrow())
+            assertThat(export(EvidenceFixtures.rich()).lines().findFirst().orElseThrow())
                     .startsWith("## Vortex performance result")
                     .contains("PASS");
         }
@@ -44,14 +44,14 @@ class MarkdownEvidenceExporterTest {
         @Test
         @DisplayName("a failure says so in the first line too")
         void failureLeads() {
-            assertThat(export(ReportFixtures.failing()).lines().findFirst().orElseThrow())
+            assertThat(export(EvidenceFixtures.failing()).lines().findFirst().orElseThrow())
                     .contains("FAIL");
         }
 
         @Test
         @DisplayName("the conditions travel with the numbers, never in a footnote")
         void qualificationsAppearBeforeTheFigures() {
-            String markdown = export(ReportFixtures.rich());
+            String markdown = export(EvidenceFixtures.rich());
 
             // A throughput figure from a run against mocked dependencies means something different,
             // and a reader must meet that caveat before they meet the number.
@@ -66,7 +66,7 @@ class MarkdownEvidenceExporterTest {
 
         @Test
         void appearInTheOrderAReaderNeedsThem() {
-            String markdown = export(ReportFixtures.rich());
+            String markdown = export(EvidenceFixtures.rich());
 
             assertThat(indexOfEach(markdown, List.of(
                     "## Vortex performance result", "### Workload", "### Performance",
@@ -79,7 +79,7 @@ class MarkdownEvidenceExporterTest {
         @Test
         @DisplayName("a section with no data is absent, rather than present and empty")
         void emptySectionsAreOmitted() {
-            String markdown = export(ReportFixtures.sparse());
+            String markdown = export(EvidenceFixtures.sparse());
 
             assertThat(markdown)
                     .doesNotContain("### Over time")
@@ -94,7 +94,7 @@ class MarkdownEvidenceExporterTest {
         @Test
         @DisplayName("expected and achieved workload sit side by side")
         void offeredAndAchievedAreBothShown() {
-            String markdown = export(ReportFixtures.rich());
+            String markdown = export(EvidenceFixtures.rich());
 
             assertThat(markdown).contains("| | Configured | Achieved |");
             assertThat(markdown).contains("20 requests/sec").contains("19.8 requests/sec");
@@ -103,7 +103,7 @@ class MarkdownEvidenceExporterTest {
         @Test
         @DisplayName("an operation that issued nothing shows no traffic, never zeroes")
         void noTrafficIsNotAPerfectScore() {
-            String markdown = export(ReportFixtures.sparse());
+            String markdown = export(EvidenceFixtures.sparse());
 
             // "0 ms, 0% errors" would read as a flawless result for an operation that never ran.
             assertThat(markdown).contains("no traffic");
@@ -112,7 +112,7 @@ class MarkdownEvidenceExporterTest {
         @Test
         @DisplayName("latency that was never measured produces no maximum at all")
         void unmeasuredLatencyIsNotZero() {
-            String markdown = export(ReportFixtures.sparse());
+            String markdown = export(EvidenceFixtures.sparse());
 
             assertThat(markdown).doesNotContain("| max | 0 ms |");
         }
@@ -120,14 +120,14 @@ class MarkdownEvidenceExporterTest {
         @Test
         @DisplayName("a run with no objectives explains itself instead of showing an empty table")
         void noObjectivesIsExplained() {
-            assertThat(export(ReportFixtures.sparse()))
+            assertThat(export(EvidenceFixtures.sparse()))
                     .contains("neither pass nor fail");
         }
 
         @Test
         @DisplayName("a period where nothing was measured stays blank in the sparkline")
         void gapsAreNotBridged() {
-            String markdown = export(ReportFixtures.rich());
+            String markdown = export(EvidenceFixtures.rich());
 
             String throughput = markdown.lines()
                     .filter(line -> line.contains("Throughput"))
@@ -145,12 +145,12 @@ class MarkdownEvidenceExporterTest {
 
         @Test
         void aCompleteRunRendersExactly() throws IOException {
-            assertThat(export(ReportFixtures.rich())).isEqualTo(golden("rich-run.md"));
+            assertThat(export(EvidenceFixtures.rich())).isEqualTo(golden("rich-run.md"));
         }
 
         @Test
         void aSparseRunRendersExactly() throws IOException {
-            assertThat(export(ReportFixtures.sparse())).isEqualTo(golden("sparse-run.md"));
+            assertThat(export(EvidenceFixtures.sparse())).isEqualTo(golden("sparse-run.md"));
         }
 
         private String golden(String name) throws IOException {
@@ -166,7 +166,7 @@ class MarkdownEvidenceExporterTest {
     @Test
     @DisplayName("the same evidence renders identically, so a diff means a real change")
     void renderingIsDeterministic() {
-        assertThat(export(ReportFixtures.rich())).isEqualTo(export(ReportFixtures.rich()));
+        assertThat(export(EvidenceFixtures.rich())).isEqualTo(export(EvidenceFixtures.rich()));
     }
 
     private static List<Integer> indexOfEach(String haystack, List<String> needles) {

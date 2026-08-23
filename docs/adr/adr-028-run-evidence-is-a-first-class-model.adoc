@@ -2,7 +2,12 @@
 
 == Status
 
-Accepted
+Accepted. The mechanism described below — an `EvidenceExporter` port implemented in `vortex-report`,
+and a PDF renderer — was later removed; see
+xref:adr-044-vortex-report-removed.adoc[ADR-044]. The decision itself (one presentation-neutral
+`RunEvidence`, assembled once, sanitised on the way out, seen by nothing else) is unaffected: the two
+remaining renderers (JSON, Markdown) now live in `dev.vortex.app.evidence` and read the same model
+directly, with no port between them and their one caller.
 
 == Context
 

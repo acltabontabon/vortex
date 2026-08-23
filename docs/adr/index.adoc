@@ -95,7 +95,7 @@ or that someone would otherwise reasonably question.
 | Run evidence is a first-class model
 
 | xref:adr-029-openpdf-quarantined-in-a-report-module.adoc[029]
-| OpenPDF, quarantined in a report module
+| OpenPDF, quarantined in a report module _(superseded by 044)_
 
 | xref:adr-030-workloads-not-scenarios.adoc[030]
 | Workloads, not scenarios
@@ -138,6 +138,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-043-cli-and-ci-surface-removed.adoc[043]
 | The CLI and CI surface is removed; the Workbench is the only interface
+
+| xref:adr-044-vortex-report-removed.adoc[044]
+| vortex-report removed; PDF export dropped
 |===
 
 == Format

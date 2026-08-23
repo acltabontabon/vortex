@@ -37,15 +37,13 @@ this paragraph.
 
 ## Compile and runtime dependencies
 
-All are permissively licensed, except OpenPDF — see the licence note below.
+All are permissively licensed.
 
 | Dependency | Licence | Used by |
 |---|---|---|
 | [Spring Boot](https://github.com/spring-projects/spring-boot) 4.1 | Apache-2.0 | app, persistence, ai, demo |
 | [Spring Framework](https://github.com/spring-projects/spring-framework) | Apache-2.0 | (transitive) |
 | [Spring AI](https://github.com/spring-projects/spring-ai) 2.0 | Apache-2.0 | `vortex-ai` |
-| [Thymeleaf](https://github.com/thymeleaf/thymeleaf) | Apache-2.0 | `vortex-app` |
-| [htmx](https://github.com/bigskysoftware/htmx) | BSD-2-Clause | `vortex-app` (webjar) |
 | [Jackson](https://github.com/FasterXML/jackson) | Apache-2.0 | k6, persistence, ai, app |
 | [SnakeYAML](https://bitbucket.org/snakeyaml/snakeyaml) | Apache-2.0 | (via Jackson YAML) |
 | [sqlite-jdbc](https://github.com/xerial/sqlite-jdbc) | Apache-2.0 | `vortex-persistence` |
@@ -58,8 +56,6 @@ All are permissively licensed, except OpenPDF — see the licence note below.
 | [Logback](https://github.com/qos-ch/logback) | EPL-1.0 / LGPL-2.1 | (runtime, via Boot) |
 | [Micrometer](https://github.com/micrometer-metrics/micrometer) | Apache-2.0 | app, demo |
 | [Tomcat](https://github.com/apache/tomcat) | Apache-2.0 | (embedded, via Boot) |
-| [picocli](https://github.com/remkop/picocli) | Apache-2.0 | `vortex-app` |
-| [OpenPDF](https://github.com/LibrePDF/OpenPDF) 2.2 | LGPL-2.1-or-later OR MPL-2.0 | `vortex-report` |
 
 ## Test-scope dependencies
 
@@ -84,16 +80,8 @@ dependency above is either permissively licensed — Apache-2.0, MIT, BSD, UPL o
 domain — or dual-licensed under a weak copyleft licence and used unmodified as a library, which
 those licences permit without conditions on the surrounding work.
 
-Two dependencies fall in the second category.
-
 Logback is dual-licensed EPL-1.0 / LGPL-2.1; it is used unmodified as a runtime dependency, which the
 EPL permits without restriction on the surrounding work.
-
-OpenPDF is dual-licensed LGPL-2.1-or-later / MPL-2.0. Vortex links against an unmodified release and
-redistributes it unchanged, which both licences permit without conditions on Vortex itself. Modifying
-OpenPDF, or vendoring parts of it, would change that analysis — see
-`docs/adr/adr-029-openpdf-quarantined-in-a-report-module.adoc`. Its own four runtime dependencies
-(ICU4J, BouncyCastle, Apache FOP) are all optional and none is pulled in.
 
 ## Generating an up-to-date list
 

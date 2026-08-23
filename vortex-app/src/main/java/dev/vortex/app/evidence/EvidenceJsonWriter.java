@@ -1,33 +1,31 @@
-package dev.vortex.report;
+package dev.vortex.app.evidence;
 
 import com.fasterxml.jackson.core.util.DefaultIndenter;
 import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import dev.vortex.core.evidence.ExportFormat;
 import dev.vortex.core.evidence.RunEvidence;
-import dev.vortex.core.port.EvidenceExporter;
 import java.nio.charset.StandardCharsets;
 
 /**
- * The machine-readable export: a versioned envelope, pretty-printed and stable.
+ * The machine-readable form of a run's evidence: a versioned envelope, pretty-printed and stable.
  *
- * <p>This is the format a pipeline archives, a later comparison reads, and an external tool parses.
- * It therefore has to be boring: the same evidence must produce the same bytes on any machine, and a
+ * <p>Written into every completed run's artifact directory, so the directory is self-describing
+ * without asking. This is the shape a later comparison reads and an external tool parses. It
+ * therefore has to be boring: the same evidence must produce the same bytes on any machine, and a
  * field must not change meaning between releases without the version saying so.
  *
  * <p>Uses its own mapper rather than the persistence one. That is a deliberate refusal to share:
  * {@code JsonDocuments.mapper()} exists to round-trip the internal object graph and carries type
  * discriminators for sealed hierarchies. Publishing it would make every internal rename a breaking
- * change for whoever is parsing exports, and would couple the report module to the storage adapter
- * for no gain.
+ * change for whoever reads this file, for no gain.
  */
-public final class JsonEvidenceExporter implements EvidenceExporter {
+public final class EvidenceJsonWriter {
 
     private final ObjectMapper mapper;
 
-    public JsonEvidenceExporter() {
+    public EvidenceJsonWriter() {
         this.mapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 // ISO-8601 strings, not epoch numbers: readable in a diff and unambiguous in a
@@ -38,19 +36,13 @@ public final class JsonEvidenceExporter implements EvidenceExporter {
                 .disable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
     }
 
-    @Override
-    public ExportFormat format() {
-        return ExportFormat.JSON;
-    }
-
-    @Override
     public byte[] export(RunEvidence evidence) {
         try {
             return mapper.writer(printer())
                     .writeValueAsString(EvidenceEnvelope.from(evidence))
                     .getBytes(StandardCharsets.UTF_8);
         } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
-            throw new EvidenceExportException(
+            throw new EvidenceWriteException(
                     "Vortex could not serialise the evidence for run "
                             + evidence.identity().executionId().value() + ".", e);
         }

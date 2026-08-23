@@ -1,13 +1,11 @@
-package dev.vortex.report;
+package dev.vortex.app.evidence;
 
 import dev.vortex.core.evidence.DeterministicFinding;
-import dev.vortex.core.evidence.ExportFormat;
 import dev.vortex.core.evidence.FindingLevel;
 import dev.vortex.core.evidence.ObservedSignal;
 import dev.vortex.core.evidence.OperationEvidence;
 import dev.vortex.core.evidence.RunEvidence;
 import dev.vortex.core.metrics.LatencyPercentiles;
-import dev.vortex.core.port.EvidenceExporter;
 import dev.vortex.core.shared.Percentile;
 import dev.vortex.core.threshold.Durations;
 import dev.vortex.core.threshold.ThresholdResult;
@@ -32,7 +30,7 @@ import java.util.Map;
  * sparkline drawn in block characters — which costs nothing and degrades to something harmless
  * wherever the font is unhelpful.
  */
-public final class MarkdownEvidenceExporter implements EvidenceExporter {
+public final class EvidenceMarkdownWriter {
 
     private static final DateTimeFormatter TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'", Locale.ROOT)
@@ -44,12 +42,6 @@ public final class MarkdownEvidenceExporter implements EvidenceExporter {
 
     private static final int SPARKLINE_WIDTH = 40;
 
-    @Override
-    public ExportFormat format() {
-        return ExportFormat.MARKDOWN;
-    }
-
-    @Override
     public byte[] export(RunEvidence evidence) {
         StringBuilder out = new StringBuilder(4096);
 

@@ -2,7 +2,10 @@
 
 == Status
 
-Accepted
+Accepted. The claim below that `vortex-report`/`ExportController` stay was correct at the time and
+did not survive long: once the CLI was gone, that endpoint turned out to be the *only* remaining
+caller of the on-demand export machinery, and it was itself unreachable from the web UI. See
+xref:adr-044-vortex-report-removed.adoc[ADR-044], which removed it.
 
 == Context
 

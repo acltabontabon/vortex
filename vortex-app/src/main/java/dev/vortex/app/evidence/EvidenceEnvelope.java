@@ -1,4 +1,4 @@
-package dev.vortex.report;
+package dev.vortex.app.evidence;
 
 import dev.vortex.core.evidence.DeterministicFinding;
 import dev.vortex.core.evidence.EvidenceProvenance;
@@ -483,9 +483,9 @@ final class EvidenceEnvelope {
      *
      * That is the point. This envelope is hand-written, so a new enum constant would otherwise
      * flow through silently and appear in an export under whatever name the enum happens to have —
-     * or not at all. Without a default, adding a constant stops vortex-report compiling until
-     * somebody decides what the published contract calls it, which is a decision that belongs to
-     * whoever changes the contract rather than to whoever reads it afterwards.
+     * or not at all. Without a default, adding a constant stops this file compiling until somebody
+     * decides what the published contract calls it, which is a decision that belongs to whoever
+     * changes the contract rather than to whoever reads it afterwards.
      *
      * The wire strings are deliberately independent of the Java names: renaming a constant must not
      * silently change what a consumer pinned against.
@@ -504,6 +504,7 @@ final class EvidenceEnvelope {
         return switch (reason) {
             case OFFERED_LOAD_NOT_GENERATED -> "offered_load_not_generated";
             case GENERATOR_SATURATED -> "generator_saturated";
+            case GENERATOR_HOST_UNDER_PRESSURE -> "generator_host_under_pressure";
             case RUN_TOO_SHORT -> "run_too_short";
             case INSUFFICIENT_SAMPLES -> "insufficient_samples";
             case WARM_UP_NOT_COMPLETED -> "warm_up_not_completed";
@@ -540,6 +541,7 @@ final class EvidenceEnvelope {
         return switch (scope) {
             case SYSTEM_UNDER_TEST -> "system_under_test";
             case LOAD_GENERATOR -> "load_generator";
+            case LOAD_GENERATOR_HOST -> "load_generator_host";
             case DEPENDENCY -> "dependency";
         };
     }

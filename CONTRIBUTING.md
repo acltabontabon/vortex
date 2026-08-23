@@ -191,28 +191,22 @@ Three rules the existing adapters follow:
 Fail with `NotRetrieved`, not an exception: an unreachable endpoint, a rejected token and an unknown
 service are ordinary outcomes of asking, and each has a different remedy.
 
-### Adding an export format
+### Changing what evidence is written
 
-Implement `EvidenceExporter` in `vortex-report`, add the format to `ExportFormat`, and register it in
-`ReportConfiguration`. Registration is explicit rather than discovered, so which formats a build
-offers does not depend on what happens to be on the classpath.
-
-Two rules are not negotiable. An exporter takes a `RunEvidence` and nothing else — reaching for the
-execution or the plan reaches around `EvidenceSanitizer`, which is the only gate between a stored
-configuration and a published document, and an ArchUnit rule forbids it. And add a case to
-`SecretsNeverExportTest`: every format is checked there, because a format added later that forgot to
-sanitise would be exactly the one nobody thought to check.
-
-If the format is binary, verify it by reading the document rather than the file. The PDF test
-extracts text for this reason — a PDF's content streams are compressed, so scanning the bytes for a
-credential finds nothing in a document riddled with them.
+`EvidenceJsonWriter` and `EvidenceMarkdownWriter` (`dev.vortex.app.evidence`) write every completed
+run's evidence into its artifact directory. Both take a `RunEvidence` and nothing else — reaching
+for the execution or the plan reaches around `EvidenceSanitizer`, which is the only gate between a
+stored configuration and a written document, and an ArchUnit rule in `ApplicationArchitectureTest`
+forbids it. Add a case to `SecretsNeverExportTest` for anything new: every writer is checked there,
+because a writer added later that forgot to sanitise would be exactly the one nobody thought to
+check.
 
 See [ADR-028](docs/adr/adr-028-run-evidence-is-a-first-class-model.adoc).
 
 ### Adding a report section
 
 The section belongs in `core.evidence` and in a fragment in `templates/evidence.html`. The result
-page and the printable report both compose those fragments, and the three exporters read the same
+page and the printable report both compose those fragments, and both evidence writers read the same
 model, so a section added in one place appears everywhere and cannot disagree with itself.
 
 ### Building a native image

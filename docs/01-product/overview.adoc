@@ -375,9 +375,9 @@ question rather than by showing a chart.
 | HTML report
 | Working
 
-| Evidence export — JSON, Markdown, PDF
-| Working. `evidence.json` and `report.md` are written into every completed run's directory; all
-  three are downloadable from the result page
+| Evidence written to disk — JSON, Markdown
+| Working. `evidence.json` and `report.md` are written into every completed run's directory,
+  alongside the plan snapshot; the directory path is shown on the result page
 
 | AI: workload explanation, result interpretation
 | Working, optional
@@ -449,10 +449,9 @@ an AWS console replacement, a Kafka management UI, or a generic message-publishi
 one broker does not make Vortex a broker client.
 
 ==== A document designer
-Three export formats — JSON, Markdown, PDF — chosen because each answers a different question about
-who is reading and where. There is no report designer, no template language, no drag-and-drop layout
-and no chart builder. A fourth format needs a reason, not a plugin point, and the first request to
-put a logo on the PDF is answered with an ADR rather than a theming system.
+Two written formats — JSON and Markdown — chosen because each answers a different question about who
+is reading and where. There is no report designer, no template language, no drag-and-drop layout and
+no chart builder. A third format needs a reason, not a plugin point.
 
 === Boundaries we expect to move
 

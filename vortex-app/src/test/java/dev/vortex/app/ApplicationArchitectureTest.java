@@ -83,4 +83,21 @@ class ApplicationArchitectureTest {
                             Swapping the AI provider must be an adapter change. Only the adapter \
                             and the composition root may name a provider type.""")
                     .allowEmptyShould(true);
+
+    /**
+     * An evidence writer sees a {@code RunEvidence} and nothing else: not the execution, not the
+     * plan. Evidence is sanitised on the way out of assembly, so a writer that reached past it would
+     * be reaching around the only gate between a plan and a written document.
+     */
+    @ArchTest
+    static final ArchRule evidence_writers_do_not_reach_past_the_evidence_model =
+            noClasses().that().resideInAPackage("dev.vortex.app.evidence..")
+                    .should().dependOnClassesThat()
+                    .haveFullyQualifiedName("dev.vortex.core.plan.EffectiveTestPlan")
+                    .orShould().dependOnClassesThat()
+                    .haveFullyQualifiedName("dev.vortex.core.execution.TestExecution")
+                    .because("these are the two aggregates that hold unsanitised configuration. "
+                            + "A writer reaching for either is reaching around EvidenceSanitizer. "
+                            + "Value types such as ToolVersions and ScriptSource are reachable "
+                            + "through RunEvidence and are fine.");
 }

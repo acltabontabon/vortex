@@ -2,7 +2,9 @@
 
 == Status
 
-Accepted; amended by xref:adr-029-openpdf-quarantined-in-a-report-module.adoc[ADR-029]
+Accepted; amended by xref:adr-029-openpdf-quarantined-in-a-report-module.adoc[ADR-029], later
+amended again by xref:adr-044-vortex-report-removed.adoc[ADR-044] — the eighth module ADR-029 added
+was removed, so the module count is seven once more.
 
 == Context
 
@@ -45,3 +47,11 @@ this: promoting something to a module when it grows enough to justify its own de
 mechanical, and this was that promotion.
 
 Eight modules: core, openapi, k6, ai, persistence, report, app, demo-service.
+
+== Amendment (ADR-044)
+
+Seven modules again. `vortex-report` quarantined OpenPDF; once PDF export had no reachable caller
+left, the dependency it quarantined was gone and the module existed to guard nothing. See
+xref:adr-044-vortex-report-removed.adoc[ADR-044].
+
+Seven modules: core, openapi, k6, ai, persistence, app, demo-service.

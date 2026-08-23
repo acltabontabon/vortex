@@ -1,4 +1,4 @@
-package dev.vortex.report;
+package dev.vortex.app.evidence;
 
 import dev.vortex.core.analysis.BreakpointDetector;
 import dev.vortex.core.analysis.DeterministicSummary;
@@ -51,13 +51,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Builds the runs the exporters are tested against.
+ * Builds the runs the evidence writers are tested against.
  *
- * <p>Deliberately shared by all three exporters. A PDF test and a Markdown test asserting different
+ * <p>Deliberately shared by both writers. A JSON test and a Markdown test asserting different
  * numbers for "the same run" would be worse than either test not existing, because it would look
  * like coverage.
  */
-public final class ReportFixtures {
+public final class EvidenceFixtures {
 
     public static final Instant GENERATED_AT = Instant.parse("2026-08-21T11:00:00Z");
 
@@ -67,7 +67,7 @@ public final class ReportFixtures {
             new FindingDetector(), new EvidenceSanitizer(), new RegressionEvaluator(),
             Clock.fixed(GENERATED_AT));
 
-    private ReportFixtures() {
+    private EvidenceFixtures() {
     }
 
     /** A complete, healthy run with per-operation figures and service telemetry. */

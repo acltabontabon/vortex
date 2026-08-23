@@ -11,7 +11,7 @@
 
   <artifactId>vortex-app</artifactId>
   <name>Vortex :: App</name>
-  <description>Composition root: Spring Boot entry point, web UI, CLI, SSE, reporting, local lab and observability adapters.</description>
+  <description>Composition root: Spring Boot entry point, web UI, SSE, local lab and observability adapters.</description>
 
   <dependencies>
     <dependency><groupId>dev.vortex</groupId><artifactId>vortex-core</artifactId></dependency>
@@ -19,7 +19,6 @@
     <dependency><groupId>dev.vortex</groupId><artifactId>vortex-k6</artifactId></dependency>
     <dependency><groupId>dev.vortex</groupId><artifactId>vortex-ai</artifactId></dependency>
     <dependency><groupId>dev.vortex</groupId><artifactId>vortex-persistence</artifactId></dependency>
-    <dependency><groupId>dev.vortex</groupId><artifactId>vortex-report</artifactId></dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>

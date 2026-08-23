@@ -25,7 +25,6 @@
     <module>vortex-k6</module>
     <module>vortex-ai</module>
     <module>vortex-persistence</module>
-    <module>vortex-report</module>
     <module>vortex-app</module>
     <module>vortex-demo-service</module>
   </modules>
@@ -38,7 +37,6 @@
     <spring-ai.version>2.0.1</spring-ai.version>
     <swagger-parser.version>2.1.47</swagger-parser.version>
     <archunit.version>1.5.0</archunit.version>
-    <openpdf.version>2.2.2</openpdf.version>
     <commons-csv.version>1.14.1</commons-csv.version>
   </properties>
 
@@ -85,18 +83,8 @@
         <artifactId>vortex-persistence</artifactId>
         <version>${project.version}</version>
       </dependency>
-      <dependency>
-        <groupId>dev.vortex</groupId>
-        <artifactId>vortex-report</artifactId>
-        <version>${project.version}</version>
-      </dependency>
 
       <!-- External -->
-      <dependency>
-        <groupId>com.github.librepdf</groupId>
-        <artifactId>openpdf</artifactId>
-        <version>${openpdf.version}</version>
-      </dependency>
       <dependency>
         <groupId>org.apache.commons</groupId>
         <artifactId>commons-csv</artifactId>

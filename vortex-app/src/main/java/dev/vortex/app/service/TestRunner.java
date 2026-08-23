@@ -21,9 +21,9 @@ import dev.vortex.core.port.ArtifactStore;
 import dev.vortex.core.port.Repositories;
 import dev.vortex.core.execution.ExecutionArtifacts;
 import dev.vortex.core.execution.ExecutionState;
-import dev.vortex.core.evidence.ExportFormat;
 import dev.vortex.core.application.RunEvidenceService;
-import dev.vortex.app.report.ExportRegistry;
+import dev.vortex.app.evidence.EvidenceJsonWriter;
+import dev.vortex.app.evidence.EvidenceMarkdownWriter;
 import dev.vortex.core.port.Clock;
 import dev.vortex.core.port.PerformanceEngine;
 import dev.vortex.core.shared.ExecutionId;
@@ -64,7 +64,8 @@ public class TestRunner {
     private final ArtifactStore artifacts;
     private final Clock clock;
     private final RunEvidenceService runEvidence;
-    private final ExportRegistry exporters;
+    private final EvidenceJsonWriter jsonWriter = new EvidenceJsonWriter();
+    private final EvidenceMarkdownWriter markdownWriter = new EvidenceMarkdownWriter();
     private final Repositories.ExecutionRepository executionRepository;
     private final ObjectMapper json = JsonDocuments.mapper();
 
@@ -79,7 +80,7 @@ public class TestRunner {
     public TestRunner(ProjectService projects, PlanResolver planResolver, PreflightService preflight,
             ExecutionService executions, CapacityService capacity, DeterministicAnalyzer analyzer,
             K6PerformanceEngine engine, ArtifactStore artifacts, Clock clock,
-            RunEvidenceService runEvidence, ExportRegistry exporters,
+            RunEvidenceService runEvidence,
             Repositories.ExecutionRepository executionRepository,
             EvidenceContextFactory evidenceContext) {
         this.projects = projects;
@@ -92,7 +93,6 @@ public class TestRunner {
         this.artifacts = artifacts;
         this.clock = clock;
         this.runEvidence = runEvidence;
-        this.exporters = exporters;
         this.executionRepository = executionRepository;
         this.evidenceContext = evidenceContext;
     }
@@ -236,11 +236,10 @@ public class TestRunner {
     /**
      * Writes the run's evidence into its artifact directory.
      *
-     * <p>JSON and Markdown only, and eagerly. Both are cheap to produce and cost nothing to keep,
-     * and writing them here is what makes {@code ~/.vortex/executions/<id>/} self-describing — the
-     * verdict, the objective-by-objective results, the tool versions and the timestamps stop living
-     * only in the local database. The PDF is not written here: it costs a rendering library and is
-     * wanted far less often, so it is produced on request.
+     * <p>JSON and Markdown, eagerly. Both are cheap to produce and cost nothing to keep, and writing
+     * them here is what makes {@code ~/.vortex/executions/<id>/} self-describing — the verdict, the
+     * objective-by-objective results, the tool versions and the timestamps stop living only in the
+     * local database.
      *
      * <p>Failure is logged and swallowed, like capacity evidence above. A run that measured a
      * service correctly did not fail because a document could not be written, and reporting it as
@@ -255,15 +254,14 @@ public class TestRunner {
                     evidenceContext.forExecution(execution),
                     artifacts.directoryFor(execution.id()), artifacts.list(execution.id()));
 
-            var updated = execution.artifacts();
-            for (var format : List.of(ExportFormat.JSON, ExportFormat.MARKDOWN)) {
-                String name = format == ExportFormat.JSON
-                        ? ExecutionArtifacts.EVIDENCE
-                        : ExecutionArtifacts.REPORT;
-                String path = artifacts.writeBytes(execution.id(), name,
-                        exporters.export(format, evidence));
-                updated = updated.with(name, path);
-            }
+            String jsonPath = artifacts.writeBytes(execution.id(), ExecutionArtifacts.EVIDENCE,
+                    jsonWriter.export(evidence));
+            String markdownPath = artifacts.writeBytes(execution.id(), ExecutionArtifacts.REPORT,
+                    markdownWriter.export(evidence));
+
+            var updated = execution.artifacts()
+                    .with(ExecutionArtifacts.EVIDENCE, jsonPath)
+                    .with(ExecutionArtifacts.REPORT, markdownPath);
             executionRepository.save(execution.withArtifacts(updated));
         } catch (RuntimeException e) {
             log.warn("Could not write the evidence documents for execution {}: {}",

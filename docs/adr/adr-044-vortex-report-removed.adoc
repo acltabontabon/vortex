@@ -1,0 +1,71 @@
+= ADR-044: vortex-report removed; PDF export dropped
+
+== Status
+
+Accepted
+
+Amends xref:adr-014-seven-modules-not-eight.adoc[ADR-014]. Supersedes
+xref:adr-029-openpdf-quarantined-in-a-report-module.adoc[ADR-029].
+
+== Context
+
+xref:adr-043-cli-and-ci-surface-removed.adoc[ADR-043] removed the CLI, which was one of two callers
+of on-demand evidence export (`vortex export`, `run --export`). The other caller,
+`GET /runs/{id}/export.{format}`, had existed since `vortex-report` was added
+(ADR-029) but nothing in the web UI ever linked to it — no button, no menu entry, nowhere a user
+could reach it. Once the CLI was gone, that endpoint was the *only* remaining caller of
+`RunExporter`/`ExportRegistry`/`EvidenceExporter`, and it was unreachable by construction.
+
+`vortex-report` existed for one reason (ADR-014's rule, applied by ADR-029): to quarantine OpenPDF,
+a substantial third-party dependency with a distinctive licence. A module that quarantines a
+dependency nothing calls any more is not quarantining anything — it is dead weight carrying a real
+dependency and a real licence obligation for a feature with zero reachable callers.
+
+Separately, `vortex-report` also held `EvidenceJsonWriter` (formerly `JsonEvidenceExporter`) and
+`MarkdownEvidenceExporter`, which back a genuinely live, always-on feature: `TestRunner` writes
+`evidence.json` and `report.md` into every completed run's artifact directory automatically, with no
+user action and no HTTP endpoint involved. That behavior predates and is independent of the on-demand
+export feature, and removing the module was not a reason to remove it.
+
+== Decision
+
+`vortex-report` is deleted. With it: `ExportController` (the unreachable endpoint), `RunExporter`,
+`ExportRegistry`, `ReportConfiguration`, the `EvidenceExporter` port, `ExportFormat`, `ExportFilename`,
+`PdfEvidenceExporter` and the rest of the `pdf` package, and the OpenPDF dependency. Vortex no longer
+writes or offers PDF in any form.
+
+The two still-used renderers move into `vortex-app`:
+
+* `EvidenceEnvelope` and `JsonEvidenceExporter` → `dev.vortex.app.evidence.EvidenceEnvelope` /
+  `EvidenceJsonWriter`
+* `MarkdownEvidenceExporter` → `dev.vortex.app.evidence.EvidenceMarkdownWriter`
+
+Neither implements a port any more. There is no runtime dispatch on format left to abstract over —
+`TestRunner` calls both directly, unconditionally, on every completed run. An interface with exactly
+one implementation and one caller was ceremony, not extensibility. The invariant that mattered —
+a writer sees a `RunEvidence` and nothing else, never the execution or the plan, so it cannot reach
+around `EvidenceSanitizer` — is now an ArchUnit rule in `ApplicationArchitectureTest`
+(`evidence_writers_do_not_reach_past_the_evidence_model`) scoped to `dev.vortex.app.evidence..`,
+carrying forward the rule `vortex-report`'s own `ReportArchitectureTest` enforced.
+
+`SecretsNeverExportTest`, `PublishedContractIsExhaustiveTest`, and the golden-file tests for both
+writers move to `vortex-app` unchanged in substance, minus their PDF-specific cases.
+
+== Consequences
+
+*Gained:* one fewer Maven module, one fewer runtime dependency (OpenPDF and its licence obligation),
+and no more abstraction standing between `TestRunner` and the two writers it actually calls. The
+module count returns to seven (ADR-014's original number).
+
+*Cost:* Vortex cannot produce a PDF. Nobody could reach that capability through any interface before
+this change either — reintroducing it needs a reason and a caller, not a resurrected module.
+
+*Not affected:* the automatic `evidence.json`/`report.md` write on every completed run, which has
+nothing to do with the removed on-demand export path and continues exactly as before, just called
+from `dev.vortex.app.evidence` instead of `dev.vortex.report`.
+
+*Reversible:* a future on-demand export feature — a download button, a scriptable interface reached
+through the roadmap's optional automation phase — is an adapter calling `EvidenceJsonWriter`/
+`EvidenceMarkdownWriter` (and, if PDF returns, a new writer) directly, or through a small interface
+if a second implementation ever justifies one again. Nothing here forecloses that; it just stops
+carrying the machinery until something needs it.

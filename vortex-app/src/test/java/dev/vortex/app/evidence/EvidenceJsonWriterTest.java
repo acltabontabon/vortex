@@ -1,4 +1,4 @@
-package dev.vortex.report;
+package dev.vortex.app.evidence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,9 +22,9 @@ import org.junit.jupiter.api.Test;
  * sealed hierarchies; if any of those ever appear here, somebody has reached for the wrong mapper
  * and every consumer's parser is now coupled to a Java class name.
  */
-class JsonEvidenceExporterTest {
+class EvidenceJsonWriterTest {
 
-    private final JsonEvidenceExporter exporter = new JsonEvidenceExporter();
+    private final EvidenceJsonWriter exporter = new EvidenceJsonWriter();
     private final ObjectMapper mapper = new ObjectMapper();
 
     private JsonNode export(dev.vortex.core.evidence.RunEvidence evidence) throws Exception {
@@ -38,7 +38,7 @@ class JsonEvidenceExporterTest {
         @Test
         @DisplayName("the schema version is present and is the first key")
         void versionIsFirst() throws Exception {
-            JsonNode root = export(ReportFixtures.rich());
+            JsonNode root = export(EvidenceFixtures.rich());
 
             assertThat(root.get("schemaVersion").asText())
                     .isEqualTo(EvidenceProvenance.SCHEMA_VERSION);
@@ -48,7 +48,7 @@ class JsonEvidenceExporterTest {
         @Test
         @DisplayName("every top-level section a consumer is promised is present")
         void everySectionIsPresent() throws Exception {
-            JsonNode root = export(ReportFixtures.rich());
+            JsonNode root = export(EvidenceFixtures.rich());
 
             // Exact, and in order: this list *is* the contract. A section appearing without this
             // test changing is a section nobody decided to publish.
@@ -61,7 +61,7 @@ class JsonEvidenceExporterTest {
         @Test
         @DisplayName("no internal serialisation shape leaks into the published document")
         void noInternalTypeDiscriminatorsLeak() throws Exception {
-            String json = new String(exporter.export(ReportFixtures.rich()),
+            String json = new String(exporter.export(EvidenceFixtures.rich()),
                     StandardCharsets.UTF_8);
 
             // These are how the persistence mapper tags sealed hierarchies and typed map keys.
@@ -77,11 +77,11 @@ class JsonEvidenceExporterTest {
         @Test
         @DisplayName("units are named, so no number's meaning depends on knowing the source")
         void unitsAreInTheFieldNames() throws Exception {
-            JsonNode workload = export(ReportFixtures.rich()).get("workload");
+            JsonNode workload = export(EvidenceFixtures.rich()).get("workload");
 
             assertThat(workload.has("achievedRatePerSecond")).isTrue();
             assertThat(workload.has("configuredUnit")).isTrue();
-            assertThat(export(ReportFixtures.rich()).get("performance").has("errorRatePercent"))
+            assertThat(export(EvidenceFixtures.rich()).get("performance").has("errorRatePercent"))
                     .isTrue();
         }
     }
@@ -93,7 +93,7 @@ class JsonEvidenceExporterTest {
         @Test
         @DisplayName("something never measured is an absent key, never a null")
         void absentMeasurementsAreAbsentKeys() throws Exception {
-            JsonNode root = export(ReportFixtures.sparse());
+            JsonNode root = export(EvidenceFixtures.sparse());
 
             // A consumer must not have to tell "Vortex did not measure this" from "Vortex measured
             // it as nothing".
@@ -106,7 +106,7 @@ class JsonEvidenceExporterTest {
         @Test
         @DisplayName("a run with no objectives exports an empty criteria list, not a fabricated pass")
         void noObjectives() throws Exception {
-            JsonNode root = export(ReportFixtures.sparse());
+            JsonNode root = export(EvidenceFixtures.sparse());
 
             assertThat(root.get("criteria")).isEmpty();
             assertThat(root.get("verdict").get("value").asText()).isEqualTo("NOT_EVALUATED");
@@ -114,7 +114,7 @@ class JsonEvidenceExporterTest {
 
         @Test
         void absentComparisonIsExplicitlyNull() throws Exception {
-            assertThat(export(ReportFixtures.rich()).get("comparison").isNull()).isTrue();
+            assertThat(export(EvidenceFixtures.rich()).get("comparison").isNull()).isTrue();
         }
     }
 
@@ -124,7 +124,7 @@ class JsonEvidenceExporterTest {
 
         @Test
         void perOperationFiguresAreCarried() throws Exception {
-            JsonNode operations = export(ReportFixtures.rich()).get("operations");
+            JsonNode operations = export(EvidenceFixtures.rich()).get("operations");
 
             assertThat(operations).isNotEmpty();
             assertThat(operations.get(0).has("hasTraffic")).isTrue();
@@ -133,7 +133,7 @@ class JsonEvidenceExporterTest {
         @Test
         @DisplayName("observability carries its provenance and its start/peak/end movement")
         void observabilityKeepsProvenance() throws Exception {
-            JsonNode signals = export(ReportFixtures.rich()).get("observability");
+            JsonNode signals = export(EvidenceFixtures.rich()).get("observability");
 
             JsonNode pool = signals.get(0);
             assertThat(pool.get("value").asDouble()).isEqualTo(94.0);
@@ -146,7 +146,7 @@ class JsonEvidenceExporterTest {
 
         @Test
         void findingsCarryTheirCitations() throws Exception {
-            JsonNode findings = export(ReportFixtures.rich()).get("findings");
+            JsonNode findings = export(EvidenceFixtures.rich()).get("findings");
 
             assertThat(findings).isNotEmpty();
             findings.forEach(finding -> assertThat(finding.get("evidence")).isNotEmpty());
@@ -154,7 +154,7 @@ class JsonEvidenceExporterTest {
 
         @Test
         void provenanceAnswersWhatProducedThis() throws Exception {
-            JsonNode provenance = export(ReportFixtures.rich()).get("provenance");
+            JsonNode provenance = export(EvidenceFixtures.rich()).get("provenance");
 
             assertThat(provenance.get("engineVersion").asText()).isEqualTo("k6 v1.3.0");
             assertThat(provenance.get("configurationHash").asText()).startsWith("SHA-256:");
@@ -166,8 +166,8 @@ class JsonEvidenceExporterTest {
     @Test
     @DisplayName("the same evidence exports byte-identical output, so a diff means a real change")
     void exportIsDeterministic() {
-        byte[] first = exporter.export(ReportFixtures.rich());
-        byte[] second = exporter.export(ReportFixtures.rich());
+        byte[] first = exporter.export(EvidenceFixtures.rich());
+        byte[] second = exporter.export(EvidenceFixtures.rich());
 
         assertThat(first).isEqualTo(second);
     }
@@ -175,7 +175,7 @@ class JsonEvidenceExporterTest {
     @Test
     @DisplayName("line endings are pinned, so the same run does not diff across platforms")
     void lineEndingsArePinned() {
-        String json = new String(exporter.export(ReportFixtures.rich()), StandardCharsets.UTF_8);
+        String json = new String(exporter.export(EvidenceFixtures.rich()), StandardCharsets.UTF_8);
 
         assertThat(json).contains("\n").doesNotContain("\r");
     }
@@ -183,8 +183,8 @@ class JsonEvidenceExporterTest {
     @Test
     @DisplayName("key order is stable, because insertion order is the contract")
     void keyOrderIsStable() throws Exception {
-        List<String> first = fieldNames(export(ReportFixtures.rich()));
-        List<String> second = fieldNames(export(ReportFixtures.rich()));
+        List<String> first = fieldNames(export(EvidenceFixtures.rich()));
+        List<String> second = fieldNames(export(EvidenceFixtures.rich()));
 
         assertThat(first).isEqualTo(second);
     }

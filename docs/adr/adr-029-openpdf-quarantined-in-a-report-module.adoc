@@ -2,7 +2,9 @@
 
 == Status
 
-Accepted
+Superseded by xref:adr-044-vortex-report-removed.adoc[ADR-044] — PDF export and OpenPDF were removed
+once nothing reachable called PDF export any more. Kept as the record of why OpenPDF was chosen and
+what quarantining it cost at the time.
 
 Amends xref:adr-014-seven-modules-not-eight.adoc[ADR-014].
 

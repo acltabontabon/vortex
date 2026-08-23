@@ -366,8 +366,7 @@ The four tiers describe how a conclusion is derived. `RunEvidence` is how it lea
 Workload → Execution → Run result → RunEvidence → ┌─ result page
                                                    ├─ printable report
                                                    ├─ JSON   (vortex.evidence/2)
-                                                   ├─ Markdown
-                                                   └─ PDF
+                                                   └─ Markdown
 ----
 
 One aggregate, assembled once per completed run, handed to every renderer including the two web
