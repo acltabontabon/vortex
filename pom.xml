@@ -20,13 +20,13 @@
   <description>Local-first performance engineering workbench</description>
 
   <modules>
-    <module>vortex-core</module>
-    <module>vortex-openapi</module>
-    <module>vortex-k6</module>
-    <module>vortex-ai</module>
-    <module>vortex-persistence</module>
-    <module>vortex-app</module>
-    <module>vortex-demo-service</module>
+    <module>modules/core</module>
+    <module>modules/openapi</module>
+    <module>modules/k6</module>
+    <module>modules/ai</module>
+    <module>modules/persistence</module>
+    <module>modules/app</module>
+    <module>examples/demo-service</module>
   </modules>
 
   <properties>

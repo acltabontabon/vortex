@@ -4,21 +4,21 @@
     {
       "name": "vortex",
       "runtimeExecutable": "./mvnw",
-      "runtimeArgs": ["-pl", "vortex-app", "spring-boot:run"],
+      "runtimeArgs": ["-pl", "modules/app", "spring-boot:run"],
       "port": 7717,
       "url": "http://127.0.0.1:7717"
     },
     {
       "name": "demo-service",
       "runtimeExecutable": "./mvnw",
-      "runtimeArgs": ["-pl", "vortex-demo-service", "spring-boot:run"],
+      "runtimeArgs": ["-pl", "examples/demo-service", "spring-boot:run"],
       "port": 8080,
       "url": "http://127.0.0.1:8080"
     },
     {
-      "name": "vortex-web",
+      "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "vortex-web", "run", "dev"],
+      "runtimeArgs": ["--prefix", "web", "run", "dev"],
       "port": 5173,
       "url": "http://localhost:5173"
     }

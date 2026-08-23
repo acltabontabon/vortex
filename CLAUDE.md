@@ -16,18 +16,18 @@ way it is, not just what it does.
 ```bash
 ./mvnw clean verify                        # full build + test suite (Java 25 required)
 ./mvnw test                                # tests only, all modules
-./mvnw -pl vortex-core test                # tests for one module
-./mvnw -pl vortex-core test -Dtest=ClassName#methodName   # a single test
-./mvnw -pl vortex-app -am package -DskipTests             # build the runnable jar
-./mvnw -pl vortex-app spring-boot:run      # run Vortex on 127.0.0.1:7717
-./mvnw -pl vortex-demo-service spring-boot:run             # sample service (has a deliberate bottleneck) on :8080
+./mvnw -pl modules/core test               # tests for one module
+./mvnw -pl modules/core test -Dtest=ClassName#methodName  # a single test
+./mvnw -pl modules/app -am package -DskipTests             # build the runnable jar
+./mvnw -pl modules/app spring-boot:run     # run Vortex on 127.0.0.1:7717
+./mvnw -pl examples/demo-service spring-boot:run            # sample service (has a deliberate bottleneck) on :8080
 make help                                  # same targets as convenience wrappers
 ```
 
-Frontend (`vortex-web/`, builds into `vortex-app/src/main/resources/static/app/`):
+Frontend (`web/`, builds into `modules/app/src/main/resources/static/app/`):
 
 ```bash
-cd vortex-web
+cd web
 npm run dev        # Vite dev server on :5173, proxies /api to :7717
 npm run build       # tsc -b && vite build — output baked into the Spring Boot jar
 npm run lint         # oxlint
@@ -53,6 +53,10 @@ installing it again — Homebrew's Ruby puts gem binaries in
 Modular monolith, one process, one jar. Full diagram and rationale:
 [docs/02-architecture/architecture.adoc](docs/02-architecture/architecture.adoc).
 
+Backend modules live under `modules/`, the frontend lives under `web/`, and the demo/sample system
+lives under `examples/demo-service/` (paired with its Vortex config at `examples/checkout-service/`)
+— module names and artifact IDs below are unchanged by that layout.
+
 ```
 vortex-core        domain, application services, ports, deterministic calculators — ZERO compile
                     dependencies (Maven-enforced banned-dependencies rule). No Spring, no Jackson,
@@ -68,7 +72,7 @@ vortex-app          composition root: web (React SPA, served over a JSON API), S
                     adapters (Docker, Actuator, HTTP probe) — the only module depending on Spring Boot
 vortex-demo-service sample service with a deliberate, documented bottleneck for demos/tests
 vortex-web          React + TypeScript + Mantine SPA, built by Vite, compiled into
-                    vortex-app/src/main/resources/static/app/ and shipped inside the same jar
+                    modules/app/src/main/resources/static/app/ and shipped inside the same jar
 ```
 
 Everything external to the domain sits behind a port in `com.acltabontabon.vortex.core.port` (`PerformanceEngine`,
@@ -104,7 +108,7 @@ end to end — the earlier Thymeleaf/htmx server-rendered UI ([ADR-004](docs/adr
 now superseded) has been fully removed, dependency and all. `SpaController` forwards every route not
 owned elsewhere to the SPA's `index.html`; React owns the app shell (top bar, service switcher,
 runtime status, command palette) and every page. Every `vortex-app` REST controller returns JSON
-only — there is no view-rendering controller left, and no Thymeleaf dependency in `vortex-app/pom.xml`.
+only — there is no view-rendering controller left, and no Thymeleaf dependency in `modules/app/pom.xml`.
 
 ## Coding standards
 
@@ -143,7 +147,7 @@ These are tested; if a change makes one of these tests fail, the test is probabl
   write every completed run's evidence to its artifact directory. Add a case to
   `SecretsNeverExportTest`. A writer only ever takes a `RunEvidence` — never reach around
   `EvidenceSanitizer` for the execution or plan (ArchUnit-enforced).
-- **AI capability**: prompt as a resource under `vortex-ai/src/main/resources/ai/`, bump
+- **AI capability**: prompt as a resource under `modules/ai/src/main/resources/ai/`, bump
   `PromptLibrary.VERSION` if response shape/substance could change, add a `PerformanceAssistant`
   method, extend `FakePerformanceAssistant` with its failure modes, and if it produces findings they
   must cite `EvidenceIds` or the validator discards them. Never ask a model to compute a number
@@ -156,7 +160,7 @@ These are tested; if a change makes one of these tests fail, the test is probabl
   Speak only in `OperationId`/method/path; put query-language specifics in `ObservationProvenance`;
   report `sampleResolution` and `OperationMixCoverage` honestly rather than overstating coverage.
 - **DB migration**: add `V<n>__<description>.sql` under
-  `vortex-persistence/src/main/resources/db/migration/`; never edit an applied one; Flyway runs at startup.
+  `modules/persistence/src/main/resources/db/migration/`; never edit an applied one; Flyway runs at startup.
 - **Validity reason code**: add to `ValidityReason` *only* if a measurement Vortex already collects
   produces it, add its rule to `RunQualityAssessor`, and put the threshold it compares against in
   `ValidityPolicy` rather than in the rule. Every finding must state the number it crossed, cite

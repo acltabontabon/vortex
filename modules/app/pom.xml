@@ -7,6 +7,7 @@
     <groupId>com.acltabontabon</groupId>
     <artifactId>vortex-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
   </parent>
 
   <artifactId>vortex-app</artifactId>
@@ -90,9 +91,9 @@
         </configuration>
       </plugin>
       <!--
-        The homepage (ADR-035). Builds vortex-web (React + Mantine) into
+        The homepage (ADR-035). Builds web (React + Mantine) into
         src/main/resources/static/app/ before resources are processed, so `mvn package` still
-        produces one self-contained jar. Node is downloaded into vortex-web/node/ for this build
+        produces one self-contained jar. Node is downloaded into web/node/ for this build
         only — nothing is installed on the host.
       -->
       <plugin>
@@ -100,8 +101,8 @@
         <artifactId>frontend-maven-plugin</artifactId>
         <version>1.15.1</version>
         <configuration>
-          <workingDirectory>${project.basedir}/../vortex-web</workingDirectory>
-          <installDirectory>${project.basedir}/../vortex-web</installDirectory>
+          <workingDirectory>${project.basedir}/../../web</workingDirectory>
+          <installDirectory>${project.basedir}/../../web</installDirectory>
         </configuration>
         <executions>
           <execution>

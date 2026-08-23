@@ -11,7 +11,7 @@ export default defineConfig({
   plugins: [react()],
   base: '/app/',
   build: {
-    outDir: '../vortex-app/src/main/resources/static/app',
+    outDir: '../modules/app/src/main/resources/static/app',
     emptyOutDir: true,
     rollupOptions: {
       output: {

@@ -1058,7 +1058,7 @@ merits:
 
 [source,bash]
 ----
-JAVA_HOME=/path/to/graalvm-25 ./mvnw -Pnative -pl vortex-app native:compile
+JAVA_HOME=/path/to/graalvm-25 ./mvnw -Pnative -pl modules/app native:compile
 ----
 
 Requires GraalVM 25 with `native-image` installed. Expect fifteen to thirty minutes and several

@@ -7,11 +7,12 @@
     <groupId>com.acltabontabon</groupId>
     <artifactId>vortex-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
   </parent>
 
-  <artifactId>vortex-ai</artifactId>
-  <name>Vortex :: AI</name>
-  <description>Spring AI + Ollama adapter. AI is strictly downstream of deterministic performance truth.</description>
+  <artifactId>vortex-openapi</artifactId>
+  <name>Vortex :: OpenAPI</name>
+  <description>OpenAPI import adapter. Quarantines swagger-parser; Swagger model types must never escape this module.</description>
 
   <dependencies>
     <dependency>
@@ -19,21 +20,15 @@
       <artifactId>vortex-core</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-starter-model-ollama</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
+      <groupId>io.swagger.parser.v3</groupId>
+      <artifactId>swagger-parser-v3</artifactId>
+      <exclusions>
+        <exclusion><groupId>io.swagger.parser.v3</groupId><artifactId>swagger-parser-v2-converter</artifactId></exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>com.acltabontabon</groupId>

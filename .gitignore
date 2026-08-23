@@ -1,24 +1,26 @@
 # Build output
-# Anchored to the root and to each module's own top-level target/ directory (one path segment
-# deep) rather than a bare "target/", which would also match com.acltabontabon.vortex.core.target — a source
-# package, not build output.
+# Anchored to the root and to each module's own top-level target/ directory (fixed depth under
+# modules/ and examples/) rather than a bare "target/", which would also match
+# com.acltabontabon.vortex.core.target — a source package, not build output.
 /target/
-*/target/
+modules/*/target/
+examples/*/target/
 !.mvn/wrapper/maven-wrapper.jar
 build/
 
-# vortex-web (ADR-035) — built by frontend-maven-plugin into vortex-app's static resources
-vortex-app/src/main/resources/static/app/
-vortex-web/node_modules/
-vortex-web/node/
-vortex-web/dist/
+# web (ADR-035) — built by frontend-maven-plugin into modules/app's static resources
+modules/app/src/main/resources/static/app/
+web/node_modules/
+web/node/
+web/dist/
 
 # Vortex workspace — local state, never committed.
-# The example project is the exception: a committed .vortex/vortex.yaml is the
+# The checkout-service example is the exception: a committed .vortex/vortex.yaml is the
 # whole point of the portable configuration, and README tells people to run
-# `vortex validate examples/checkout-service` against it.
+# `vortex validate examples/checkout-service` against it. examples/demo-service/.vortex/ is
+# that service's own local scratch state (like any other module) and stays ignored.
 .vortex/
-!examples/**/.vortex/
+!examples/checkout-service/.vortex/
 *.db
 *.db-shm
 *.db-wal
@@ -42,5 +44,5 @@ Thumbs.db
 *.log
 
 # Native image build output
-vortex-app/target/vortex
+modules/app/target/vortex
 *.build_artifacts.txt

@@ -931,7 +931,7 @@ class YamlConfigurationStoreTest {
 
         @Test
         void theExampleProjectIsValid() throws Exception {
-            Path example = Path.of("..", "examples", "checkout-service");
+            Path example = Path.of("..", "..", "examples", "checkout-service");
             String yaml = Files.readString(example.resolve(".vortex").resolve("vortex.yaml"));
 
             var result = store.parse(yaml, "examples/checkout-service");
@@ -981,7 +981,7 @@ class YamlConfigurationStoreTest {
     class ShippedExample {
 
         /** From the module directory, which is where surefire runs. */
-        private static final Path EXAMPLE = Path.of("..", "examples", "checkout-service");
+        private static final Path EXAMPLE = Path.of("..", "..", "examples", "checkout-service");
 
         @Test
         @DisplayName("examples/checkout-service parses, so the documented example is not fiction")

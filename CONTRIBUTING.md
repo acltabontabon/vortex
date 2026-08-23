@@ -18,15 +18,15 @@ make help          # everything below, as targets
 ## Running it
 
 ```bash
-./mvnw -pl vortex-demo-service spring-boot:run    # sample service on :8080
-./mvnw -pl vortex-app spring-boot:run             # Vortex on 127.0.0.1:7717
+./mvnw -pl examples/demo-service spring-boot:run  # sample service on :8080
+./mvnw -pl modules/app spring-boot:run            # Vortex on 127.0.0.1:7717
 ```
 
 Or as a jar:
 
 ```bash
-./mvnw -pl vortex-app -am package -DskipTests
-java -jar vortex-app/target/vortex.jar
+./mvnw -pl modules/app -am package -DskipTests
+java -jar modules/app/target/vortex.jar
 ```
 
 ## Architecture in one page
@@ -79,7 +79,7 @@ long httpFailures = ...
 
 ```bash
 ./mvnw test                       # everything, in a few seconds
-./mvnw -pl vortex-core test       # one module
+./mvnw -pl modules/core test      # one module
 ```
 
 ### Layers
@@ -127,7 +127,7 @@ verified by hand:
 
 ```bash
 ollama serve
-./mvnw -pl vortex-app spring-boot:run
+./mvnw -pl modules/app spring-boot:run
 ```
 
 Open the app — the top bar's readiness status should report a model. Then request an analysis from
@@ -138,12 +138,12 @@ identical either way.
 
 ### Adding a database migration
 
-Add `V<n>__<description>.sql` to `vortex-persistence/src/main/resources/db/migration/`. Never edit an
+Add `V<n>__<description>.sql` to `modules/persistence/src/main/resources/db/migration/`. Never edit an
 applied migration. Flyway runs them at startup.
 
 ### Adding an AI capability
 
-1. Write the prompt as a resource in `vortex-ai/src/main/resources/ai/`
+1. Write the prompt as a resource in `modules/ai/src/main/resources/ai/`
 2. Bump `PromptLibrary.VERSION` if the change could alter response shape or substance
 3. Add a method to `PerformanceAssistant`
 4. Extend `FakePerformanceAssistant` with the failure modes it introduces
@@ -212,7 +212,7 @@ model, so a section added in one place appears everywhere and cannot disagree wi
 ### Building a native image
 
 ```bash
-JAVA_HOME=/path/to/graalvm-25 ./mvnw -Pnative -pl vortex-app native:compile
+JAVA_HOME=/path/to/graalvm-25 ./mvnw -Pnative -pl modules/app native:compile
 ```
 
 **Nobody has run this yet.** If you do, record the outcome in

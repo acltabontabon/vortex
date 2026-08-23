@@ -79,13 +79,13 @@ Start the bundled sample service, which has a deliberate, documented bottleneck 
 shows something real:
 
 ```bash
-./mvnw -pl vortex-demo-service spring-boot:run
+./mvnw -pl examples/demo-service spring-boot:run
 ```
 
 Then start Vortex and open it in a browser:
 
 ```bash
-./mvnw -pl vortex-app spring-boot:run
+./mvnw -pl modules/app spring-boot:run
 ```
 
 Vortex listens on <http://127.0.0.1:7717> — the loopback address only. It generates traffic on your
@@ -239,6 +239,16 @@ evaluation, breakpoints, history, comparison and reports all work without one. A
 never the critical path.
 
 ---
+
+## Repository layout
+
+```
+modules/   Backend Vortex modules
+web/       Vortex Workbench frontend
+examples/  Sample systems and Vortex configurations
+docs/      Architecture and product documentation
+scripts/   Development and repository tooling
+```
 
 ## Documentation
 
