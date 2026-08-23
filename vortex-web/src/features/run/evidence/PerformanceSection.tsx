@@ -66,22 +66,24 @@ export function PerformanceSection({
             />
           )}
         </Fact>
-      </Facts>
 
-      {performance.latencyRows.length > 0 && (
-        <div className={classes.latencyRow}>
-          {performance.latencyRows.map((row) => (
-            <div key={row.percentileLabel} className={classes.latencyTile}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                {row.percentileLabel}
-              </Text>
-              <Text size="md" fw={650}>
-                {row.durationDisplay}
-              </Text>
+        {performance.latencyRows.length > 0 && (
+          <Fact label="Latency">
+            <div className={classes.latencyRow}>
+              {performance.latencyRows.map((row) => (
+                <div key={row.percentileLabel} className={classes.latencyTile}>
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                    {row.percentileLabel}
+                  </Text>
+                  <Text size="md" fw={650}>
+                    {row.durationDisplay}
+                  </Text>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          </Fact>
+        )}
+      </Facts>
 
       {performance.hasLimitsCard && (
         <Facts>

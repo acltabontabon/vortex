@@ -101,6 +101,12 @@ export function ResourceKindChart({
   const data = merge({ ...plot, series: withPoints }, origin);
   if (data.length === 0) return null;
 
+  // The system under test's own line is the one this chart exists to show; the generator and its
+  // host are correlation context drawn on the same axis, not a second subject of equal weight — a
+  // thinner, more transparent line keeps them readable without competing with the SUT's line for
+  // the reader's eye.
+  const scopeByName = new Map(withPoints.map((series) => [seriesKey(series.signalId, series.providerId), series.scope]));
+
   const lastElapsedSeconds = data[data.length - 1].elapsedSeconds;
   const markerLines = verticalMarkerLines(markers, origin, lastElapsedSeconds);
 
@@ -135,6 +141,11 @@ export function ResourceKindChart({
         withDots={false}
         withLegend={withPoints.length > 1}
         strokeWidth={2}
+        lineProps={(series) =>
+          scopeByName.get(series.name) !== 'SYSTEM_UNDER_TEST'
+            ? { strokeWidth: 1.5, strokeOpacity: 0.6 }
+            : {}
+        }
         valueFormatter={valueFormatter}
         xAxisProps={{
           type: 'number',

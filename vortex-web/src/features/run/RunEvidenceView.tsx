@@ -115,6 +115,7 @@ export function RunEvidenceView({
         loadAxis={evidence.loadAxis}
         observability={evidence.observability}
         timeline={evidence.timeline}
+        resources={evidence.resources}
         provenance={evidence.provenance}
       />
     </Stack>
