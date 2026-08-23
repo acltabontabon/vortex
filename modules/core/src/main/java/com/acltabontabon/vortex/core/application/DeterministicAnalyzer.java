@@ -17,6 +17,7 @@ import com.acltabontabon.vortex.core.metrics.StageTelemetry;
 import com.acltabontabon.vortex.core.metrics.SamplePoint;
 import com.acltabontabon.vortex.core.plan.EffectiveTestPlan;
 import com.acltabontabon.vortex.core.shared.ErrorRate;
+import com.acltabontabon.vortex.core.shared.LoadLevel;
 import com.acltabontabon.vortex.core.shared.RequestsPerSecond;
 import com.acltabontabon.vortex.core.threshold.Durations;
 import com.acltabontabon.vortex.core.threshold.LatencyThreshold;
@@ -271,7 +272,8 @@ public final class DeterministicAnalyzer {
 
         List<StageObservation> observations = new ArrayList<>();
 
-        for (StageWindows.StageWindow stage : windows) {
+        for (int i = 0; i < windows.size(); i++) {
+            StageWindows.StageWindow stage = windows.get(i);
             var stageStart = stage.window().start();
             var stageEnd = stage.window().end();
 
@@ -287,6 +289,10 @@ public final class DeterministicAnalyzer {
                     .findFirst()
                     .orElse(null);
 
+            // Absent for the first stage: k6 never ramps into it (startRate is set to its own
+            // target from t=0), so there is nothing to correct rateShortfall() against.
+            LoadLevel rampStartLevel = i == 0 ? null : windows.get(i - 1).target();
+
             observations.add(new StageObservation(
                     stage.target(),
                     meanRequestRate(inStage).orElse(null),
@@ -299,7 +305,8 @@ public final class DeterministicAnalyzer {
                     // this walk could only compute — and this walk's otherwise.
                     telemetry == null ? stage.basis() : telemetry.basis(),
                     telemetry == null ? List.of() : telemetry.resourceSignals(),
-                    requestsIn(inStage)));
+                    requestsIn(inStage),
+                    rampStartLevel));
         }
 
         return observations;

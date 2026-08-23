@@ -31,6 +31,11 @@ import java.util.Optional;
  * @param basis              how this stage's interval was established. A signal aligned by a
  *                           computed boundary is still correlated evidence, but it never
  *                           strengthens a finding — see {@link StageWindowBasis}
+ * @param rampStartLevel     the level the previous stage in the plan held, when there is one.
+ *                           Absent for the first stage — k6 never ramps into it, since {@code
+ *                           startRate} is set to its own target from t=0 — or a single-stage run.
+ *                           Used only to correct {@link #rateShortfall()}'s comparison basis; the
+ *                           raw {@link #achievedRate} this stage actually measured is untouched
  */
 public record StageObservation(
         LoadLevel targetLoad,
@@ -42,7 +47,8 @@ public record StageObservation(
         List<MetricObservation> signals,
         StageWindowBasis basis,
         List<ResourceSignal> resourceSignals,
-        long requests) {
+        long requests,
+        LoadLevel rampStartLevel) {
 
     public StageObservation {
         Objects.requireNonNull(targetLoad, "targetLoad");
@@ -56,13 +62,27 @@ public record StageObservation(
         }
     }
 
+    /**
+     * A stage with no ramp-start level recorded.
+     *
+     * <p>Kept at the previous arity for the same reason every constructor below it exists: widening
+     * the record must not mean editing every caller that has nothing to put in the new field.
+     */
+    public StageObservation(LoadLevel targetLoad, RequestsPerSecond achievedRate, Duration p95,
+            ErrorRate errorRate, int sampleCount, List<String> violatedThresholds,
+            List<MetricObservation> signals, StageWindowBasis basis,
+            List<ResourceSignal> resourceSignals, long requests) {
+        this(targetLoad, achievedRate, p95, errorRate, sampleCount, violatedThresholds, signals,
+                basis, resourceSignals, requests, null);
+    }
+
     /** A stage whose request count was not established. */
     public StageObservation(LoadLevel targetLoad, RequestsPerSecond achievedRate, Duration p95,
             ErrorRate errorRate, int sampleCount, List<String> violatedThresholds,
             List<MetricObservation> signals, StageWindowBasis basis,
             List<ResourceSignal> resourceSignals) {
         this(targetLoad, achievedRate, p95, errorRate, sampleCount, violatedThresholds, signals,
-                basis, resourceSignals, 0);
+                basis, resourceSignals, 0, null);
     }
 
     /** A stage whose provider classified none of what it reported. */
@@ -150,11 +170,26 @@ public record StageObservation(
         return Optional.ofNullable(p95);
     }
 
+    public Optional<LoadLevel> rampStartLevelIfPresent() {
+        return Optional.ofNullable(rampStartLevel);
+    }
+
     /**
      * How far the achieved request rate fell short of the offered rate, as a fraction.
      *
      * <p>A load generator that cannot keep up with its own schedule is one of the clearest signs
      * that the system under test has stopped absorbing traffic.
+     *
+     * <p>Compared against the ramp's own average, not its arrival point, when this stage followed a
+     * different level: k6's arrival-rate executor ramps a stage's rate linearly from the previous
+     * stage's target to this one's, over this stage's own duration, so a stage's first several
+     * seconds are below its nominal target by design. Averaging the whole window and comparing that
+     * to the fully-ramped target would charge the ramp itself as a shortfall — which for a linear
+     * ramp sampled evenly is always exactly {@code (start+end)/2} below the end, regardless of
+     * whether anything actually fell behind. Comparing against that same average instead means a
+     * stage that tracked its ramp perfectly reports (near) zero shortfall, which is what actually
+     * happened. Reduces to today's exact comparison whenever there is no ramp start recorded, or the
+     * previous stage held the identical level — a true plateau, where {@code (X+X)/2 == X}.
      *
      * <p>Empty for a closed workload. There, throughput is an outcome rather than a target: virtual
      * users simply complete fewer iterations when the service is slow, so there is no shortfall to
@@ -165,7 +200,11 @@ public record StageObservation(
                 || target.asDouble() <= 0) {
             return Optional.empty();
         }
-        double shortfall = 1.0 - (achievedRate.asDouble() / target.asDouble());
+        double comparisonBasis = target.asDouble();
+        if (rampStartLevel instanceof RequestsPerSecond rampStart) {
+            comparisonBasis = (rampStart.asDouble() + target.asDouble()) / 2.0;
+        }
+        double shortfall = 1.0 - (achievedRate.asDouble() / comparisonBasis);
         return Optional.of(Math.max(0.0, shortfall));
     }
 }

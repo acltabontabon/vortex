@@ -395,4 +395,37 @@ public final class Fixtures {
         }
         return new MetricSeries(Duration.ofSeconds(5), points);
     }
+
+    /**
+     * A time series that tracks its ramp almost perfectly, mimicking a service keeping up with an
+     * arrival-rate ramp.
+     *
+     * <p>k6's {@code ramping-arrival-rate} executor moves a stage's rate linearly from the previous
+     * stage's target to this stage's own, over this stage's own duration — so a healthy run's
+     * achieved rate looks like this ramp, not a flat line at the stage's nominal level. The first
+     * stage never ramps: k6's {@code startRate} is set to its own target from t=0.
+     */
+    public static MetricSeries rampingSeries(List<Stage> stages) {
+        List<SamplePoint> points = new ArrayList<>();
+        Instant cursor = NOW;
+        double previousLevel = stages.isEmpty() ? 0 : stages.getFirst().target().asDouble();
+        for (Stage stage : stages) {
+            long buckets = stage.duration().toSeconds() / 5;
+            double rampStart = previousLevel;
+            double rampEnd = stage.target().asDouble();
+            LoadLevel target = stage.target();
+            for (int i = 0; i < buckets; i++) {
+                double fraction = (i + 0.5) / buckets;
+                double expected = rampStart + (rampEnd - rampStart) * fraction;
+                points.add(new SamplePoint(cursor, Duration.ofSeconds(5),
+                        RequestsPerSecond.of(expected * 0.99),
+                        ErrorRate.ZERO,
+                        Duration.ofMillis(60),
+                        target));
+                cursor = cursor.plusSeconds(5);
+            }
+            previousLevel = rampEnd;
+        }
+        return new MetricSeries(Duration.ofSeconds(5), points);
+    }
 }

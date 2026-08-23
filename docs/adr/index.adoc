@@ -147,6 +147,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-046-dropped-work-requires-service-health-to-blame-the-generator.adoc[046]
 | Dropped iterations only withhold capacity when the service itself is healthy, amending 038
+
+| xref:adr-047-stage-shortfall-is-measured-against-the-ramp-not-the-arrival.adoc[047]
+| A ramping stage's shortfall is measured against its own ramp average, not the level it arrives at
 |===
 
 == Format

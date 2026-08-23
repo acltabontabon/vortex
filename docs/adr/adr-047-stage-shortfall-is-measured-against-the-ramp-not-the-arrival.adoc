@@ -1,0 +1,108 @@
+= ADR-047: Stage shortfall is measured against the ramp, not the level it arrives at
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+A BREAKPOINT run against the demo service (execution `3b6051602be844c5b761a5d8595edee0`) showed a
+report that contradicted itself: **Result: Pass** ("the service sustained 82.994 requests/sec and met
+every objective") next to **Evidence Quality: Not valid**, reasoned as "Achieved throughput fell 25%
+below the offered 100 requests/sec while the service met every objective, returned no errors, and had
+no observed resource near its limit. The shortfall is therefore attributable to the load generator..."
+This is a different mechanism from the one xref:adr-046-dropped-work-requires-service-health-to-blame-the-generator.adoc[ADR-046]
+fixed — this run reported no `dropped_iterations` at all.
+
+k6's `ramping-arrival-rate` executor — the executor Vortex's own `K6ScriptGenerator` configures for
+every ramping open-model workload — moves a stage's rate *linearly* from the previous stage's target
+to this stage's own, over this stage's own declared duration. `DeterministicAnalyzer.deriveStages()`
+builds each stage's `achievedRate` as a flat, unweighted mean of every sample bucket in the stage's
+time window, including the buckets still ramping up, then `StageObservation.rateShortfall()` compares
+that mean straight against the stage's fully-ramped nominal target.
+
+For a stage ramping from level A to level B, the mean of a linear ramp sampled evenly is exactly
+`(A+B)/2` — below the stage's own end level `B` by design, regardless of whether the run kept up with
+what it was actually being asked to do at each moment. The investigated run's own numbers confirmed
+this precisely: the 50→100 req/s stage's four buckets (56.2, 69.0, 81.6, 94.0) averaged to 75.2, and
+`(50+100)/2 = 75` — the system was tracking its ramp almost perfectly; the reported "shortfall" was
+pure measurement artifact from comparing against the wrong (end-state) target.
+
+This single miscalibration fed two separate, independently-computed conclusions the report showed side
+by side: `RunQualityAssessor.shortfallAttributableToTheGenerator()` (the "Evidence Quality" card) and
+`SustainableCapacityCalculator.throughputTracked()` (the "Capacity" tile) both call
+`StageObservation.rateShortfall()` directly, so both were wrong for the identical reason, without either
+one referencing the other.
+
+No code, ADR, or test anywhere treats "the stage average should include its own ramp-in" as intended
+semantics. To the contrary, `docs/01-product/roadmap.adoc` already names excluding a warm-up/ramp
+period from evaluation as a planned direction, today scoped to a whole declared warm-up stage — this
+fix is a finer-grained instance of the same idea, applicable to every ramping stage without requiring
+one to be explicitly declared, and using only data Vortex already has (its own plan's declared stage
+targets — no new k6 telemetry).
+
+== Decision
+
+`StageObservation` gains one additive field, `rampStartLevel`: the level the *previous* stage in the
+plan held, absent for the first stage (k6 never ramps into it — `startRate` is set to the first stage's
+own target from t=0, confirmed by the same run's first stage holding flat throughout) or a single-stage
+run. Following this record's own established precedent (it already carries four constructor overloads
+for exactly this reason, mirroring `SamplePoint`'s three), the existing 10-argument constructor becomes
+a delegating overload passing `null` — every existing call site across the codebase keeps compiling
+unmodified.
+
+`rateShortfall()`'s comparison basis becomes `(rampStartLevel + targetLoad) / 2` when `rampStartLevel`
+is present and is a `RequestsPerSecond` (the same type guard already used for `targetLoad`), otherwise
+unchanged. This is a strict generalization, not a special case to maintain separately: it reduces to
+today's exact formula whenever there is no previous stage, and reduces to it again whenever the
+previous stage held the *identical* level — a true plateau, where `(X+X)/2 == X`. It is a no-op for
+closed/concurrency workloads, where `targetLoad` is a `Concurrency` rather than a `RequestsPerSecond`,
+so the existing first `instanceof` guard already returns empty unchanged.
+
+`DeterministicAnalyzer.deriveStages()` populates the new field from the stage-window list it already
+iterates in plan order — no new measurement, no new telemetry, nothing k6 has to report that it does
+not already.
+
+The raw `achievedRate` value itself is untouched: this fix corrects the *comparison*, not the measured
+mean, keeping raw evidence honest and separate from the derived finding built on top of it — the same
+tier discipline the rest of the evidence model already holds to.
+
+Every consumer of `rateShortfall()` — `RunQualityAssessor` (both the direct and indirect
+`OFFERED_LOAD_NOT_GENERATED` branches), `SustainableCapacityCalculator.throughputTracked()`, and
+`SystemSaturationDetector` — inherits the fix automatically, with no call-site changes, because they
+all read the one corrected method rather than each computing their own comparison.
+
+== Rejected alternatives
+
+* *A fixed "skip the first N seconds" trim per stage* — rejected: nothing in the workload-authoring
+  model enforces a minimum stage duration, so a fixed trim risks discarding an entire short stage's
+  worth of buckets. The ramp-average approach needs no tunable duration at all.
+* *Per-bucket linear interpolation against an instantaneous expected rate* — mathematically equivalent
+  for a uniformly-bucketed linear ramp (the sum of per-bucket ratios reduces to the same
+  endpoint-average), but requires each bucket's time offset within its stage and is materially more
+  code for an identical result. The endpoint average was chosen as the simplest correct implementation
+  of the same idea.
+* *Rescaling the reported `achievedRate` itself* to already reflect the ramp-corrected figure —
+  rejected: it would make a stage's headline "achieved throughput" a number nobody literally measured,
+  conflating a raw measurement with a derived comparison in one field. Keeping `achievedRate` honest and
+  introducing `rampStartLevel` as a separate, additive fact preserves the evidence hierarchy's tiers.
+* *Duplicating the ramp-average formula independently inside `RunQualityAssessor`,
+  `SustainableCapacityCalculator`, and `SystemSaturationDetector`* — rejected in favor of fixing the one
+  shared `rateShortfall()` method both consumers already call, avoiding three copies of the same formula
+  that could quietly drift apart.
+
+== Consequences
+
+*Gained.* A run whose stages genuinely track their own ramps no longer reports a phantom shortfall on
+either the "Evidence Quality" or "Capacity" conclusion — the two symptoms of one root cause are fixed
+together, from one change, with no coordination required between the classes that display them.
+
+*Cost.* `StageObservation` grows a field whose meaning ("the level ramped from, not necessarily a real
+ramp") takes a moment to explain; a reader has to know it degrades to a no-op for plateaus and closed
+workloads rather than assume it always changes the answer.
+
+*Not covered, flagged as a follow-up.* `ThroughputCeilingDetector` computes its own adjacent-stage
+flattening check directly from `achievedRateIfPresent()`, not through `rateShortfall()` — it is not
+touched by this fix and could have a related issue, but there is no concrete evidence of it misfiring
+today, and changing breakpoint-ceiling detection deserves its own dedicated investigation rather than
+being bundled into this one.
