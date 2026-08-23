@@ -74,7 +74,7 @@ class ReproducibleEvidenceTest {
                 ExecutionState.COMPLETED, Fixtures.NOW, Fixtures.NOW,
                 Fixtures.NOW.plusSeconds(600), results, summary,
                 new dev.vortex.core.plan.ToolVersions("0.1.0", "k6 v1.3.0", "Java 25", ""),
-                null, null, "", quality);
+                null, null, "", quality, null);
     }
 
     private RunEvidence evidenceFor(TestExecution execution) {
@@ -160,12 +160,13 @@ class ReproducibleEvidenceTest {
                     withDefaults.operations(), withDefaults.datasets(),
                     withDefaults.workloadSource(), withDefaults.thresholds(),
                     withDefaults.environmentName(), withDefaults.environmentType(),
+                    withDefaults.executionTarget(),
                     withDefaults.configuredTarget(), withDefaults.effectiveTarget(),
                     withDefaults.targetRewriteReason(), withDefaults.dependencyMode(),
                     withDefaults.classification(), withDefaults.headers(), withDefaults.k6Options(),
                     withDefaults.runner(), withDefaults.scriptSource(),
                     withDefaults.safetyDecisions(), null,
-                    dev.vortex.core.validity.ValidityPolicy.defaults())
+                    dev.vortex.core.validity.ValidityPolicy.defaults(), withDefaults.workspacePath())
                     .withComputedFingerprint();
 
             assertThat(explicit.fingerprint()).isEqualTo(withDefaults.fingerprint());
@@ -182,11 +183,12 @@ class ReproducibleEvidenceTest {
                     base.intent(), base.workloadName(), base.workloadDescription(),
                     base.testType(), base.workloadModel(), base.peakLevel(), base.stages(),
                     base.operations(), base.datasets(), base.workloadSource(), base.thresholds(),
-                    base.environmentName(), base.environmentType(), base.configuredTarget(),
+                    base.environmentName(), base.environmentType(), base.executionTarget(),
+                    base.configuredTarget(),
                     base.effectiveTarget(), base.targetRewriteReason(), base.dependencyMode(),
                     base.classification(), base.headers(), base.k6Options(), base.runner(),
                     base.scriptSource(), base.safetyDecisions(), base.fingerprint(),
-                    base.validityPolicy());
+                    base.validityPolicy(), base.workspacePath());
         }
 
         private final RegressionEvaluator regressions = new RegressionEvaluator();

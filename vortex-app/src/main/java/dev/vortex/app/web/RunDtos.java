@@ -78,8 +78,23 @@ public final class RunDtos {
     // ---------------------------------------------------------------- the live/terminal read
 
     /** Field-for-field against the original SSE payload shape the retired Thymeleaf run-live page used. */
+    /**
+     * @param message         a human-readable status line, currently populated only while target
+     *                        preparation is in progress ({@code state == "STARTING"}) — the frontend
+     *                        renders it verbatim, without parsing, deduplicating, or accumulating it
+     *                        into a checklist. Empty for an ordinary external-endpoint run, which
+     *                        never has anything to say here, and empty again once {@code RUNNING}
+     *                        starts (traffic status lives in {@code stage} from that point on)
+     * @param resourceReading the target's live CPU/memory reading in the most recent bucket, or null
+     *                        — see {@code ExecutionProgress.currentResourceReading}'s own javadoc for
+     *                        why this is always null in v1
+     */
     public record RunProgressDto(String state, String elapsed, String stage, double percent,
-            String targetRate, String currentRate, String p95, String errorRate) {
+            String targetRate, String currentRate, String p95, String errorRate, String message,
+            ResourceReadingDto resourceReading) {
+    }
+
+    public record ResourceReadingDto(String cpu, String memory) {
     }
 
     public record RunPlanSummaryDto(

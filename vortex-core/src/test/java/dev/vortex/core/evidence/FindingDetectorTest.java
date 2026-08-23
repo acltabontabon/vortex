@@ -528,7 +528,8 @@ class FindingDetectorTest {
         return new RunIdentity(ExecutionId.of("exec1"), ProjectId.of("checkout"),
                 "checkout-service", "1.4.0", "production-peak", "", TestType.AVERAGE_LOAD,
                 "local", EnvironmentType.LOCAL_ISOLATED, TestClassification.ISOLATED,
-                DependencyMode.MOCKED, "http://localhost:8080", "", null,
+                DependencyMode.MOCKED, "http://localhost:8080", "",
+                "EXTERNAL_ENDPOINT", "http://localhost:8080", "Externally managed", "", null,
                 START, START, START.plusSeconds(600), Duration.ofMinutes(10));
     }
 }

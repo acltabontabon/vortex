@@ -48,14 +48,24 @@ public final class WorkspaceDtos {
     /**
      * The environment a run would target.
      *
+     * @param baseUrl              the target's real pre-run address, or the empty string when the
+     *                             target has none in truth ({@code DOCKER_IMAGE}/{@code
+     *                             DOCKER_COMPOSE} — there is no address to show before a run resolves
+     *                             one; do not manufacture one here)
      * @param classification      {@code ISOLATED} or {@code INTEGRATED} — the single most
      *                            consequential fact about what a result may claim
      * @param classificationCaveat the domain's own sentence about what this classification does not
      *                            establish, carried so no screen has to paraphrase it
+     * @param targetKind          {@code EXTERNAL_ENDPOINT}, {@code DOCKER_IMAGE} or {@code
+     *                            DOCKER_COMPOSE} — matches the wire vocabulary shared with {@code
+     *                            ConfigurationApiController.EnvironmentRequest.targetKind}
+     * @param targetSummary       the target's own {@code ExecutionTarget.summary()}, e.g. "Docker:
+     *                            payment-service:1.4.2" — carries the useful identity when
+     *                            {@code baseUrl} is empty
      */
     public record TargetDto(String environmentName, String baseUrl, String environmentTypeLabel,
             String classification, String classificationLabel, String classificationCaveat,
-            String dependencyModeLabel) {
+            String dependencyModeLabel, String targetKind, String targetSummary) {
     }
 
     /**

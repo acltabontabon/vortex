@@ -96,9 +96,16 @@ public final class K6PerformanceEngine implements PerformanceEngine {
                 runner instanceof DockerK6Runner docker ? docker.image() : "");
     }
 
-    /** The rewrite this runner requires for the given plan, for display on the preflight screen. */
-    public Optional<K6Runner.TargetRewrite> targetRewriteFor(EffectiveTestPlan plan) {
-        return runner.targetRewriteFor(plan);
+    /**
+     * The rewrite this runner requires for the given plan, for display on the preflight screen and
+     * for {@code ExecutionService} to compose with target resolution when building the transient,
+     * engine-facing plan copy it actually executes (see {@code
+     * dev.vortex.core.port.PerformanceEngine#targetRewriteFor}).
+     */
+    @Override
+    public Optional<PerformanceEngine.TargetRewrite> targetRewriteFor(EffectiveTestPlan plan) {
+        return runner.targetRewriteFor(plan)
+                .map(hint -> new PerformanceEngine.TargetRewrite(hint.newHost(), hint.reason()));
     }
 
     /**
@@ -124,7 +131,7 @@ public final class K6PerformanceEngine implements PerformanceEngine {
 
         try {
             Path script = directory.resolve(SCRIPT_FILE);
-            Files.writeString(script, generator.generate(plan), StandardCharsets.UTF_8);
+            Files.writeString(script, generator.generate(scriptCheckable(plan)), StandardCharsets.UTF_8);
 
             List<String> problems = new ArrayList<>();
             var outcome = runner.run(
@@ -149,6 +156,25 @@ public final class K6PerformanceEngine implements PerformanceEngine {
         } finally {
             deleteQuietly(directory);
         }
+    }
+
+    /**
+     * A copy of {@code plan} guaranteed to carry a resolved target address, for generating the
+     * disposable script this method uses only to ask k6 "does this parse" — never run, never shown
+     * to a user, deleted within microseconds.
+     *
+     * <p>A Docker or Compose target has no real address yet at this point — target preparation, the
+     * step that would resolve one, only ever runs once a real execution starts, which validation
+     * deliberately happens before. Substituting a placeholder here is correct rather than a
+     * workaround: this check is about syntax, not reachability, and reachability for such a target
+     * is already covered separately by {@code TargetExecutor.checkAvailability}.
+     */
+    private static EffectiveTestPlan scriptCheckable(EffectiveTestPlan plan) {
+        if (plan.effectiveTargetIfPresent().isPresent()) {
+            return plan;
+        }
+        var placeholder = dev.vortex.core.environment.TargetUrl.of("http://validation.invalid");
+        return plan.withTargetAddress(placeholder, placeholder, "");
     }
 
     @Override
@@ -501,7 +527,12 @@ public final class K6PerformanceEngine implements PerformanceEngine {
                     point.p95IfPresent().orElse(null),
                     point.errorRate(),
                     stageLabelFor(point),
-                    ""));
+                    "",
+                    // Always null: this engine's own progress publisher has no access to the
+                    // telemetry session that would produce a live resource reading — see
+                    // ExecutionProgress.currentResourceReading's own javadoc for why that field is
+                    // deliberately deferred in v1 rather than wired here.
+                    null));
         }
 
         private String stageLabelFor(SamplePoint point) {

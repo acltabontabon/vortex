@@ -22,6 +22,8 @@ function aHeader(overrides: Partial<Header> = {}): Header {
       classificationLabel: 'Isolated performance test',
       classificationCaveat: 'Dependencies are simulated or controlled.',
       dependencyModeLabel: 'Mocked',
+      targetKind: 'EXTERNAL_ENDPOINT',
+      targetSummary: 'http://localhost:8080',
     },
     environmentCount: 1,
     release: null,
@@ -79,6 +81,63 @@ describe('the service header', () => {
       'href',
       '/services/checkout/configuration',
     );
+  });
+
+  it('omits the target-summary segment for an external endpoint — baseUrl already says it', () => {
+    renderWithProviders(<ServiceHeader header={aHeader()} />);
+
+    expect(screen.queryByText(/^Docker:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Compose:/)).not.toBeInTheDocument();
+  });
+
+  it('shows the target summary for a Docker-managed target, whose baseUrl is empty pre-run', () => {
+    renderWithProviders(
+      <ServiceHeader
+        header={aHeader({
+          target: {
+            environmentName: 'docker-managed',
+            baseUrl: '',
+            environmentTypeLabel: 'Local',
+            classification: 'ISOLATED',
+            classificationLabel: 'Isolated performance test',
+            classificationCaveat: 'Dependencies are simulated or controlled.',
+            dependencyModeLabel: 'Mocked',
+            targetKind: 'DOCKER_IMAGE',
+            targetSummary: 'Docker: payment-service:1.4.2',
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Docker: payment-service:1.4.2')).toBeInTheDocument();
+  });
+
+  it('shows the target summary for a Compose target the same way', () => {
+    renderWithProviders(
+      <ServiceHeader
+        header={aHeader({
+          target: {
+            environmentName: 'compose-attached',
+            baseUrl: '',
+            environmentTypeLabel: 'Local',
+            classification: 'ISOLATED',
+            classificationLabel: 'Isolated performance test',
+            classificationCaveat: 'Dependencies are simulated or controlled.',
+            dependencyModeLabel: 'Mocked',
+            targetKind: 'DOCKER_COMPOSE',
+            targetSummary: 'Compose: payment-service (compose.yaml)',
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Compose: payment-service (compose.yaml)')).toBeInTheDocument();
+  });
+
+  it('shows "No target configured" when no environment is set up yet', () => {
+    renderWithProviders(<ServiceHeader header={aHeader({ target: null })} />);
+
+    expect(screen.getByText('No target configured')).toBeInTheDocument();
   });
 
   it('shows a quiet, non-interactive running readout while a run is in flight', () => {

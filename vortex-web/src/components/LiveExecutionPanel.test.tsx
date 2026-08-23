@@ -123,4 +123,57 @@ describe('the live execution panel', () => {
     ).toHaveAttribute('data-reduced-motion', 'true');
     expect(screen.getByText(/^↳ /)).toBeInTheDocument();
   });
+
+  // Target-preparation status — a plain, non-accumulating status line for a Docker/Compose target
+  // being prepared. These cases exist to keep this behaviour from regressing into a message-derived
+  // checklist later; see the module docstring's own note on why that was explicitly rejected.
+
+  it('shows the latest target-preparation status while starting, under its own label', () => {
+    renderWithProviders(
+      <LiveExecutionPanel
+        {...baseProps({ state: 'STARTING', preparationMessage: 'Container created' })}
+      />,
+    );
+
+    expect(screen.getByText('Preparing target…')).toBeInTheDocument();
+    expect(screen.getByText('Container created')).toBeInTheDocument();
+  });
+
+  it('renders nothing for an ordinary external-endpoint run, which never sends a preparation message', () => {
+    renderWithProviders(
+      <LiveExecutionPanel {...baseProps({ state: 'STARTING', preparationMessage: null })} />,
+    );
+
+    expect(screen.queryByText('Preparing target…')).not.toBeInTheDocument();
+  });
+
+  it('does not show the preparation status once the run leaves STARTING', () => {
+    renderWithProviders(
+      <LiveExecutionPanel
+        {...baseProps({ state: 'RUNNING', preparationMessage: 'Container created' })}
+      />,
+    );
+
+    expect(screen.queryByText('Preparing target…')).not.toBeInTheDocument();
+  });
+
+  it('shows a live CPU/memory reading when the target reports one', () => {
+    renderWithProviders(
+      <LiveExecutionPanel
+        {...baseProps({ resourceReading: { cpu: '0.46 / 0.50 cores', memory: '392 / 512 MiB' } })}
+      />,
+    );
+
+    expect(screen.getByText('CPU')).toBeInTheDocument();
+    expect(screen.getByText('0.46 / 0.50 cores')).toBeInTheDocument();
+    expect(screen.getByText('Memory')).toBeInTheDocument();
+    expect(screen.getByText('392 / 512 MiB')).toBeInTheDocument();
+  });
+
+  it('omits the CPU/memory slots entirely when no resource reading is present', () => {
+    renderWithProviders(<LiveExecutionPanel {...baseProps({ resourceReading: null })} />);
+
+    expect(screen.queryByText('CPU')).not.toBeInTheDocument();
+    expect(screen.queryByText('Memory')).not.toBeInTheDocument();
+  });
 });

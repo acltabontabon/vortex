@@ -9,8 +9,10 @@ import dev.vortex.core.analysis.AnalysisState;
 import dev.vortex.core.analysis.Confidence;
 import dev.vortex.core.analysis.DeterministicSummary;
 import dev.vortex.core.analysis.Finding;
+import dev.vortex.core.application.ProjectService;
 import dev.vortex.core.capacity.CapacityObservation;
 import dev.vortex.core.environment.DependencyMode;
+import dev.vortex.core.environment.TargetUrl;
 import dev.vortex.core.environment.TestClassification;
 import dev.vortex.core.execution.ExecutionState;
 import dev.vortex.core.execution.TestExecution;
@@ -22,7 +24,9 @@ import dev.vortex.core.metrics.MetricSource;
 import dev.vortex.core.metrics.MetricUnit;
 import dev.vortex.core.metrics.ObservationProvenance;
 import dev.vortex.core.metrics.ObservationTrace;
+import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.plan.ExperimentIdentity;
+import dev.vortex.core.port.Clock;
 import dev.vortex.core.port.Repositories.ExecutionRepository;
 import dev.vortex.core.project.Project;
 import dev.vortex.core.shared.AnalysisId;
@@ -30,6 +34,15 @@ import dev.vortex.core.shared.ExecutionId;
 import dev.vortex.core.shared.RequestsPerSecond;
 import dev.vortex.core.shared.Percentile;
 import dev.vortex.core.shared.ProjectId;
+import dev.vortex.core.target.ContainerPort;
+import dev.vortex.core.target.CpuAllocation;
+import dev.vortex.core.target.DockerImageTarget;
+import dev.vortex.core.target.EffectiveResourceEnvelope;
+import dev.vortex.core.target.ImageReference;
+import dev.vortex.core.target.MemoryAllocation;
+import dev.vortex.core.target.ResolvedTarget;
+import dev.vortex.core.target.ResourceEnvelopeRequest;
+import dev.vortex.core.target.TargetOwnership;
 import dev.vortex.core.threshold.ThresholdEvaluation;
 import dev.vortex.core.threshold.ThresholdEvaluator;
 import dev.vortex.core.threshold.Verdict;
@@ -191,6 +204,63 @@ class PersistenceRoundTripTest {
     }
 
     @Nested
+    @DisplayName("deleting a service")
+    class ProjectDeletion {
+
+        private ProjectService projectService() {
+            return new ProjectService(projects, configurations, catalogs, executions,
+                    new YamlConfigurationStore(), artifacts, Clock.fixed(Fixtures.NOW));
+        }
+
+        private TestExecution completedExecution(String id) {
+            var results = Fixtures.results(281, 0.0008);
+            return new TestExecution(ExecutionId.of(id), ProjectId.of("checkout"), Fixtures.plan(),
+                    ExecutionState.COMPLETED, Fixtures.NOW, Fixtures.NOW, Fixtures.NOW.plusSeconds(600),
+                    results, null, null, null, null, "");
+        }
+
+        @Test
+        @DisplayName("removes the project, its runs, and their filesystem evidence")
+        void deletingAProjectRemovesEverythingItLeftBehind() {
+            Project project = storedProject();
+            configurations.save(project.id(), Fixtures.configuration());
+            executions.save(completedExecution("exec1"));
+            artifacts.write(ExecutionId.of("exec1"), "plan.json", "{}");
+
+            projectService().delete(project.id());
+
+            assertThat(projects.findById(project.id())).isEmpty();
+            assertThat(configurations.findByProject(project.id())).isEmpty();
+            assertThat(executions.findByProject(project.id(), 10)).isEmpty();
+            assertThat(artifacts.read(ExecutionId.of("exec1"), "plan.json")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("refuses to delete a service with a run still in progress")
+        void refusesToDeleteWhileARunIsInProgress() {
+            Project project = storedProject();
+            var running = TestExecution.create(ExecutionId.of("stuck"), Fixtures.plan(), Fixtures.NOW)
+                    .transitionTo(ExecutionState.VALIDATING, Fixtures.NOW)
+                    .transitionTo(ExecutionState.READY, Fixtures.NOW)
+                    .transitionTo(ExecutionState.STARTING, Fixtures.NOW)
+                    .transitionTo(ExecutionState.RUNNING, Fixtures.NOW);
+            executions.save(running);
+
+            assertThatThrownBy(() -> projectService().delete(project.id()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("run is in progress");
+
+            assertThat(projects.findById(project.id())).isPresent();
+        }
+
+        @Test
+        void deletingAnUnknownProjectFailsWithAClearMessage() {
+            assertThatThrownBy(() -> projectService().delete(ProjectId.of("does-not-exist")))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Nested
     @DisplayName("executions")
     class Executions {
 
@@ -209,6 +279,86 @@ class PersistenceRoundTripTest {
                     dev.vortex.core.execution.ExecutionArtifacts.empty()
                             .with("plan.json", "plan.json"),
                     null, "");
+        }
+
+        /** A plan declaring a Docker-managed target instead of an external endpoint — this kind of
+         *  plan has no pre-run address at all, so {@code configuredTarget}/{@code effectiveTarget}
+         *  are absent rather than manufactured. */
+        private EffectiveTestPlan dockerImagePlan() {
+            EffectiveTestPlan base = Fixtures.plan();
+            DockerImageTarget dockerTarget = new DockerImageTarget(
+                    new ImageReference("payment-service:1.4.2"), new ContainerPort(8080),
+                    new ResourceEnvelopeRequest(CpuAllocation.ofMillicores(500),
+                            MemoryAllocation.ofMebibytes(512)),
+                    null);
+            return new EffectiveTestPlan(base.id(), base.projectId(), base.projectName(),
+                    base.serviceVersion(), base.intent(), base.workloadName(),
+                    base.workloadDescription(), base.testType(), base.workloadModel(),
+                    base.peakLevel(), base.stages(), base.operations(), base.datasets(),
+                    base.workloadSource(), base.thresholds(), base.environmentName(),
+                    base.environmentType(), dockerTarget, null, null, "", base.dependencyMode(),
+                    base.classification(), base.headers(), base.k6Options(), base.runner(),
+                    base.scriptSource(), base.safetyDecisions(), base.fingerprint(),
+                    base.validityPolicy(), base.workspacePath());
+        }
+
+        /** What {@code DockerImageTargetExecutor.prepare()} would have produced for the plan above
+         *  — the runtime fact a run's target preparation discovers, never part of the plan itself. */
+        private ResolvedTarget dockerResolvedTarget() {
+            return new ResolvedTarget(TargetUrl.of("http://localhost:49172"),
+                    TargetOwnership.VORTEX_MANAGED, "abc123containerid",
+                    new EffectiveResourceEnvelope(CpuAllocation.ofMillicores(500),
+                            MemoryAllocation.ofMebibytes(512)));
+        }
+
+        private TestExecution dockerExecution(String id) {
+            var results = Fixtures.results(281, 0.0008);
+            return new TestExecution(ExecutionId.of(id), ProjectId.of("checkout"), dockerImagePlan(),
+                    ExecutionState.COMPLETED, Fixtures.NOW, Fixtures.NOW.plusSeconds(1),
+                    Fixtures.NOW.plusSeconds(601), results, null,
+                    dev.vortex.core.plan.ToolVersions.unknown(),
+                    dev.vortex.core.execution.ExecutionArtifacts.empty(), null, "",
+                    dev.vortex.core.validity.RunQualityAssessment.notAssessed(),
+                    dockerResolvedTarget());
+        }
+
+        @Test
+        @DisplayName("a Docker-managed target's resolved runtime facts round-trip through the new "
+                + "resolved_target_json column")
+        void resolvedTargetRoundTrips() {
+            storedProject();
+            TestExecution saved = executions.save(dockerExecution("dockerExec"));
+
+            TestExecution loaded = executions.findById(saved.id()).orElseThrow();
+
+            assertThat(loaded.plan().executionTarget()).isInstanceOf(DockerImageTarget.class);
+            // Docker/Compose targets have no pre-run address — nothing manufactures one.
+            assertThat(loaded.plan().configuredTargetIfPresent()).isEmpty();
+            assertThat(loaded.plan().effectiveTargetIfPresent()).isEmpty();
+            assertThat(loaded.resolvedTargetIfPresent()).hasValueSatisfying(resolved -> {
+                assertThat(resolved.endpoint()).isEqualTo(TargetUrl.of("http://localhost:49172"));
+                assertThat(resolved.ownership()).isEqualTo(TargetOwnership.VORTEX_MANAGED);
+                assertThat(resolved.telemetryHandleIfPresent()).hasValue("abc123containerid");
+                assertThat(resolved.resourcesIfPresent()).hasValueSatisfying(resources -> {
+                    assertThat(resources.cpuIfPresent()).hasValue(CpuAllocation.ofMillicores(500));
+                    assertThat(resources.memoryIfPresent())
+                            .hasValue(MemoryAllocation.ofMebibytes(512));
+                });
+            });
+        }
+
+        @Test
+        @DisplayName("a run whose target was never resolved comes back with no resolved target, not "
+                + "an empty-but-present one")
+        void absentResolvedTargetRoundTripsToNullRatherThanAnEmptyObject() {
+            storedProject();
+            TestExecution saved = executions.save(completedExecution("exec1"));
+            assertThat(saved.resolvedTarget()).isNull();
+
+            TestExecution loaded = executions.findById(saved.id()).orElseThrow();
+
+            assertThat(loaded.resolvedTarget()).isNull();
+            assertThat(loaded.resolvedTargetIfPresent()).isEmpty();
         }
 
         @Test

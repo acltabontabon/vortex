@@ -343,12 +343,19 @@ class K6ScriptGeneratorTest {
         }
 
         @Test
-        @DisplayName("an operation that declares nothing keeps k6's default failure rule")
-        void silenceKeepsTheK6Default() {
+        @DisplayName("an operation that declares nothing gets Vortex's default, not k6's native rule")
+        void silenceMeansVortexDefaultNotK6Native() {
             // getAccount and getOrder declare no expectation in the fixture.
             String script = generator.generate(Fixtures.plan());
 
-            assertThat(script).doesNotContain("expectedStatuses").doesNotContain("responseCallback");
+            assertThat(script).contains("const expected_getaccount = http.expectedStatuses({ min: 100, max: 499 });");
+            assertThat(script).contains("const expected_getorder = http.expectedStatuses({ min: 100, max: 499 });");
+            assertThat(script).contains("responseCallback: expected_getaccount");
+            assertThat(script).contains("responseCallback: expected_getorder");
+
+            // "any non-5xx" isn't a useful named assertion, so no check() clutters the default case.
+            assertThat(script).doesNotContain("import { check } from 'k6';");
+            assertThat(script).doesNotContain("check(response");
         }
     }
 

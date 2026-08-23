@@ -22,6 +22,10 @@ function baseEvidence(): RunEvidence {
     targetUrl: 'https://checkout.internal',
     targetWasRewritten: false,
     targetRewriteReason: null,
+    targetKind: 'EXTERNAL_ENDPOINT',
+    targetSummary: 'https://checkout.internal',
+    targetOwnershipLabel: 'Externally managed',
+    resourceSummary: null,
     requestedAtIso: '2026-08-22T09:00:00Z',
     finishedAtDisplay: '22 Aug 2026, 09:10',
     durationDisplay: '10m',
@@ -143,6 +147,59 @@ describe('the five blocks', () => {
     render(baseEvidence());
 
     expect(screen.getByText('How requests failed was not classified')).toBeInTheDocument();
+  });
+});
+
+describe('the run identity\'s target facts', () => {
+  it('shows the target ownership, and omits the redundant kind/summary fact for an external endpoint', () => {
+    render(baseEvidence());
+
+    expect(screen.getByText('Externally managed')).toBeInTheDocument();
+    expect(screen.queryByText('Target kind')).not.toBeInTheDocument();
+    expect(screen.queryByText('Target resources')).not.toBeInTheDocument();
+  });
+
+  it('shows the target kind/summary and resource envelope for a Docker-managed run', () => {
+    const evidence = baseEvidence();
+    evidence.identity = {
+      ...evidence.identity,
+      targetKind: 'DOCKER_IMAGE',
+      targetSummary: 'Docker: payment-service:1.4.2',
+      targetOwnershipLabel: 'Vortex managed',
+      resourceSummary: '0.5 CPU · 512 MiB',
+    };
+    render(evidence);
+
+    expect(screen.getByText('Docker: payment-service:1.4.2')).toBeInTheDocument();
+    expect(screen.getByText('Vortex managed')).toBeInTheDocument();
+    expect(screen.getByText('0.5 CPU · 512 MiB')).toBeInTheDocument();
+  });
+
+  it('omits the resource envelope fact for a run with no confirmed envelope', () => {
+    const evidence = baseEvidence();
+    evidence.identity = { ...evidence.identity, resourceSummary: null };
+    render(evidence);
+
+    expect(screen.queryByText('Target resources')).not.toBeInTheDocument();
+  });
+
+  it('leaves the engine\'s own Docker-image provenance fact completely unaffected by the target facts', () => {
+    // A direct regression assertion: EvidenceProvenance.dockerImage is a distinct concept (the k6
+    // engine's own container) from the identity facts above (the run's *target*), and the two must
+    // never be conflated — see the module's own note on ProvenanceSection.
+    const evidence = baseEvidence();
+    evidence.identity = {
+      ...evidence.identity,
+      targetKind: 'DOCKER_IMAGE',
+      targetSummary: 'Docker: payment-service:1.4.2',
+      targetOwnershipLabel: 'Vortex managed',
+      resourceSummary: '0.5 CPU · 512 MiB',
+    };
+    evidence.provenance = { ...evidence.provenance, dockerImage: null };
+    render(evidence);
+
+    expect(evidence.provenance.dockerImage).toBeNull();
+    expect(screen.getByText('Docker: payment-service:1.4.2')).toBeInTheDocument();
   });
 });
 

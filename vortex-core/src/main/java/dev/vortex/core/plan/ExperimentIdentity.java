@@ -141,13 +141,17 @@ public final class ExperimentIdentity {
                     (a, b) -> "environment class changed from " + a.environmentType().label()
                             + " to " + b.environmentType().label()),
 
-            // The configured target, not the effective one: a Docker runner's localhost rewrite is
-            // a property of how the run was carried out, not of what was tested. Two environments
-            // may share a name and point somewhere entirely different.
+            // The declared configuration (executionTarget), not the resolved runtime endpoint: a
+            // Docker runner's localhost rewrite is a property of how the run was carried out, not of
+            // what was tested. Two environments may share a name and point somewhere entirely
+            // different. summary() is used rather than configuredTarget().value() because a
+            // Docker/Compose target has no pre-run TargetUrl at all — summary() is always present and
+            // distinguishes target configuration the same way the configured URL did before, now
+            // covering Docker/Compose targets too, not just endpoints.
             new Dimension("target",
-                    plan -> plan.configuredTarget().value(),
-                    (a, b) -> "target changed from " + a.configuredTarget().value()
-                            + " to " + b.configuredTarget().value()),
+                    plan -> plan.executionTarget().summary(),
+                    (a, b) -> "target changed from " + a.executionTarget().summary()
+                            + " to " + b.executionTarget().summary()),
 
             new Dimension("dependencyMode",
                     plan -> plan.dependencyMode().name(),

@@ -33,6 +33,7 @@ import dev.vortex.core.plan.RunnerKind;
 import dev.vortex.core.plan.ScriptSource;
 import dev.vortex.core.project.Project;
 import dev.vortex.core.project.ProjectConfiguration;
+import dev.vortex.core.target.ExternalEndpointTarget;
 import dev.vortex.core.workload.Workload;
 import dev.vortex.core.workload.TestType;
 import dev.vortex.core.workload.WorkloadSource;
@@ -152,13 +153,13 @@ public final class Fixtures {
 
     public static Environment localEnvironment() {
         return new Environment(EnvironmentId.of("local"), "local", EnvironmentType.LOCAL_ISOLATED,
-                TargetUrl.of("http://localhost:8080"), EnvironmentCapabilities.localIsolated(),
-                DependencyMode.MOCKED, Map.of());
+                new ExternalEndpointTarget(TargetUrl.of("http://localhost:8080")),
+                EnvironmentCapabilities.localIsolated(), DependencyMode.MOCKED, Map.of());
     }
 
     public static Environment performanceEnvironment() {
         return new Environment(EnvironmentId.of("perf"), "performance", EnvironmentType.PERFORMANCE,
-                TargetUrl.of("https://checkout.perf.example.com"),
+                new ExternalEndpointTarget(TargetUrl.of("https://checkout.perf.example.com")),
                 new EnvironmentCapabilities(false, false, true, true, true),
                 DependencyMode.REAL, Map.of("Authorization", "${VORTEX_AUTH_TOKEN}"));
     }
@@ -275,11 +276,13 @@ public final class Fixtures {
                 TestPlanId.of("plan1"), ProjectId.of("checkout"), "checkout-service", "2.17.0",
                 TestIntent.defaultFor(type), type.name().toLowerCase(java.util.Locale.ROOT), "",
                 type, workload.model(), workload.peakLevel(), workload.stages(), operations,
-                WorkloadSource.manual(), thresholds(),
+                List.of(), WorkloadSource.manual(), thresholds(),
                 "local", EnvironmentType.LOCAL_ISOLATED,
+                new ExternalEndpointTarget(TargetUrl.of("http://localhost:8080")),
                 TargetUrl.of("http://localhost:8080"), TargetUrl.of("http://localhost:8080"), "",
                 DependencyMode.MOCKED, TestClassification.ISOLATED,
-                Map.of(), Map.of(), RunnerKind.LOCAL_BINARY, ScriptSource.GENERATED, List.of(), null)
+                Map.of(), Map.of(), RunnerKind.LOCAL_BINARY, ScriptSource.GENERATED, List.of(), null,
+                dev.vortex.core.validity.ValidityPolicy.defaults(), project().workspacePath())
                 .withComputedFingerprint();
     }
 

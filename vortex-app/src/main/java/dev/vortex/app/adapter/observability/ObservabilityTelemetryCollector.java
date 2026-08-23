@@ -1,5 +1,6 @@
 package dev.vortex.app.adapter.observability;
 
+import dev.vortex.app.adapter.target.docker.DockerProcess;
 import dev.vortex.core.metrics.Aggregation;
 import dev.vortex.core.metrics.MetricObservation;
 import dev.vortex.core.metrics.ObservationTrace;
@@ -15,6 +16,8 @@ import dev.vortex.core.resource.ResourceSampleSink;
 import dev.vortex.core.resource.ResourceSampleSinkFactory;
 import dev.vortex.core.resource.ResourceSignal;
 import dev.vortex.core.shared.ExecutionId;
+import dev.vortex.core.target.ResolvedTarget;
+import dev.vortex.core.target.TargetOwnership;
 import dev.vortex.core.workload.StageWindowBasis;
 import dev.vortex.core.workload.StageWindows;
 import java.time.Duration;
@@ -108,17 +111,36 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
 
     private final ResourceSampleSinkFactory sinkFactory;
 
+    /** Used only to build a {@link DockerContainerObservabilityProvider} on demand, one per run,
+     *  when that run's target is Vortex-managed — see {@link #start}. Never touched for any other
+     *  target type. */
+    private final DockerProcess dockerProcess;
+    private final String dockerExecutable;
+
     public ObservabilityTelemetryCollector(List<ObservabilityProvider> providers,
-            ObservabilityProvider generator, ResourceSampleSinkFactory sinkFactory) {
+            ObservabilityProvider generator, ResourceSampleSinkFactory sinkFactory,
+            DockerProcess dockerProcess, String dockerExecutable) {
         this.providers = List.copyOf(providers);
         this.generator = generator;
         this.sinkFactory = sinkFactory;
+        this.dockerProcess = dockerProcess;
+        this.dockerExecutable = dockerExecutable;
     }
 
     @Override
-    public Session start(EffectiveTestPlan plan, ExecutionId executionId) {
+    public Session start(EffectiveTestPlan plan, ExecutionId executionId, ResolvedTarget resolvedTarget) {
         Instant now = Instant.now();
-        String endpoint = plan.effectiveTarget().value();
+        // A target with no resolvable pre-run URL (Docker/Compose) has no endpoint to key
+        // endpoint-based providers by yet. Still correctly blank here even now that a resolved
+        // target is available: this is the plan the run was created with, unrewritten, and a
+        // Docker/Compose target genuinely has no pre-run address — see ExecutionService.run(),
+        // which builds a transient, resolved-endpoint copy only for the engine, never for this
+        // collector. Blank simply means every endpoint-keyed provider below reports itself
+        // unreachable for this probe, which is honest rather than a crash. The Vortex-managed case
+        // this leaves unaddressed — a container has no endpoint to key a provider by at all, even a
+        // resolved one — is handled below, once the endpoint-keyed loop is done, by keying
+        // DockerContainerObservabilityProvider off the container id directly instead.
+        String endpoint = plan.effectiveTargetIfPresent().map(target -> target.value()).orElse("");
 
         var correlation = ObservabilityProvider.RunCorrelation.of(null, plan.fingerprint());
 
@@ -153,13 +175,32 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
             reachable.add(generator);
         }
 
+        // A Vortex-managed target's container is watched the same way: added directly, never through
+        // the endpoint-keyed loop above, because a container id is not an HTTP endpoint and forcing
+        // it into ObservabilityQuery.endpoint would be a category error rather than a simplification.
+        // Built fresh here rather than injected as a long-lived bean, unlike every other provider in
+        // this class: this one watches a specific container, and each run watches a different one.
+        // The confirmed EffectiveResourceEnvelope travels with it unchanged from Step 8's own
+        // docker-inspect confirmation, so a limit this provider reports is never re-derived or
+        // re-guessed — it is the same number, carried forward.
+        DockerContainerObservabilityProvider dockerProvider = null;
+        if (resolvedTarget != null && resolvedTarget.ownership() == TargetOwnership.VORTEX_MANAGED) {
+            var containerId = resolvedTarget.telemetryHandleIfPresent();
+            if (containerId.isPresent()) {
+                dockerProvider = new DockerContainerObservabilityProvider(containerId.get(),
+                        resolvedTarget.resourcesIfPresent().orElse(null), dockerProcess,
+                        dockerExecutable);
+                reachable.add(dockerProvider);
+            }
+        }
+
         if (reachable.isEmpty()) {
             return Session.refused(gaps);
         }
 
         return new SamplingSession(reachable, endpoint,
                 StageWindows.fromPlan(plan.stages(), now), correlation, gaps,
-                openSink(executionId), watchdogFor(plan));
+                openSink(executionId), watchdogFor(plan), dockerProvider);
     }
 
     /**
@@ -213,6 +254,12 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
         private final ObservabilityProvider.RunCorrelation correlation;
         private final ResourceSampleSink sink;
         private final Duration watchdog;
+
+        /** The Docker container provider this session owns, if this run's target is Vortex-managed —
+         *  {@code null} otherwise. Stopped exactly once, here, when the session ends, since {@link
+         *  ObservabilityProvider} itself has no lifecycle hook and this is the one provider in this
+         *  class that holds a real subprocess open across the whole run. */
+        private final DockerContainerObservabilityProvider dockerProvider;
         private final Instant startedAt = Instant.now();
         private final AtomicBoolean running = new AtomicBoolean(true);
         private final Map<SignalKey, Readings> runReadings = new LinkedHashMap<>();
@@ -235,7 +282,8 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
         SamplingSession(List<ObservabilityProvider> providers, String endpoint,
                 List<StageWindows.StageWindow> stages,
                 ObservabilityProvider.RunCorrelation correlation, List<TelemetryGap> startupGaps,
-                ResourceSampleSink sink, Duration watchdog) {
+                ResourceSampleSink sink, Duration watchdog,
+                DockerContainerObservabilityProvider dockerProvider) {
             this.providers = providers;
             this.endpoint = endpoint;
             this.stages = stages;
@@ -243,6 +291,7 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
             this.gaps.addAll(startupGaps);
             this.sink = sink;
             this.watchdog = watchdog;
+            this.dockerProvider = dockerProvider;
             this.sampler = Thread.ofVirtual().name("vortex-telemetry").start(this::sampleUntilStopped);
         }
 
@@ -349,6 +398,19 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
             }
         }
 
+        /** Stops the Docker container stream, if this run had one — best-effort, since a telemetry
+         *  shutdown failure must never be the reason a run's own result is lost. */
+        private void closeDockerProviderQuietly() {
+            if (dockerProvider == null) {
+                return;
+            }
+            try {
+                dockerProvider.close();
+            } catch (RuntimeException e) {
+                log.debug("Could not stop container telemetry cleanly: {}", e.getMessage());
+            }
+        }
+
         @Override
         public Telemetry finish(TimeWindow window) {
             return finishInternal(window, null);
@@ -368,6 +430,7 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
             running.set(false);
             sampler.interrupt();
             joinBriefly();
+            closeDockerProviderQuietly();
 
             List<MetricObservation> run = new ArrayList<>();
             List<ResourceSignal> runResources = new ArrayList<>();

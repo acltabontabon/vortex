@@ -67,7 +67,9 @@ public record PreflightReport(
         }
         text.append(dev.vortex.core.threshold.Durations.display(plan.totalDuration()))
                 .append(" against ")
-                .append(plan.effectiveTarget().value())
+                .append(plan.effectiveTargetIfPresent()
+                        .map(target -> target.value())
+                        .orElseGet(() -> plan.executionTarget().summary()))
                 .append(".\n\n");
 
         if (plan.operations().size() > 1) {

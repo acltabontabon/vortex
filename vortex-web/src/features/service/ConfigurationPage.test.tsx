@@ -40,6 +40,7 @@ function aConfiguration(overrides: Partial<Configuration> = {}): Configuration {
         classificationCaveat: '',
         hasSecretReferences: false,
         maskedHeaders: {},
+        target: { kind: 'EXTERNAL_ENDPOINT', summary: 'http://localhost:8080', ownershipLabel: 'Externally managed' },
       },
     ],
     environmentTypes: [{ name: 'LOCAL_ISOLATED', label: 'Local (isolated)', description: '' }],
@@ -68,7 +69,9 @@ describe('the configuration page', () => {
     queryResult = { data: aConfiguration(), isError: false };
     renderWithProviders(<ConfigurationPage />);
 
-    expect(screen.getByText('http://localhost:8080')).toBeInTheDocument();
+    // Two facts share this text for an external endpoint: the environment's own baseUrl fact, and
+    // its target-summary fact (an external endpoint's summary *is* its address) — both present.
+    expect(screen.getAllByText('http://localhost:8080').length).toBeGreaterThan(0);
     expect(screen.getByText('Save environment')).toBeInTheDocument();
   });
 

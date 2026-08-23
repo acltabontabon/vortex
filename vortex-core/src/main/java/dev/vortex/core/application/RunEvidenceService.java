@@ -217,6 +217,19 @@ public final class RunEvidenceService {
     // ------------------------------------------------------------------ identity
 
     private RunIdentity identity(TestExecution execution, EffectiveTestPlan plan) {
+        dev.vortex.core.target.ExecutionTarget declared = plan.executionTarget();
+        var resolved = execution.resolvedTargetIfPresent().orElse(null);
+
+        // The address actually called. For an endpoint target this is the plan's own effective
+        // target, exactly as before this feature. For a Docker/Compose target the plan carries no
+        // pre-run address at all — the run's resolved target (this specific run's actual container
+        // endpoint) is the only place that ever existed, and is what a reader means by "the target"
+        // for such a run.
+        String calledUrl = plan.effectiveTargetIfPresent()
+                .map(dev.vortex.core.environment.TargetUrl::value)
+                .or(() -> java.util.Optional.ofNullable(resolved).map(r -> r.endpoint().value()))
+                .orElse("");
+
         return new RunIdentity(
                 execution.id(),
                 execution.projectId(),
@@ -229,13 +242,56 @@ public final class RunEvidenceService {
                 plan.environmentType(),
                 plan.classification(),
                 plan.dependencyMode(),
-                sanitizer.url(plan.effectiveTarget().value()),
+                sanitizer.url(calledUrl),
                 sanitizer.text(plan.targetRewriteReason()),
+                targetKindOf(declared),
+                sanitizer.text(declared.summary()),
+                ownershipLabel(resolved != null ? resolved.ownership() : declared.ownership()),
+                resourceSummaryOf(resolved),
                 plan.fingerprint(),
                 execution.requestedAt(),
                 execution.startedAt(),
                 execution.finishedAt(),
                 execution.duration().orElse(null));
+    }
+
+    /** Matches the wire vocabulary shared with {@code ConfigurationApiController}'s own dispatch. */
+    private String targetKindOf(dev.vortex.core.target.ExecutionTarget target) {
+        return switch (target) {
+            case dev.vortex.core.target.ExternalEndpointTarget ignored -> "EXTERNAL_ENDPOINT";
+            case dev.vortex.core.target.DockerImageTarget ignored -> "DOCKER_IMAGE";
+            case dev.vortex.core.target.DockerComposeTarget ignored -> "DOCKER_COMPOSE";
+        };
+    }
+
+    private String ownershipLabel(dev.vortex.core.target.TargetOwnership ownership) {
+        return ownership == dev.vortex.core.target.TargetOwnership.VORTEX_MANAGED
+                ? "Vortex managed" : "Externally managed";
+    }
+
+    /**
+     * The run's confirmed resource envelope, e.g. {@code "0.5 CPU · 512 MiB"} — empty whenever no
+     * resolved target exists, or its target had no confirmed envelope (an external endpoint or a
+     * Compose target, which stays conservative and reports no {@code ResourceLimit} at all — see
+     * the domain model's own note on why). Formatted with exact decimal arithmetic on millicores,
+     * the same {@code BigDecimal.valueOf(millicores, 3)} convention {@code DockerImageTargetExecutor}
+     * already uses, never a {@code double} division.
+     */
+    private String resourceSummaryOf(dev.vortex.core.target.ResolvedTarget resolved) {
+        if (resolved == null) {
+            return "";
+        }
+        var envelope = resolved.resourcesIfPresent().orElse(null);
+        if (envelope == null) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        envelope.cpuIfPresent().ifPresent(cpu -> parts.add(
+                java.math.BigDecimal.valueOf(cpu.millicores(), 3)
+                        .stripTrailingZeros().toPlainString() + " CPU"));
+        envelope.memoryIfPresent().ifPresent(memory -> parts.add(
+                (memory.bytes() / (1024L * 1024L)) + " MiB"));
+        return String.join(" · ", parts);
     }
 
     // ------------------------------------------------------------------ workload

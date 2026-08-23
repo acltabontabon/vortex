@@ -2,6 +2,7 @@ package dev.vortex.app.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -12,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import dev.vortex.app.service.LocalLabRunner;
 import dev.vortex.core.application.CalibrationService;
 import dev.vortex.core.application.CatalogImportService;
+import dev.vortex.core.application.PreflightCheck;
 import dev.vortex.core.application.ProjectService;
 import dev.vortex.core.calibration.CalibrationPolicy;
 import dev.vortex.core.calibration.WorkloadDrift;
@@ -20,6 +22,7 @@ import dev.vortex.core.fixtures.Fixtures;
 import dev.vortex.core.port.LocalLab;
 import dev.vortex.core.port.ProductionObservationSource.NotRetrieved;
 import dev.vortex.core.port.ProductionObservationSource.Retrieved;
+import dev.vortex.core.port.TargetExecutor;
 import dev.vortex.core.project.ProjectConfiguration;
 import dev.vortex.core.shared.RequestsPerSecond;
 import dev.vortex.core.workload.Observation;
@@ -70,6 +73,8 @@ class ConfigurationApiControllerTest {
     private dev.vortex.app.service.TestRunner testRunner;
     @MockitoBean
     private WorkloadDrift drift;
+    @MockitoBean
+    private TargetExecutor targetExecutor;
 
     @BeforeEach
     void aConfiguredService() {
@@ -139,8 +144,9 @@ class ConfigurationApiControllerTest {
 
             var configuration = saved();
             assertThat(configuration.environments()).hasSize(1);
-            assertThat(configuration.environmentByName("local").orElseThrow().baseUrl().value())
-                    .isEqualTo("http://localhost:9090");
+            var target = (dev.vortex.core.target.ExternalEndpointTarget)
+                    configuration.environmentByName("local").orElseThrow().target();
+            assertThat(target.endpoint().value()).isEqualTo("http://localhost:9090");
         }
 
         @Test
@@ -154,6 +160,189 @@ class ConfigurationApiControllerTest {
                                     """))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.detail").value("A name is required"));
+        }
+
+        @Test
+        @DisplayName("omitting targetKind still produces an ExternalEndpointTarget, exactly as before")
+        void omittingTargetKindStillProducesAnExternalEndpointTarget() throws Exception {
+            // The single most important regression guard in this step: the existing endpoint-only
+            // flow — the one every environment used before Docker/Compose targets existed — must be
+            // completely unaffected by the new dispatch.
+            mvc.perform(post("/api/services/" + SERVICE + "/environments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"local","baseUrl":"http://localhost:9090",
+                                     "type":"LOCAL_ISOLATED","dependencies":"MOCKED"}
+                                    """))
+                    .andExpect(status().isOk());
+
+            var target = (dev.vortex.core.target.ExternalEndpointTarget)
+                    saved().environmentByName("local").orElseThrow().target();
+            assertThat(target.endpoint().value()).isEqualTo("http://localhost:9090");
+        }
+
+        @Test
+        @DisplayName("a DOCKER_IMAGE target with full fields creates the matching DockerImageTarget")
+        void dockerImageTargetIsCreated() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/environments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"docker-managed","type":"LOCAL_ISOLATED","dependencies":"MOCKED",
+                                     "targetKind":"DOCKER_IMAGE","image":"payment-service:1.4.2",
+                                     "containerPort":8080,"cpuMillicores":500,"memoryMebibytes":512,
+                                     "readinessPath":"/actuator/health","readinessExpectedStatus":200,
+                                     "readinessTimeoutSeconds":30}
+                                    """))
+                    .andExpect(status().isOk());
+
+            var target = (dev.vortex.core.target.DockerImageTarget)
+                    saved().environmentByName("docker-managed").orElseThrow().target();
+            assertThat(target.image().value()).isEqualTo("payment-service:1.4.2");
+            assertThat(target.containerPort().value()).isEqualTo(8080);
+            assertThat(target.resources().cpuIfPresent())
+                    .hasValue(dev.vortex.core.target.CpuAllocation.ofMillicores(500));
+            assertThat(target.resources().memoryIfPresent())
+                    .hasValue(dev.vortex.core.target.MemoryAllocation.ofMebibytes(512));
+            assertThat(target.readinessCheckIfPresent()).hasValueSatisfying(readiness ->
+                    assertThat(readiness.path()).isEqualTo("/actuator/health"));
+        }
+
+        @Test
+        @DisplayName("a DOCKER_IMAGE request missing containerPort is rejected with a clear 4xx")
+        void dockerImageTargetMissingContainerPortIsRejected() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/environments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"docker-managed","type":"LOCAL_ISOLATED","dependencies":"MOCKED",
+                                     "targetKind":"DOCKER_IMAGE","image":"payment-service:1.4.2"}
+                                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.detail").value(
+                            org.hamcrest.Matchers.containsString("container listens on")));
+        }
+
+        @Test
+        @DisplayName("a DOCKER_COMPOSE target with full fields creates the matching DockerComposeTarget")
+        void dockerComposeTargetIsCreated() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/environments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"compose-attached","type":"LOCAL_ISOLATED","dependencies":"MOCKED",
+                                     "targetKind":"DOCKER_COMPOSE","composeFile":"compose.yaml",
+                                     "composeService":"payment-service","containerPort":8080}
+                                    """))
+                    .andExpect(status().isOk());
+
+            var target = (dev.vortex.core.target.DockerComposeTarget)
+                    saved().environmentByName("compose-attached").orElseThrow().target();
+            assertThat(target.composeFile()).isEqualTo("compose.yaml");
+            assertThat(target.serviceName()).isEqualTo("payment-service");
+            assertThat(target.containerPort().value()).isEqualTo(8080);
+        }
+    }
+
+    @Nested
+    @DisplayName("target validation")
+    class TargetValidation {
+
+        @BeforeEach
+        void aMatchingExecutor() {
+            when(targetExecutor.supports(any())).thenReturn(true);
+        }
+
+        @Test
+        @DisplayName("a Docker image target reports each check and an overall valid=true")
+        void dockerImageTargetReportsChecks() throws Exception {
+            when(targetExecutor.checkAvailability(any(), any())).thenReturn(List.of(
+                    PreflightCheck.pass("Docker available", "Docker is reachable on this machine."),
+                    PreflightCheck.pass("Image available", "payment-service:1.4.2")));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/environments/docker-managed/target/validate")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"targetKind":"DOCKER_IMAGE","image":"payment-service:1.4.2",
+                                     "containerPort":8080}
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.valid").value(true))
+                    .andExpect(jsonPath("$.checks[0]").value(
+                            "Docker available: Pass — Docker is reachable on this machine."))
+                    .andExpect(jsonPath("$.checks[1]").value(
+                            "Image available: Pass — payment-service:1.4.2"));
+
+            verify(targetExecutor, never()).prepare(any());
+        }
+
+        @Test
+        @DisplayName("a Compose target reports a failing stage and an overall valid=false")
+        void composeTargetReportsAFailingStage() throws Exception {
+            when(targetExecutor.checkAvailability(any(), any())).thenReturn(List.of(
+                    PreflightCheck.pass("Compose file found", "compose.yaml"),
+                    PreflightCheck.fail("payment-service found",
+                            "Service 'payment-service' is not declared in compose.yaml.",
+                            "Check the spelling against the file's own service names."),
+                    PreflightCheck.skipped("Service running",
+                            "Not checked — payment-service found failed.")));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/environments/compose-attached/target/validate")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"targetKind":"DOCKER_COMPOSE","composeFile":"compose.yaml",
+                                     "composeService":"payment-service","containerPort":8080}
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.valid").value(false))
+                    .andExpect(jsonPath("$.checks[1]").value(org.hamcrest.Matchers.containsString(
+                            "payment-service found: Failed")))
+                    .andExpect(jsonPath("$.checks[2]").value(org.hamcrest.Matchers.containsString(
+                            "Service running: Skipped")));
+
+            verify(targetExecutor, never()).prepare(any());
+        }
+
+        @Test
+        @DisplayName("never calls prepare() — only checkAvailability, even when prepare would fail loudly")
+        void neverCallsPrepare() throws Exception {
+            when(targetExecutor.checkAvailability(any(), any()))
+                    .thenReturn(List.of(PreflightCheck.pass("Docker available", "")));
+            when(targetExecutor.prepare(any())).thenThrow(
+                    new AssertionError("validate must never call prepare()"));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/environments/docker-managed/target/validate")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"targetKind":"DOCKER_IMAGE","image":"payment-service:1.4.2",
+                                     "containerPort":8080}
+                                    """))
+                    .andExpect(status().isOk());
+
+            verify(targetExecutor, never()).prepare(any());
+        }
+
+        @Test
+        @DisplayName("validates whatever the request body describes, independent of what is saved")
+        void validatesTheRequestBodyNotTheSavedConfiguration() throws Exception {
+            // aConfiguredService() stashes Fixtures.configuration(), whose only environment is
+            // ExternalEndpointTarget "local" — this call names a different, unsaved environment and a
+            // wholly different target kind, and must still validate exactly what the body describes.
+            when(targetExecutor.checkAvailability(any(), any()))
+                    .thenReturn(List.of(PreflightCheck.pass("Image available", "checkout:9.9.9")));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/environments/not-yet-saved/target/validate")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"targetKind":"DOCKER_IMAGE","image":"checkout:9.9.9",
+                                     "containerPort":9090}
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.checks[0]").value(org.hamcrest.Matchers.containsString(
+                            "checkout:9.9.9")));
+
+            var targetCaptor = org.mockito.ArgumentCaptor.forClass(
+                    dev.vortex.core.target.ExecutionTarget.class);
+            verify(targetExecutor).checkAvailability(targetCaptor.capture(), any());
+            var validated = (dev.vortex.core.target.DockerImageTarget) targetCaptor.getValue();
+            assertThat(validated.image().value()).isEqualTo("checkout:9.9.9");
         }
     }
 

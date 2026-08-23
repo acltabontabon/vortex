@@ -18,6 +18,16 @@ import dev.vortex.core.environment.EnvironmentType;
 import dev.vortex.core.environment.TargetUrl;
 import dev.vortex.core.lab.LocalLabSettings;
 import dev.vortex.core.metrics.ObservationProvenance;
+import dev.vortex.core.target.ContainerPort;
+import dev.vortex.core.target.CpuAllocation;
+import dev.vortex.core.target.DockerComposeTarget;
+import dev.vortex.core.target.DockerImageTarget;
+import dev.vortex.core.target.ExecutionTarget;
+import dev.vortex.core.target.ExternalEndpointTarget;
+import dev.vortex.core.target.ImageReference;
+import dev.vortex.core.target.MemoryAllocation;
+import dev.vortex.core.target.ReadinessCheck;
+import dev.vortex.core.target.ResourceEnvelopeRequest;
 import dev.vortex.core.port.ConfigurationStore;
 import dev.vortex.core.project.ProjectConfiguration;
 import dev.vortex.core.workload.Workload;
@@ -324,12 +334,11 @@ public final class YamlConfigurationStore implements ConfigurationStore {
         for (Map.Entry<String, JsonNode> entry : node.properties()) {
             String name = entry.getKey();
             JsonNode environment = entry.getValue();
+            String baseUrlField = "environments." + name + ".baseUrl";
+            String targetField = "environments." + name + ".target";
 
             String baseUrl = environment.path("baseUrl").asText("");
-            if (baseUrl.isBlank()) {
-                throw new ConfigText.ConfigProblem("environments." + name + ".baseUrl",
-                        "must be set", "for example http://localhost:8080");
-            }
+            ExecutionTarget target = target(environment.path("target"), baseUrl, baseUrlField, targetField);
 
             EnvironmentType type = enumValue(EnvironmentType.class,
                     environment.path("type").asText("LOCAL_ISOLATED"),
@@ -350,14 +359,143 @@ public final class YamlConfigurationStore implements ConfigurationStore {
 
             try {
                 environments.add(new Environment(EnvironmentId.of(name), name, type,
-                        TargetUrl.of(baseUrl), environmentCapabilities, dependencies,
-                        stringMap(environment.path("headers"))));
+                        target, environmentCapabilities,
+                        dependencies, stringMap(environment.path("headers"))));
             } catch (IllegalArgumentException e) {
-                throw new ConfigText.ConfigProblem("environments." + name + ".baseUrl",
-                        e.getMessage(), "");
+                throw new ConfigText.ConfigProblem("environments." + name, e.getMessage(), "");
             }
         }
         return environments;
+    }
+
+    /**
+     * Reads what this environment tests, and how Vortex reaches or controls it.
+     *
+     * <p>Absent {@code target:} is the ordinary case — every file written before Docker/Compose
+     * targets existed has no such block, and reads exactly as it always did: an external endpoint at
+     * {@code baseUrl}. An explicit {@code kind: EXTERNAL_ENDPOINT} reads identically, for a file that
+     * spells it out. {@code baseUrl} is required only for that case — a Vortex-managed or attached
+     * container has no meaningful pre-run address to demand one for.
+     */
+    private ExecutionTarget target(JsonNode node, String baseUrl, String baseUrlField, String targetField) {
+        if (node.isMissingNode() || node.isNull()) {
+            return externalEndpointTarget(baseUrl, baseUrlField);
+        }
+        if (!node.isObject()) {
+            throw new ConfigText.ConfigProblem(targetField, "must be a mapping",
+                    "for example:\n  target:\n    kind: DOCKER_IMAGE\n"
+                            + "    image: \"payment-service:1.4.2\"\n    containerPort: 8080");
+        }
+        TargetKind kind = enumValue(TargetKind.class,
+                node.path("kind").asText(TargetKind.EXTERNAL_ENDPOINT.name()), targetField + ".kind");
+        return switch (kind) {
+            case EXTERNAL_ENDPOINT -> externalEndpointTarget(baseUrl, baseUrlField);
+            case DOCKER_IMAGE -> dockerImageTarget(node, targetField);
+            case DOCKER_COMPOSE -> dockerComposeTarget(node, targetField);
+        };
+    }
+
+    private ExternalEndpointTarget externalEndpointTarget(String baseUrl, String field) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new ConfigText.ConfigProblem(field, "must be set", "for example http://localhost:8080");
+        }
+        try {
+            return new ExternalEndpointTarget(TargetUrl.of(baseUrl));
+        } catch (IllegalArgumentException e) {
+            throw new ConfigText.ConfigProblem(field, e.getMessage(), "");
+        }
+    }
+
+    private DockerImageTarget dockerImageTarget(JsonNode node, String field) {
+        String image = node.path("image").asText("").trim();
+        if (image.isEmpty()) {
+            throw new ConfigText.ConfigProblem(field + ".image", "must be set",
+                    "the image Vortex should run, e.g. \"payment-service:1.4.2\"");
+        }
+        if (!node.hasNonNull("containerPort")) {
+            throw new ConfigText.ConfigProblem(field + ".containerPort", "must be set",
+                    "the port the container listens on, e.g. 8080");
+        }
+        ResourceEnvelopeRequest resources = resourceEnvelope(node, field);
+        ReadinessCheck readiness = readinessCheck(node, field);
+        try {
+            return new DockerImageTarget(new ImageReference(image),
+                    new ContainerPort(node.path("containerPort").asInt()), resources, readiness);
+        } catch (IllegalArgumentException e) {
+            throw new ConfigText.ConfigProblem(field, e.getMessage(), "");
+        }
+    }
+
+    private ResourceEnvelopeRequest resourceEnvelope(JsonNode node, String field) {
+        CpuAllocation cpu = null;
+        if (node.hasNonNull("cpuMillicores")) {
+            try {
+                cpu = CpuAllocation.ofMillicores(node.path("cpuMillicores").asInt());
+            } catch (IllegalArgumentException e) {
+                throw new ConfigText.ConfigProblem(field + ".cpuMillicores", e.getMessage(), "");
+            }
+        }
+        MemoryAllocation memory = null;
+        if (node.hasNonNull("memoryMebibytes")) {
+            try {
+                memory = MemoryAllocation.ofMebibytes(node.path("memoryMebibytes").asLong());
+            } catch (IllegalArgumentException e) {
+                throw new ConfigText.ConfigProblem(field + ".memoryMebibytes", e.getMessage(), "");
+            }
+        }
+        return new ResourceEnvelopeRequest(cpu, memory);
+    }
+
+    /** All three readiness fields, or none — a partial readiness block cannot be checked. */
+    private ReadinessCheck readinessCheck(JsonNode node, String field) {
+        boolean hasPath = node.hasNonNull("readinessPath");
+        boolean hasStatus = node.hasNonNull("readinessExpectedStatus");
+        boolean hasTimeout = node.hasNonNull("readinessTimeoutSeconds");
+        if (!hasPath && !hasStatus && !hasTimeout) {
+            return null;
+        }
+        if (!(hasPath && hasStatus && hasTimeout)) {
+            throw new ConfigText.ConfigProblem(field,
+                    "a readiness check needs readinessPath, readinessExpectedStatus and "
+                            + "readinessTimeoutSeconds together, not just some of them",
+                    "set all three, or none to fall back to a plain TCP connect once the port opens");
+        }
+        try {
+            return new ReadinessCheck(node.path("readinessPath").asText(),
+                    node.path("readinessExpectedStatus").asInt(),
+                    Duration.ofSeconds(node.path("readinessTimeoutSeconds").asInt()));
+        } catch (IllegalArgumentException e) {
+            throw new ConfigText.ConfigProblem(field, e.getMessage(), "");
+        }
+    }
+
+    private DockerComposeTarget dockerComposeTarget(JsonNode node, String field) {
+        String composeFile = node.path("composeFile").asText("").trim();
+        if (composeFile.isEmpty()) {
+            throw new ConfigText.ConfigProblem(field + ".composeFile", "must be set",
+                    "the Compose file this repository already owns, relative to it, e.g. compose.yaml");
+        }
+        String service = node.path("service").asText("").trim();
+        if (service.isEmpty()) {
+            throw new ConfigText.ConfigProblem(field + ".service", "must be set",
+                    "the service name inside that Compose file");
+        }
+        if (!node.hasNonNull("containerPort")) {
+            throw new ConfigText.ConfigProblem(field + ".containerPort", "must be set",
+                    "the port that service listens on inside its container, e.g. 8080");
+        }
+        try {
+            return new DockerComposeTarget(composeFile, service,
+                    new ContainerPort(node.path("containerPort").asInt()));
+        } catch (IllegalArgumentException e) {
+            throw new ConfigText.ConfigProblem(field, e.getMessage(), "");
+        }
+    }
+
+    /** Wire vocabulary for {@code target.kind} — identical to {@code EnvironmentRequest.targetKind}
+     *  in {@code ConfigurationApiController}, so there is one mental model, not two. */
+    private enum TargetKind {
+        EXTERNAL_ENDPOINT, DOCKER_IMAGE, DOCKER_COMPOSE
     }
 
     private List<Workload> workloads(JsonNode node) {
@@ -977,8 +1115,13 @@ public final class YamlConfigurationStore implements ConfigurationStore {
         for (Environment environment : configuration.environments()) {
             out.append("  ").append(environment.name()).append(":\n");
             out.append("    type: ").append(environment.type().name()).append("\n");
-            out.append("    baseUrl: ").append(quote(environment.baseUrl().value())).append('\n');
+            // Only an ExternalEndpointTarget has a genuine pre-run address — a Docker/Compose target
+            // writes no baseUrl at all rather than a manufactured placeholder value.
+            if (environment.target() instanceof ExternalEndpointTarget endpoint) {
+                out.append("    baseUrl: ").append(quote(endpoint.endpoint().value())).append('\n');
+            }
             out.append("    dependencies: ").append(environment.dependencyMode().name()).append('\n');
+            renderTarget(environment.target(), out);
 
             EnvironmentCapabilities capabilities = environment.capabilities();
             out.append("    capabilities:\n");
@@ -993,6 +1136,46 @@ public final class YamlConfigurationStore implements ConfigurationStore {
             renderInlineMap("    ", "headers", environment.headers(), out);
         }
         out.append('\n');
+    }
+
+    /**
+     * Writes the {@code target:} sub-block for a Vortex-managed or attached target.
+     *
+     * <p>An {@link ExternalEndpointTarget} writes nothing here — its address is already the
+     * {@code baseUrl} above, and every file written before Docker/Compose targets existed keeps
+     * rendering exactly as it always did.
+     */
+    private void renderTarget(ExecutionTarget target, StringBuilder out) {
+        switch (target) {
+            case ExternalEndpointTarget ignored -> {
+                // nothing to write — see the method comment
+            }
+            case DockerImageTarget image -> {
+                out.append("    target:\n");
+                out.append("      kind: ").append(TargetKind.DOCKER_IMAGE.name()).append('\n');
+                out.append("      image: ").append(quote(image.image().value())).append('\n');
+                out.append("      containerPort: ").append(image.containerPort().value()).append('\n');
+                image.resources().cpuIfPresent().ifPresent(cpu ->
+                        out.append("      cpuMillicores: ").append(cpu.millicores()).append('\n'));
+                image.resources().memoryIfPresent().ifPresent(memory ->
+                        out.append("      memoryMebibytes: ")
+                                .append(memory.bytes() / (1024L * 1024L)).append('\n'));
+                image.readinessCheckIfPresent().ifPresent(readiness -> {
+                    out.append("      readinessPath: ").append(quote(readiness.path())).append('\n');
+                    out.append("      readinessExpectedStatus: ")
+                            .append(readiness.expectedStatus()).append('\n');
+                    out.append("      readinessTimeoutSeconds: ")
+                            .append(readiness.timeout().toSeconds()).append('\n');
+                });
+            }
+            case DockerComposeTarget compose -> {
+                out.append("    target:\n");
+                out.append("      kind: ").append(TargetKind.DOCKER_COMPOSE.name()).append('\n');
+                out.append("      composeFile: ").append(quote(compose.composeFile())).append('\n');
+                out.append("      service: ").append(quote(compose.serviceName())).append('\n');
+                out.append("      containerPort: ").append(compose.containerPort().value()).append('\n');
+            }
+        }
     }
 
     private void renderWorkloads(ProjectConfiguration configuration, StringBuilder out) {

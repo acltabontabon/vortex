@@ -23,6 +23,13 @@ export interface ComposerPreviewSnapshot {
   composition: MixRow[] | null;
   shape: ShapeDto | null;
   problem: string | null;
+  /** The test's target, e.g. "Docker: payment-service:1.4.2" — null for an external endpoint (its
+   *  address is already stated on the service header, on every tab) or when no environment is
+   *  configured yet. */
+  targetSummary: string | null;
+  /** The target's declared resource envelope, e.g. "0.5 CPU · 512 MiB" — null whenever no envelope
+   *  applies (an external endpoint) or is known. */
+  resourceSummary: string | null;
 }
 
 function headline(snapshot: ComposerPreviewSnapshot): string {
@@ -117,6 +124,14 @@ export function WorkloadPreviewPanel({
 
           {sentence(serviceName, snapshot) && (
             <p className={classes.caption}>{sentence(serviceName, snapshot)}</p>
+          )}
+
+          {(snapshot.targetSummary || snapshot.resourceSummary) && (
+            <p className={classes.caption}>
+              {snapshot.targetSummary && <>Target · {snapshot.targetSummary}</>}
+              {snapshot.targetSummary && snapshot.resourceSummary && ' · '}
+              {snapshot.resourceSummary && <>Resources · {snapshot.resourceSummary}</>}
+            </p>
           )}
         </>
       )}

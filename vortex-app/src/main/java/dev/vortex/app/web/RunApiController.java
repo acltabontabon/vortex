@@ -234,7 +234,11 @@ public class RunApiController {
                 report.canRun(),
                 report.plainEnglishSummary(),
                 plan.classification().name(), plan.classification().label(), plan.classification().caveat(),
-                plan.targetWasRewritten(), plan.configuredTarget().value(), plan.effectiveTarget().value(),
+                plan.targetWasRewritten(),
+                plan.configuredTargetIfPresent().map(target -> target.value())
+                        .orElseGet(() -> plan.executionTarget().summary()),
+                plan.effectiveTargetIfPresent().map(target -> target.value())
+                        .orElseGet(() -> plan.executionTarget().summary()),
                 plan.targetRewriteReason(),
                 plan.testType().label(), plan.intent().question(),
                 plan.workloadName(), plan.environmentName(), plan.environmentType().label(),
@@ -388,7 +392,11 @@ public class RunApiController {
                 progress.targetLevelIfPresent().map(level -> level.displayWithUnit()).orElse(""),
                 progress.currentRateIfPresent().map(rate -> rate.displayWithUnit()).orElse("—"),
                 progress.currentP95IfPresent().map(p95 -> p95.toMillis() + " ms").orElse("—"),
-                progress.currentErrorRateIfPresent().map(rate -> rate.display()).orElse("—"));
+                progress.currentErrorRateIfPresent().map(rate -> rate.display()).orElse("—"),
+                progress.message(),
+                progress.currentResourceReadingIfPresent()
+                        .map(reading -> new RunDtos.ResourceReadingDto(reading.cpu(), reading.memory()))
+                        .orElse(null));
     }
 
     private void finish(ExecutionId executionId) {
@@ -435,7 +443,9 @@ public class RunApiController {
 
         RunPlanSummaryDto planSummary = new RunPlanSummaryDto(
                 plan.projectId().value(), plan.projectName(), plan.testType().label(), plan.intent().question(),
-                plan.workloadName(), plan.environmentName(), plan.effectiveTarget().value(),
+                plan.workloadName(), plan.environmentName(),
+                plan.effectiveTargetIfPresent().map(target -> target.value())
+                        .orElseGet(() -> plan.executionTarget().summary()),
                 plan.environmentType().label(), plan.workloadModel().label(), plan.peakLevel().displayWithUnit(),
                 plan.isSingleOperation(),
                 plan.operations().stream().map(op -> op.name()).reduce((a, b) -> a + ", " + b).orElse(""),
@@ -482,6 +492,8 @@ public class RunApiController {
                 identity.testType().label(), identity.environmentName(), identity.environmentType().label(),
                 identity.classification().name(), identity.classification().label(), identity.targetUrl(),
                 identity.targetWasRewritten(), identity.targetRewriteReason(),
+                identity.targetKind(), identity.targetSummary(), identity.targetOwnershipLabel(),
+                identity.resourceSummaryIfPresent().orElse(null),
                 identity.requestedAt() != null ? identity.requestedAt().toString() : null,
                 display.timestamp(identity.finishedAt()),
                 identity.durationIfPresent().map(display::duration).orElse(null));

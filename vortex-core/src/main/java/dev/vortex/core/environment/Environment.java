@@ -1,6 +1,8 @@
 package dev.vortex.core.environment;
 
 import dev.vortex.core.shared.EnvironmentId;
+import dev.vortex.core.target.ExecutionTarget;
+import dev.vortex.core.target.ExternalEndpointTarget;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -17,7 +19,7 @@ import java.util.SequencedMap;
  * @param id             stable identifier
  * @param name           short human name, e.g. {@code local}
  * @param type           declared environment class — authoritative
- * @param baseUrl        the target
+ * @param target         what this environment tests, and how Vortex reaches or controls it
  * @param capabilities   what the environment provides
  * @param dependencyMode whether downstream systems are real
  * @param headers        headers applied to every request; values may be secret references
@@ -26,7 +28,7 @@ public record Environment(
         EnvironmentId id,
         String name,
         EnvironmentType type,
-        TargetUrl baseUrl,
+        ExecutionTarget target,
         EnvironmentCapabilities capabilities,
         DependencyMode dependencyMode,
         Map<String, String> headers) {
@@ -34,7 +36,7 @@ public record Environment(
     public Environment {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(type, "type");
-        Objects.requireNonNull(baseUrl, "baseUrl");
+        Objects.requireNonNull(target, "target");
         Objects.requireNonNull(capabilities, "capabilities");
         Objects.requireNonNull(dependencyMode, "dependencyMode");
         if (name == null || name.isBlank()) {
@@ -50,7 +52,7 @@ public record Environment(
                 EnvironmentId.generate(),
                 name,
                 EnvironmentType.LOCAL_ISOLATED,
-                baseUrl,
+                new ExternalEndpointTarget(baseUrl),
                 EnvironmentCapabilities.localIsolated(),
                 DependencyMode.MOCKED,
                 Map.of());

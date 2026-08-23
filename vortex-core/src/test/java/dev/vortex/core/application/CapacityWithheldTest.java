@@ -57,7 +57,7 @@ class CapacityWithheldTest {
 
         return new TestExecution(ExecutionId.of("e1"), PROJECT, Fixtures.plan(),
                 ExecutionState.COMPLETED, Fixtures.NOW, Fixtures.NOW, Fixtures.NOW.plusSeconds(600),
-                results, summary, null, null, null, "", quality);
+                results, summary, null, null, null, "", quality, null);
     }
 
     private List<StageObservation> stages(TestExecution execution) {

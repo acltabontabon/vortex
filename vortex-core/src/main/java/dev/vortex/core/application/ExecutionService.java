@@ -14,9 +14,17 @@ import dev.vortex.core.port.Clock;
 import dev.vortex.core.port.DatasetStore;
 import dev.vortex.core.port.PerformanceEngine;
 import dev.vortex.core.port.Repositories.ExecutionRepository;
+import dev.vortex.core.port.TargetExecutor;
 import dev.vortex.core.port.TelemetryCollector;
 import dev.vortex.core.shared.ExecutionId;
+import dev.vortex.core.target.CleanupOutcome;
+import dev.vortex.core.target.PreparedTarget;
+import dev.vortex.core.target.ResolvedTarget;
+import dev.vortex.core.target.TargetPreparationException;
+import dev.vortex.core.target.TargetPreparationRequest;
 import dev.vortex.core.validity.RunQualityAssessor;
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -35,6 +43,11 @@ import java.util.function.Consumer;
  */
 public final class ExecutionService {
 
+    /** {@code System.Logger} rather than a framework logging facade: {@code vortex-core} has zero
+     *  compile dependencies (Maven-enforced), and the platform logging API is the one logger the JDK
+     *  itself provides. */
+    private static final Logger log = System.getLogger(ExecutionService.class.getName());
+
     private final PerformanceEngine engine;
     private final DeterministicAnalyzer analyzer;
     private final ExecutionRepository executions;
@@ -42,6 +55,7 @@ public final class ExecutionService {
     private final DatasetStore datasets;
     private final TelemetryCollector telemetry;
     private final Clock clock;
+    private final List<TargetExecutor> targetExecutors;
 
     /**
      * Grades whether the experiment was carried out as specified.
@@ -54,7 +68,7 @@ public final class ExecutionService {
 
     public ExecutionService(PerformanceEngine engine, DeterministicAnalyzer analyzer,
             ExecutionRepository executions, ArtifactStore artifacts, DatasetStore datasets,
-            TelemetryCollector telemetry, Clock clock) {
+            TelemetryCollector telemetry, Clock clock, List<TargetExecutor> targetExecutors) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.analyzer = Objects.requireNonNull(analyzer, "analyzer");
         this.executions = Objects.requireNonNull(executions, "executions");
@@ -62,6 +76,7 @@ public final class ExecutionService {
         this.datasets = Objects.requireNonNull(datasets, "datasets");
         this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.targetExecutors = List.copyOf(Objects.requireNonNull(targetExecutors, "targetExecutors"));
     }
 
     /**
@@ -104,6 +119,11 @@ public final class ExecutionService {
         // Session.empty() until sampling actually starts, so the finally below has something safe
         // to close even if the run fails before RUNNING is reached.
         TelemetryCollector.Session telemetrySession = TelemetryCollector.Session.empty();
+        // Null until prepare() succeeds. Unlike telemetry there is no target-agnostic "empty" lease
+        // to default to — a placeholder lease would either claim an address nothing resolved or need
+        // its own sentinel target type — so the finally below guards on null instead, which is also
+        // the plain way to say "nothing was ever prepared, so there is nothing to release."
+        PreparedTarget prepared = null;
         try {
             execution = advance(execution, ExecutionState.VALIDATING);
             var validation = engine.validate(execution.plan());
@@ -111,6 +131,22 @@ public final class ExecutionService {
                 return fail(execution, FailureReason.PREFLIGHT_FAILED,
                         String.join("\n", validation.problems()));
             }
+
+            var declaredTarget = execution.plan().executionTarget();
+            TargetExecutor executor = targetExecutors.stream()
+                    .filter(candidate -> candidate.supports(declaredTarget))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "no TargetExecutor registered for " + declaredTarget));
+            try {
+                prepared = executor.prepare(new TargetPreparationRequest(id, execution.projectId(),
+                        execution.plan().executionTarget(), statusOf(id, execution, progressSink),
+                        execution.plan().workspacePath()));
+            } catch (TargetPreparationException e) {
+                return fail(execution, e.reason(), e.getMessage());
+            }
+            execution = execution.withResolvedTarget(prepared.resolvedTarget());
+            executions.save(execution);
 
             execution = advance(execution, ExecutionState.READY);
             execution = advance(execution, ExecutionState.STARTING);
@@ -122,10 +158,17 @@ public final class ExecutionService {
             // Sampling starts before traffic and runs alongside it. The measurements that explain a
             // bottleneck — pool utilisation, queue depth — are instantaneous gauges, and reading
             // them after the load stops would report a service sitting idle.
-            telemetrySession = startTelemetry(execution.plan(), id);
+            telemetrySession = startTelemetry(execution.plan(), id, execution.resolvedTarget());
+
+            // Transient, engine-facing plan — never persisted, and never what execution.plan() (or
+            // anything saved to the repository) returns. Composes SUT resolution — this run's real
+            // endpoint, from the target executor above — with whatever the engine itself still
+            // requires on top (e.g. k6 running inside a container, where 'localhost' means the
+            // container and not the host), in that order. See EffectiveTestPlan.withTargetAddress.
+            EffectiveTestPlan planForEngine = planForEngine(execution.plan(), prepared.resolvedTarget());
 
             PerformanceEngine.EngineOutcome outcome =
-                    engine.execute(id, execution.plan(), progressSink, cancellation);
+                    engine.execute(id, planForEngine, progressSink, cancellation);
 
             if (cancellation.isCancelled()) {
                 // A cancelled run keeps whatever it measured, and is graded rather than discarded.
@@ -182,6 +225,14 @@ public final class ExecutionService {
             // this is a harmless no-op on the path above that already finished it explicitly via
             // withTelemetry(), and the only call that matters on every other path.
             stopTelemetry(telemetrySession);
+            // Guaranteed on every exit path once prepare() has run at all — success, cancellation,
+            // engine failure, or an unexpected exception. Skipped only when prepared is still null,
+            // i.e. prepare() itself never returned (either it threw, already handled above and
+            // returned before this point ever mattered, or VALIDATING/preflight failed first — in
+            // both cases there is nothing to release).
+            if (prepared != null) {
+                recordCleanup(execution, prepared.cleanup());
+            }
         }
     }
 
@@ -209,7 +260,8 @@ public final class ExecutionService {
                         execution.toolVersions(), execution.artifacts(), FailureReason.INTERRUPTED,
                         FailureReason.INTERRUPTED.guidance(),
                         validity.assess(execution.plan(), execution.results(), stagesOf(execution),
-                                ExecutionState.FAILED, FailureReason.INTERRUPTED)))
+                                ExecutionState.FAILED, FailureReason.INTERRUPTED),
+                        execution.resolvedTarget()))
                 .toList();
         executions.saveAll(failed);
         return failed.size();
@@ -250,9 +302,9 @@ public final class ExecutionService {
 
     /** Begins telemetry sampling, tolerating a collector that cannot start at all. */
     private TelemetryCollector.Session startTelemetry(dev.vortex.core.plan.EffectiveTestPlan plan,
-            ExecutionId id) {
+            ExecutionId id, ResolvedTarget resolvedTarget) {
         try {
-            return telemetry.start(plan, id);
+            return telemetry.start(plan, id, resolvedTarget);
         } catch (RuntimeException e) {
             return TelemetryCollector.Session.empty();
         }
@@ -265,6 +317,84 @@ public final class ExecutionService {
             session.finish(new dev.vortex.core.metrics.TimeWindow(clock.now(), clock.now()));
         } catch (RuntimeException e) {
             // Best-effort cleanup only; the run's own outcome does not depend on this.
+        }
+    }
+
+    /**
+     * A status callback that republishes target-preparation text through the existing progress
+     * channel, rather than a new one.
+     *
+     * <p>Deliberately not a new structured field on {@link ExecutionProgress}: preparation status is
+     * a status line for the UI to show verbatim while {@code state == STARTING}, not a protocol a
+     * frontend should parse or accumulate. Reusing {@link ExecutionProgress#starting} is what keeps
+     * a future target type's preparation messages ("Scheduling workload", "Waiting for pod
+     * readiness") flowing through this exact mechanism with no change here or in the frontend.
+     */
+    private Consumer<String> statusOf(ExecutionId id, TestExecution execution,
+            Consumer<ExecutionProgress> progressSink) {
+        return message -> progressSink.accept(
+                ExecutionProgress.starting(id, execution.plan().totalDuration(), message));
+    }
+
+    /**
+     * The plan actually handed to the engine, built once this run's target has been resolved.
+     *
+     * <p>Composes two independent rewrites, in the order the plan's design requires: first
+     * correcting the pre-run address to the address this run's target executor actually resolved
+     * ({@link #withResolvedEndpoint} — a genuine no-op for {@link
+     * dev.vortex.core.target.ExternalEndpointTarget} whenever no engine-side rewrite already
+     * applies), then re-applying whatever {@link PerformanceEngine#targetRewriteFor} still requires
+     * on top of that. Neither rewrite is persisted; only this local variable, passed to {@code
+     * engine.execute(...)}, is ever built from it.
+     */
+    private EffectiveTestPlan planForEngine(EffectiveTestPlan plan, ResolvedTarget resolved) {
+        EffectiveTestPlan sutResolved = withResolvedEndpoint(plan, resolved);
+        return engine.targetRewriteFor(sutResolved)
+                .map(rewrite -> sutResolved.withTargetAddress(sutResolved.configuredTarget(),
+                        sutResolved.configuredTarget().withHost(rewrite.newHost()), rewrite.reason()))
+                .orElse(sutResolved);
+    }
+
+    /**
+     * The plan corrected to name this run's actually-resolved target address.
+     *
+     * <p>Returns {@code plan} itself, unchanged, whenever the resolved address already matches — true
+     * today for every {@link dev.vortex.core.target.ExternalEndpointTarget} run that needed no
+     * engine-side rewrite, which keeps the common case reference-identical rather than merely
+     * equal.
+     */
+    private EffectiveTestPlan withResolvedEndpoint(EffectiveTestPlan plan, ResolvedTarget resolved) {
+        if (plan.effectiveTargetIfPresent().map(resolved.endpoint()::equals).orElse(false)) {
+            return plan;
+        }
+        return plan.withTargetAddress(resolved.endpoint(), resolved.endpoint(), "");
+    }
+
+    /**
+     * Makes a failed target cleanup visible without ever touching the execution it belongs to.
+     *
+     * <p>A run that measured its target correctly did not fail because Vortex could not release the
+     * target afterward — so this writes an artifact and logs a warning, and never mutates {@code
+     * execution.failureReason} or its state. Re-reads the execution rather than trusting the {@code
+     * execution} this method was handed: by the time {@code finally} runs, the caller's local
+     * variable may still be the pre-terminal value from before {@code fail()}/{@code cancelled()}
+     * saved the real outcome, and this must layer onto whatever was actually persisted.
+     */
+    private void recordCleanup(TestExecution execution, CleanupOutcome outcome) {
+        if (!outcome.attempted() || outcome.succeeded()) {
+            return;
+        }
+        log.log(Level.WARNING, "Could not release the target for execution {0}: {1}",
+                execution.id().value(), outcome.detail());
+        try {
+            String path = artifacts.write(execution.id(), ExecutionArtifacts.TARGET_CLEANUP,
+                    outcome.detail());
+            TestExecution current = executions.findById(execution.id()).orElse(execution);
+            executions.save(current.withArtifacts(
+                    current.artifacts().with(ExecutionArtifacts.TARGET_CLEANUP, path)));
+        } catch (RuntimeException e) {
+            log.log(Level.WARNING, "Could not record the target cleanup failure for execution {0}: {1}",
+                    execution.id().value(), e.getMessage());
         }
     }
 

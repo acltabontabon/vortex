@@ -9,7 +9,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/charts/styles.css';
 import './index.css';
-import { theme } from './theme';
+import { theme, cssVariablesResolver } from './theme';
 import { router } from './app/router';
 import { queryClient } from './app/queryClient';
 
@@ -19,7 +19,12 @@ const colorSchemeManager = localStorageColorSchemeManager({ key: 'vortex.theme' 
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <MantineProvider theme={theme} colorSchemeManager={colorSchemeManager} defaultColorScheme="auto">
+    <MantineProvider
+      theme={theme}
+      cssVariablesResolver={cssVariablesResolver}
+      colorSchemeManager={colorSchemeManager}
+      defaultColorScheme="auto"
+    >
       <ModalsProvider>
         <Notifications position="bottom-right" />
         <QueryClientProvider client={queryClient}>

@@ -5,7 +5,7 @@
 .result {
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid light-dark(var(--mantine-color-neutral-2), var(--mantine-color-neutral-7));
+  border-top: 1px solid var(--border-default);
 }
 
 .head {
@@ -73,7 +73,7 @@
  */
 .instrument {
   container-type: inline-size;
-  background: light-dark(var(--mantine-color-neutral-0), var(--mantine-color-neutral-9));
+  background: var(--surface-card);
   border-radius: var(--mantine-radius-md);
   padding: 1.25rem 1.4rem;
 }
@@ -146,7 +146,7 @@
 .objectivesCol {
   margin-top: 1.1rem;
   padding-top: 1.1rem;
-  border-top: 1px solid light-dark(var(--mantine-color-neutral-1), var(--mantine-color-neutral-8));
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* Per-objective breakdown — arrives once the full evidence fetch resolves, so it is absent, not
@@ -232,6 +232,6 @@
     border-top: none;
     margin-left: 2.5rem;
     padding-left: 2.5rem;
-    border-left: 1px solid light-dark(var(--mantine-color-neutral-1), var(--mantine-color-neutral-8));
+    border-left: 1px solid var(--border-subtle);
   }
 }

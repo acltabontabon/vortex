@@ -35,6 +35,7 @@ export function RunLiveView({
 
       <LiveExecutionPanel
         density="full"
+        state={progress?.state}
         stage={progress?.stage ?? run.stateLabel}
         elapsed={progress?.elapsed ?? '00:00'}
         percent={progress?.percent ?? 0}
@@ -42,6 +43,8 @@ export function RunLiveView({
         currentRate={progress?.currentRate || null}
         p95={progress?.p95 || null}
         errorRate={progress?.errorRate || null}
+        preparationMessage={progress?.message || null}
+        resourceReading={progress?.resourceReading ?? null}
         onConfirmCancel={onCancel}
         cancelPending={cancelPending}
       />

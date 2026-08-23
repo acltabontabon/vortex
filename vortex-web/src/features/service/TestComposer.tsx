@@ -16,7 +16,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconChevronDown, IconPlus } from '@tabler/icons-react';
-import { useTestsQuery } from '../../api/workspace';
+import { useTestsQuery, type Target } from '../../api/workspace';
 import {
   useCatalogOperationsQuery,
   usePreviewMutation,
@@ -167,6 +167,7 @@ export function TestComposer({
   onClose,
   onPreviewChange,
   showInlineChart = false,
+  target = null,
 }: {
   serviceId: string;
   mode: 'create' | 'edit';
@@ -181,6 +182,10 @@ export function TestComposer({
    *  wide screens the rail already shows it, and this stays false so the chart never renders
    *  twice for the same workload. */
   showInlineChart?: boolean;
+  /** The service's configured target, from the header this composer sits beside — every test here
+   *  targets it, there being no per-test environment picker. Folded into the preview snapshot's
+   *  `targetSummary`/`resourceSummary`; null while no environment is configured yet. */
+  target?: Target | null;
 }) {
   const editing = mode === 'edit';
 
@@ -292,6 +297,13 @@ export function TestComposer({
       composition: previewMutation.data?.composition ?? null,
       shape: previewMutation.data?.shape ?? null,
       problem: previewMutation.data?.problem ?? null,
+      // Omitted for an external endpoint: its address is already stated on the service header on
+      // every tab, and it carries no resource envelope for this caption to add. Vortex only knows a
+      // declared resource envelope's raw CPU/memory numbers on the Configuration page today — no
+      // DTO reachable from here carries them — so resourceSummary stays null even for a
+      // Docker-managed target; see WorkloadPreviewPanel's own note.
+      targetSummary: target && target.targetKind !== 'EXTERNAL_ENDPOINT' ? target.targetSummary : null,
+      resourceSummary: null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -305,6 +317,7 @@ export function TestComposer({
     form.values.stages,
     previewMutation.data,
     testsQuery.data,
+    target,
   ]);
 
   // Never leaves a stale workload behind for the rail once this composer session ends.

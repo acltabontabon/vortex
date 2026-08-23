@@ -53,6 +53,7 @@ class ProjectAdoptionTest {
                 new JdbcProjectRepository.Catalogs(jdbc),
                 new JdbcExecutionRepository(jdbc, new NamedParameterJdbcTemplate(dataSource)),
                 configurationStore,
+                new FilesystemArtifactStore(workspace),
                 Clock.systemUtc());
     }
 

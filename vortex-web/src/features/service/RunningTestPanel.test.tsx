@@ -69,6 +69,7 @@ describe('the running test panel', () => {
       currentRate: '100.2 requests/sec',
       p95: '',
       errorRate: '',
+      message: '',
     });
 
     renderWithProviders(<RunningTestPanel serviceId="checkout" running={aRunRef()} />);

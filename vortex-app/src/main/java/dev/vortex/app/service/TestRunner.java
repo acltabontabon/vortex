@@ -160,7 +160,11 @@ public class TestRunner {
         // cannot be interpreted.
         PlanResolver.TargetRewrite rewrite = null;
         var provisional = configuration.environmentByName(environmentName);
-        if (provisional.isPresent()) {
+        // The probe only knows how to ask about an address that already exists. A Docker or Compose
+        // target has none yet — its own engine-reachability rewrite is composed later, once
+        // ExecutionService has actually resolved a runtime endpoint (see its planForEngine).
+        if (provisional.isPresent()
+                && provisional.get().target() instanceof dev.vortex.core.target.ExternalEndpointTarget) {
             var probe = new EffectiveTestPlanProbe(provisional.get());
             rewrite = engine.targetRewriteFor(probe.plan())
                     .map(hint -> new PlanResolver.TargetRewrite(hint.newHost(), hint.reason()))
@@ -404,18 +408,23 @@ public class TestRunner {
     private record EffectiveTestPlanProbe(dev.vortex.core.environment.Environment environment) {
 
         EffectiveTestPlan plan() {
+            // Only ever constructed for an ExternalEndpointTarget — resolve()'s caller guards this;
+            // a Docker/Compose target has no pre-run address for this probe to ask about at all.
+            dev.vortex.core.environment.TargetUrl endpoint =
+                    ((dev.vortex.core.target.ExternalEndpointTarget) environment.target()).endpoint();
             return new EffectiveTestPlan(
                     dev.vortex.core.shared.TestPlanId.generate(),
                     dev.vortex.core.shared.ProjectId.generate(), "", "",
                     TestIntent.defaultFor(dev.vortex.core.workload.TestType.SMOKE), "", "",
                     dev.vortex.core.workload.TestType.SMOKE,
                     dev.vortex.core.workload.WorkloadModel.OPEN,
-                    dev.vortex.core.shared.RequestsPerSecond.of(1), List.of(), List.of(),
+                    dev.vortex.core.shared.RequestsPerSecond.of(1), List.of(), List.of(), List.of(),
                     dev.vortex.core.workload.WorkloadSource.manual(),
                     dev.vortex.core.threshold.ThresholdSet.empty(), environment.name(),
-                    environment.type(), environment.baseUrl(), environment.baseUrl(), "",
+                    environment.type(), environment.target(), endpoint, endpoint, "",
                     environment.dependencyMode(), environment.classification(), Map.of(), Map.of(),
-                    RunnerKind.LOCAL_BINARY, ScriptSource.GENERATED, List.of(), null);
+                    RunnerKind.LOCAL_BINARY, ScriptSource.GENERATED, List.of(), null,
+                    dev.vortex.core.validity.ValidityPolicy.defaults(), "");
         }
     }
 

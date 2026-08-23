@@ -15,10 +15,22 @@ public final class RunEvidenceDtos {
     private RunEvidenceDtos() {
     }
 
+    /**
+     * @param targetKind      {@code EXTERNAL_ENDPOINT} | {@code DOCKER_IMAGE} | {@code
+     *                        DOCKER_COMPOSE} — always known, even for a historical run predating
+     *                        this feature (normalizes to {@code EXTERNAL_ENDPOINT})
+     * @param targetSummary   the declared target's own summary, e.g. "Docker: payment-service:1.4.2"
+     * @param targetOwnershipLabel "Vortex managed" or "Externally managed"
+     * @param resourceSummary the run's confirmed resource envelope, e.g. "0.5 CPU · 512 MiB", or
+     *                        null when none was confirmed — never an empty string standing in for
+     *                        absence
+     */
     public record RunIdentityDto(String executionId, String shortId, String serviceName,
             String serviceVersion, String workloadName, String testTypeLabel, String environmentName,
             String environmentTypeLabel, String classification, String classificationLabel,
             String targetUrl, boolean targetWasRewritten, String targetRewriteReason,
+            String targetKind, String targetSummary, String targetOwnershipLabel,
+            String resourceSummary,
             String requestedAtIso, String finishedAtDisplay, String durationDisplay) {
     }
 

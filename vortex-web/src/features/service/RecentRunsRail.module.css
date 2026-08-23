@@ -62,7 +62,7 @@
   top: 6px;
   bottom: 6px;
   width: 1px;
-  background: light-dark(var(--mantine-color-neutral-2), var(--mantine-color-neutral-7));
+  background: var(--border-default);
 }
 
 /*

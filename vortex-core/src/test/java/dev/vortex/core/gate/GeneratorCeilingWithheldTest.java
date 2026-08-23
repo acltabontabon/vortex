@@ -106,7 +106,7 @@ class GeneratorCeilingWithheldTest {
 
         return new TestExecution(ExecutionId.of("ceiling"), PROJECT, plan,
                 ExecutionState.COMPLETED, Fixtures.NOW, Fixtures.NOW,
-                Fixtures.NOW.plusSeconds(600), results, summary, null, null, null, "", quality);
+                Fixtures.NOW.plusSeconds(600), results, summary, null, null, null, "", quality, null);
     }
 
     /** What the workload asked for, and what its own generator could not produce. */
@@ -218,7 +218,7 @@ class GeneratorCeilingWithheldTest {
         var quality = validity.assess(plan, results, List.of(), ExecutionState.COMPLETED, null);
         var execution = new TestExecution(ExecutionId.of("healthy"), PROJECT, plan,
                 ExecutionState.COMPLETED, Fixtures.NOW, Fixtures.NOW,
-                Fixtures.NOW.plusSeconds(600), results, summary, null, null, null, "", quality);
+                Fixtures.NOW.plusSeconds(600), results, summary, null, null, null, "", quality, null);
 
         assertThat(quality.quality()).isEqualTo(RunQuality.VALID);
         assertThat(capacity.recordFrom(execution, stagesOf(execution))).isPresent();

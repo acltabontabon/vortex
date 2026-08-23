@@ -1,0 +1,179 @@
+= ADR-042: Execution targets are not services
+
+== Status
+
+Accepted
+
+== Context
+
+`Environment` has always carried a bare `TargetUrl baseUrl` — one address, entered once, assumed to
+answer both "what is the service under test" and "where is it reachable." That conflation was fine
+while the only way to reach a service was an address someone else started and Vortex merely probed.
+It stops being fine the moment Vortex wants genuinely resource-aware experiments: a CPU/memory limit
+Vortex can actually apply and later cite as evidence, not just observe if a provider happens to
+publish one. `EvidenceAssembler` has carried a standing comment naming this exact gap — container and
+cgroup throttling are not collected today, "a known limitation, not an oversight." Closing it needs a
+target Vortex can create, start, constrain, watch and remove — a lifecycle a bare URL has no room to
+describe.
+
+xref:adr-037-resource-observation-is-typed.adoc[ADR-037] already gives resource evidence a typed
+shape — `ResourceSignal`, `ResourceKind`, `ResourceScope`, `ResourceLimit` — but assumes every limit
+is either *published by a provider that discovered it* or *inherent to a unit*. Neither describes a
+limit Vortex itself configured and then confirmed was actually applied.
+xref:adr-039-four-limits-not-one.adoc[ADR-039]'s four-limits model depends on a resource limit being
+real evidence, not a declared aspiration; a Docker-managed target is what makes that distinction
+possible to observe.
+
+The existing Local Lab (`LocalLab`/`DockerLocalLab`/`LocalLabSettings`) already wraps
+`docker compose up`/`down`, but for a different purpose entirely — starting a service's
+*dependencies* before a run, never the service under test itself, and never automatically. Reusing it
+for the SUT's own lifecycle would conflate two concepts that only happen to both involve Docker.
+
+== Decision
+
+=== Service identity and execution target are separate concepts
+
+A service (`Project`) is the logical system being tested. How it is reached for a given experiment is
+a new, separate concept: `dev.vortex.core.target.ExecutionTarget`, a sealed interface with three
+variants — `ExternalEndpointTarget`, `DockerImageTarget`, `DockerComposeTarget` — replacing
+`Environment`'s bare `TargetUrl` field. Deliberately, the sealed interface declares no common address
+accessor: only `ExternalEndpointTarget` has a genuine pre-run URL, because it is the only variant that
+does. A Docker or Compose target's address does not exist until something actually resolves it — a
+placeholder manufactured merely to satisfy a shared type would assert a fact nobody yet knows.
+
+Existing endpoints remain first-class and behaviorally unchanged: Vortex still only checks
+connectivity, generates load, and observes whatever telemetry is available, exactly as before this
+feature. `DockerImageTarget` is a new, genuinely managed target — one disposable, Vortex-owned
+container built from an image the user already has. `DockerComposeTarget` is attach-only: it
+references an existing Compose file and identifies a service already running inside it. Ownership
+(`TargetOwnership.VORTEX_MANAGED` / `EXTERNAL`) is explicit on every variant, never inferred from a
+type name or a container's label alone at any call site.
+
+=== A resolved target is runtime state, not part of the plan
+
+`EffectiveTestPlan` — the immutable, fingerprinted description of an experiment — gained exactly one
+new field, `executionTarget` (the declared configuration: which image, which port, what resources were
+asked for). It did **not** gain a container id, a resolved port, or any other fact only discoverable
+by actually preparing the target. Those live on `ResolvedTarget`, attached to `TestExecution` (the run
+aggregate) once `TargetExecutor.prepare()` succeeds — never on the plan.
+
+This was not the obvious place to draw the line. A bounded investigation into moving target addressing
+out of `EffectiveTestPlan` entirely — so the engine would receive the target as a separate parameter
+rather than through the plan at all — found `configuredTarget()`/`effectiveTarget()` reachable from 38
+call sites across 19 files, including `ExperimentIdentity`'s fingerprint (`plan.configuredTarget()` is
+literally one of the dimensions deciding whether two runs are "the same experiment"), the
+`SecretsNeverPersistTest`/`SecretsNeverExportTest` architectural guards, `ExecutionPolicy`'s safety
+checks, and `PreflightService`. Threading target addressing independently through all of that —
+reproducibility identity and two security-guard test suites chief among them — was a materially larger
+and riskier change than this feature needed. The chosen design keeps `configuredTarget`/
+`effectiveTarget` in their existing place, made nullable (empty for anything but an
+`ExternalEndpointTarget`, since only that variant has a pre-run address), and resolves the engine's
+actual, real endpoint through a transient, request-scoped copy of the plan built once inside
+`ExecutionService.run()` — composed with the pre-existing k6-in-Docker reachability rewrite,
+`PerformanceEngine.targetRewriteFor` — that is handed to `engine.execute(...)` and nowhere else. The
+plan a `TestExecution` was created with, and everything derived from it (its fingerprint, its
+persisted `plan_json`), is never mutated by a run; a characterization test asserts this by reference
+identity.
+
+=== A capability-oriented executor, not `instanceof`
+
+`dev.vortex.core.port.TargetExecutor` — `supports(target)`, `capabilities()`, `prepare(request)`,
+`checkAvailability(target, workspacePath)` — is the one seam `ExecutionService.run()` reaches through.
+It holds `List<TargetExecutor>` and picks whichever one supports a given run's declared target; nothing
+in the application layer branches on which `ExecutionTarget` subtype it is holding. `PreparedTarget` is
+a lifecycle lease: it deliberately conflates "here is the address that turned out to be reachable" with
+"here is how to release whatever was created to make that true," because for every target type today
+both facts are produced by the same `prepare()` call — splitting them would only make the two easy to
+use inconsistently. Its `cleanup()` runs unconditionally in `ExecutionService.run()`'s existing
+`finally` block, on every exit path — success, cancellation, engine failure, or an unexpected
+exception — and a cleanup failure is recorded as a `target-cleanup.log` artifact and a warning log,
+never allowed to overwrite the execution's own terminal outcome.
+
+=== Docker image targets: transactional preparation, confirmed enforcement
+
+`DockerImageTargetExecutor` creates a container labeled `vortex.managed=true` /
+`vortex.execution=<id>` / `vortex.service=<projectId>`, with no host port pinned (Docker assigns one),
+no environment-variable support, no host-path or Docker-socket mounts. Once `docker create` returns a
+real container id, every later step — start, resource confirmation, port resolution, readiness —
+runs inside one `try` whose `catch` removes that container before translating and rethrowing; there is
+exactly one place a partial-creation cleanup could be forgotten, not a discipline every new step has to
+remember separately. Readiness is layered: a bare TCP connect is mandatory, an HTTP path/status check
+is applied only when explicitly configured — no `/actuator/health`-shaped assumption lives in the
+domain.
+
+Requested CPU/memory (`CpuAllocation` in integer millicores, `MemoryAllocation` in exact bytes — no
+floating-point value ever enters this feature's experiment identity or its wire contracts) are applied
+via `--cpus`/`--memory` and then verified, not merely applied and trusted: a post-start
+`docker inspect` reads back `NanoCpus`/`Memory` and compares them for exact integer equality against
+what was requested. Only on an exact match does `LimitBasis` gain a new value,
+`VORTEX_CONFIGURED` — a third, genuinely distinct answer to the question that enum has always asked
+("where did this limit's *value* come from"), alongside `PUBLISHED_BY_PROVIDER` and
+`INHERENT_TO_UNIT`. A mismatch fails preparation outright (`RESOURCE_LIMIT_APPLICATION_FAILED`) rather
+than reporting a weaker-confidence signal — so "was this actually enforced" is answered by which basis
+is present at all, not by a second, easily-forgotten field alongside it.
+
+Container telemetry (`DockerContainerObservabilityProvider`) feeds the *existing*
+`ObservabilityProvider`/`TelemetryCollector`/`ResourceSignal` architecture — scoped
+`SYSTEM_UNDER_TEST`, not a parallel pipeline — closing the exact gap `EvidenceAssembler`'s comment
+named. Its mechanism was chosen from a measured comparison, not assumed: repeated
+`docker stats --no-stream` cost roughly 1.6 seconds of wall-clock overhead on every single sample —
+close to a third of the collector's own five-second sampling interval, spent purely spawning and
+querying a process — while a single long-lived `docker stats` stream spawns one process for the whole
+run, refreshes far more often than needed, and leaves nothing running once stopped. The stream is what
+shipped.
+
+=== Docker Compose: attach-only, and no way to become anything else
+
+`DockerComposeTargetExecutor` never runs `up`, `down`, or `rm` — not merely by convention, but
+structurally: no such subcommand exists anywhere in the class for a call site to reach. It resolves a
+service's identity and running state through three narrow, stable `docker compose` subcommands
+(`config --services`, `ps --services --status running`, `port <service> <port>`) rather than parsing
+the Compose YAML topology itself or relying on one broad, version-coupled JSON dump. Ownership is
+always `EXTERNAL`. No resource limit is claimed for a Compose target in this pass — usage may be
+reported, but no `ResourceLimit` is attached, because Vortex has no trustworthy way to know that a
+figure discovered on someone else's already-running container is the limit that actually governs it;
+`DockerImageTarget` remains the only path to a limit Vortex both configured and verified.
+
+=== In-process failure safety, not process-crash recovery
+
+The try/finally and transactional-`prepare()` design above guarantees cleanup for every failure that
+happens while the Vortex process is still running to observe it. It guarantees nothing across a hard
+crash of Vortex itself between `docker create`/`start` succeeding and normal cleanup code getting a
+chance to run — a window that includes the moments before `TestExecution.resolvedTarget()` is even
+persisted. This is a deliberate, accepted limitation for this pass, not a hidden bug: automated
+container-deletion on startup is materially more destructive than the existing
+`WorkspaceReconciler`'s "mark the row failed" behavior for an orphaned execution, and the recovery
+semantics it would need — is a container that outlived a crashed Vortex process definitely orphaned,
+or could it still be legitimately in use — are not yet designed. `DockerOrphanReconciler` is therefore
+**not implemented**. Vortex-managed containers stay labeled and discoverable
+(`docker ps --filter label=vortex.managed=true`) for manual cleanup in the interim.
+
+=== Compatible with a future Coordinator
+
+Nothing here assumes Docker is the last execution mechanism. Adding a `KubernetesTarget`/
+`CoordinatorTarget` later (see xref:adr-040-vortex-coordinator-for-remote-execution.adoc[ADR-040]) means
+one new `ExecutionTarget` variant and one new `TargetExecutor` bean; `ExecutionService.run()`,
+`PreflightService`, and every REST/frontend surface built against `TargetExecutor`'s capability set
+need no redesign to accommodate it.
+
+== Consequences
+
+*Gained.* Resource-aware experiments with a CPU/memory limit Vortex can genuinely apply and then
+prove was applied, container-attributed telemetry that closes `EvidenceAssembler`'s long-standing gap,
+and a result page that correctly distinguishes "720 req/s at 0.5 CPU" from "1,300 req/s at 1 CPU" as
+the different observations they are. Verified end to end against a real container built from
+`vortex-demo-service`'s own Docker image, through the actual Configuration UI, a real run, and the
+resulting evidence — not only against fakes.
+
+*Cost.* A new adapter surface (`vortex-app/src/main/java/dev/vortex/app/adapter/target/`) Vortex now
+owns and must keep safe. `FailureReason` grew nine new values. `EffectiveTestPlan.configuredTarget`/
+`effectiveTarget` — previously guaranteed non-null — are now legitimately absent for two of three
+target kinds, which meant auditing and fixing every existing reader of those fields, several
+uncovered only by exercising the feature live rather than by the automated suite (the field's own unit
+and slice tests mock the collaborators that these particular gaps lived between).
+
+*Deliberately not done.* Image building or registry-credential management; `DockerImageTarget`
+environment-variable support; Compose stack lifecycle management, profiles, overrides, or
+resource-limit injection into a Compose document; a "Vortex-started Compose" mode; automated
+orphan-container reconciliation; Kubernetes or Coordinator execution. Each is a real, separate design
+question this feature deliberately leaves open rather than answers by default.

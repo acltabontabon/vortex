@@ -6,6 +6,7 @@ import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.plan.PlannedOperation;
 import dev.vortex.core.plan.ScriptSource;
 import dev.vortex.core.port.PerformanceEngine;
+import dev.vortex.core.port.TargetExecutor;
 import dev.vortex.core.safety.ExecutionPolicy;
 import dev.vortex.core.safety.SafetyAssessment;
 import dev.vortex.core.threshold.Durations;
@@ -28,6 +29,7 @@ public final class PreflightService {
     private final ExecutionPolicy policy;
     private final Predicate<String> environmentVariableExists;
     private final TargetProbe targetProbe;
+    private final List<TargetExecutor> targetExecutors;
 
     /** Checks whether a target responds at all. Kept as a port so core stays free of HTTP clients. */
     @FunctionalInterface
@@ -44,12 +46,14 @@ public final class PreflightService {
     }
 
     public PreflightService(PerformanceEngine engine, ExecutionPolicy policy,
-            Predicate<String> environmentVariableExists, TargetProbe targetProbe) {
+            Predicate<String> environmentVariableExists, TargetProbe targetProbe,
+            List<TargetExecutor> targetExecutors) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.policy = Objects.requireNonNull(policy, "policy");
         this.environmentVariableExists =
                 Objects.requireNonNull(environmentVariableExists, "environmentVariableExists");
         this.targetProbe = Objects.requireNonNull(targetProbe, "targetProbe");
+        this.targetExecutors = List.copyOf(Objects.requireNonNull(targetExecutors, "targetExecutors"));
     }
 
     public PreflightReport check(EffectiveTestPlan plan) {
@@ -201,12 +205,25 @@ public final class PreflightService {
     }
 
     private void checkTarget(EffectiveTestPlan plan, List<PreflightCheck> checks) {
-        var problem = targetProbe.probe(plan.effectiveTarget().value());
+        // A non-endpoint target (Docker/Compose) has no pre-run URL to probe over HTTP — instead, its
+        // own TargetExecutor knows how to check readiness (Docker daemon reachable, image present,
+        // Compose service found/running) without creating or starting anything.
+        if (plan.effectiveTargetIfPresent().isEmpty()) {
+            TargetExecutor executor = targetExecutors.stream()
+                    .filter(candidate -> candidate.supports(plan.executionTarget()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "no TargetExecutor registered for " + plan.executionTarget()));
+            checks.addAll(executor.checkAvailability(plan.executionTarget(), plan.workspacePath()));
+            return;
+        }
+        String effectiveTarget = plan.effectiveTargetIfPresent().orElseThrow().value();
+        var problem = targetProbe.probe(effectiveTarget);
         if (problem.isEmpty()) {
-            checks.add(PreflightCheck.pass("Target reachable", plan.effectiveTarget().value()));
+            checks.add(PreflightCheck.pass("Target reachable", effectiveTarget));
         } else {
             checks.add(PreflightCheck.fail("Target reachable",
-                    plan.effectiveTarget().value() + " did not respond: " + problem.get(),
+                    effectiveTarget + " did not respond: " + problem.get(),
                     "Check that the service is running and that the address and port are correct. "
                             + (plan.targetWasRewritten()
                             ? "Note that the effective target differs from the one you configured, "

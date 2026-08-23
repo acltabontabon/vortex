@@ -44,6 +44,17 @@ public record ExecutionArtifacts(Map<String, String> paths) {
     public static final String EVIDENCE = "evidence.json";
     public static final String REPORT = "report.md";
 
+    /**
+     * Written only when releasing a run's target failed after the run itself had already finished.
+     *
+     * <p>Deliberately not a {@code TestExecution.FailureReason}: a run that measured its target
+     * correctly did not fail because Vortex could not tear the target back down afterward, and
+     * reporting it as failed would misstate what actually happened. This artifact — plus a WARN log
+     * line — is how the failure stays visible without retroactively changing a completed run's
+     * outcome.
+     */
+    public static final String TARGET_CLEANUP = "target-cleanup.log";
+
     public ExecutionArtifacts {
         paths = paths == null ? Map.of() : Map.copyOf(paths);
     }

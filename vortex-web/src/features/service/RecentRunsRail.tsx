@@ -81,7 +81,15 @@ export function RecentRunsRail({
   // Grouped by what actually appears in this list, not by how many tests the service happens to
   // have configured — a service with three tests but one that ever runs shouldn't repeat that one
   // test's name five times any more than a service with one test should.
-  const testNames = new Set(shownRuns.map((run) => run.testName));
+  //
+  // <p>Deliberately checked against every fetched run, not just `shownRuns` — `shownRuns` is the
+  // elastic slice `fitHeight`'s own effect above grows and shrinks, and whether a row shows its name
+  // changes that row's rendered height. Basing the grouping decision on that same elastic slice made
+  // the two feed each other: growing past a row whose test name differed flipped `singleTestName`,
+  // which changed row height, which changed how many rows fit, which changed the slice again — an
+  // oscillation between grouped and ungrouped that never settled. Checking the full fetched list
+  // instead is independent of `shownCount`, so it can't be an input to its own effect.
+  const testNames = new Set(overview.recentRuns.map((run) => run.testName));
   const singleTestName = testNames.size === 1 ? shownRuns[0]?.testName : null;
 
   return (

@@ -7,17 +7,20 @@ import dev.vortex.app.web.ConfigurationDtos.ConfigurationFileDto;
 import dev.vortex.app.web.ConfigurationDtos.DependencyModeOptionDto;
 import dev.vortex.app.web.ConfigurationDtos.EnvironmentDto;
 import dev.vortex.app.web.ConfigurationDtos.EnvironmentTypeOptionDto;
+import dev.vortex.app.web.ConfigurationDtos.ExecutionTargetSummaryDto;
 import dev.vortex.app.web.ConfigurationDtos.FetchProductionResponse;
 import dev.vortex.app.web.ConfigurationDtos.LabActivityDto;
 import dev.vortex.app.web.ConfigurationDtos.LabStatusDto;
 import dev.vortex.app.web.ConfigurationDtos.LocalLabDto;
 import dev.vortex.app.web.ConfigurationDtos.ObservationSourceDto;
 import dev.vortex.app.web.ConfigurationDtos.OperationDto;
+import dev.vortex.app.web.ConfigurationDtos.TargetValidationResponse;
 import dev.vortex.app.web.ConfigurationDtos.TestConnectionResponse;
 import dev.vortex.app.web.ConfigurationDtos.ThresholdEditDto;
 import dev.vortex.app.web.ConfigurationDtos.WorkloadSuggestionDto;
 import dev.vortex.core.application.CalibrationService;
 import dev.vortex.core.application.CatalogImportService;
+import dev.vortex.core.application.PreflightCheck;
 import dev.vortex.core.application.ProjectService;
 import dev.vortex.core.calibration.CalibrationPolicy;
 import dev.vortex.core.capacity.ObservationSource;
@@ -31,10 +34,22 @@ import dev.vortex.core.environment.EnvironmentType;
 import dev.vortex.core.environment.SecretReferences;
 import dev.vortex.core.environment.TargetUrl;
 import dev.vortex.core.lab.LocalLabSettings;
+import dev.vortex.core.target.ContainerPort;
+import dev.vortex.core.target.CpuAllocation;
+import dev.vortex.core.target.DockerComposeTarget;
+import dev.vortex.core.target.DockerImageTarget;
+import dev.vortex.core.target.ExecutionTarget;
+import dev.vortex.core.target.ExternalEndpointTarget;
+import dev.vortex.core.target.ImageReference;
+import dev.vortex.core.target.MemoryAllocation;
+import dev.vortex.core.target.ReadinessCheck;
+import dev.vortex.core.target.ResourceEnvelopeRequest;
+import dev.vortex.core.target.TargetOwnership;
 import dev.vortex.core.port.LocalLab;
 import dev.vortex.core.port.ProductionObservationSource.NotRetrieved;
 import dev.vortex.core.port.ProductionObservationSource.Retrieved;
 import dev.vortex.core.port.ServiceCatalogImporter;
+import dev.vortex.core.port.TargetExecutor;
 import dev.vortex.core.project.Project;
 import dev.vortex.core.project.ProjectConfiguration;
 import dev.vortex.core.shared.EnvironmentId;
@@ -100,6 +115,7 @@ public class ConfigurationApiController {
     private final CalibrationService calibrationService;
     private final LocalLabRunner lab;
     private final WorkspaceAssembler assembler;
+    private final List<TargetExecutor> targetExecutors;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -107,13 +123,14 @@ public class ConfigurationApiController {
 
     public ConfigurationApiController(ProjectService projects, CatalogImportService catalogs,
             CalibrationPolicy calibration, CalibrationService calibrationService,
-            LocalLabRunner lab, WorkspaceAssembler assembler) {
+            LocalLabRunner lab, WorkspaceAssembler assembler, List<TargetExecutor> targetExecutors) {
         this.projects = Objects.requireNonNull(projects, "projects");
         this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
         this.calibration = Objects.requireNonNull(calibration, "calibration");
         this.calibrationService = Objects.requireNonNull(calibrationService, "calibrationService");
         this.lab = Objects.requireNonNull(lab, "lab");
         this.assembler = Objects.requireNonNull(assembler, "assembler");
+        this.targetExecutors = List.copyOf(Objects.requireNonNull(targetExecutors, "targetExecutors"));
     }
 
     // ==================================================================== the read
@@ -153,9 +170,13 @@ public class ConfigurationApiController {
     }
 
     private EnvironmentDto toDto(Environment environment) {
+        // Only an ExternalEndpointTarget has a genuine pre-run address; a Docker/Compose target
+        // reports no baseUrl rather than a manufactured one.
+        String baseUrl = environment.target() instanceof ExternalEndpointTarget endpoint
+                ? endpoint.endpoint().value() : null;
         return new EnvironmentDto(
                 environment.name(),
-                environment.baseUrl().value(),
+                baseUrl,
                 environment.type().name(),
                 environment.type().label(),
                 environment.dependencyMode().name(),
@@ -164,7 +185,21 @@ public class ConfigurationApiController {
                 environment.classification().label(),
                 environment.classification().caveat(),
                 environment.hasSecretReferences(),
-                environment.headerNames());
+                environment.headerNames(),
+                targetSummary(environment.target()));
+    }
+
+    /** {@code kind} matches the wire vocabulary shared with {@code EnvironmentRequest.targetKind}
+     *  and {@code vortex.yaml}'s {@code target.kind}. */
+    private ExecutionTargetSummaryDto targetSummary(ExecutionTarget target) {
+        String kind = switch (target) {
+            case ExternalEndpointTarget ignored -> "EXTERNAL_ENDPOINT";
+            case DockerImageTarget ignored -> "DOCKER_IMAGE";
+            case DockerComposeTarget ignored -> "DOCKER_COMPOSE";
+        };
+        String ownershipLabel = target.ownership() == TargetOwnership.VORTEX_MANAGED
+                ? "Vortex managed" : "Externally managed";
+        return new ExecutionTargetSummaryDto(kind, target.summary(), ownershipLabel);
     }
 
     private List<WorkloadSuggestionDto> calibrationSuggestions(ProjectConfiguration configuration) {
@@ -256,7 +291,10 @@ public class ConfigurationApiController {
     // ==================================================================== environments
 
     public record EnvironmentRequest(String name, String baseUrl, String type, String dependencies,
-            Boolean productionLike, String headerNames, String headerValues) {
+            Boolean productionLike, String headerNames, String headerValues,
+            String targetKind, String image, Integer containerPort, Integer cpuMillicores,
+            Long memoryMebibytes, String readinessPath, Integer readinessExpectedStatus,
+            Integer readinessTimeoutSeconds, String composeFile, String composeService) {
     }
 
     public record MessageResponse(String message) {
@@ -278,8 +316,8 @@ public class ConfigurationApiController {
                     type != EnvironmentType.LOCAL_ISOLATED, false);
 
             Environment environment = new Environment(EnvironmentId.of(slug), slug, type,
-                    TargetUrl.of(request.baseUrl()), capabilities, dependencies,
-                    parseHeaders(request.headerNames(), request.headerValues()));
+                    targetFrom(request), capabilities,
+                    dependencies, parseHeaders(request.headerNames(), request.headerValues()));
 
             List<Environment> updated = new ArrayList<>();
             boolean replaced = false;
@@ -301,6 +339,118 @@ public class ConfigurationApiController {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
+    }
+
+    /**
+     * Checks whether the target an {@link EnvironmentRequest} declares is actually reachable, without
+     * saving anything and without ever creating or starting anything — the "Test Connection" action
+     * for a Docker/Compose target's configuration form. Calls only {@link
+     * TargetExecutor#checkAvailability}, never {@link TargetExecutor#prepare}, under any
+     * circumstance: a validation click may never start a long-lived container.
+     *
+     * <p>Validates whatever the request body describes, not necessarily what is currently saved for
+     * this environment — the same "check what I'm about to save" contract {@code
+     * observation/test} already has for an observation source.
+     */
+    @PostMapping("/environments/{name}/target/validate")
+    public TargetValidationResponse validateTarget(@PathVariable String id, @PathVariable String name,
+            @RequestBody EnvironmentRequest request) {
+        ProjectId projectId = ProjectId.of(id);
+        String workspacePath =
+                projects.find(projectId).flatMap(Project::workspacePathIfPresent).orElse("");
+
+        ExecutionTarget target;
+        try {
+            target = targetFrom(request);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+
+        TargetExecutor executor = targetExecutors.stream()
+                .filter(candidate -> candidate.supports(target))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "'" + request.targetKind() + "' is not a target kind Vortex can validate."));
+
+        List<PreflightCheck> checks = executor.checkAvailability(target, workspacePath);
+        boolean valid = checks.stream().noneMatch(PreflightCheck::isFailure);
+        List<String> descriptions = checks.stream()
+                .map(check -> check.name() + ": " + check.status().label()
+                        + (check.detail().isBlank() ? "" : " — " + check.detail()))
+                .toList();
+        return new TargetValidationResponse(valid, descriptions);
+    }
+
+    /**
+     * Builds the {@link ExecutionTarget} an {@link EnvironmentRequest} declares.
+     *
+     * <p>{@code targetKind} absent or blank means {@code EXTERNAL_ENDPOINT}, matching {@code
+     * vortex.yaml}'s default — {@code baseUrl} is required and used only in that case; a
+     * Vortex-managed or attached target has no genuine pre-run address to demand one for.
+     */
+    private ExecutionTarget targetFrom(EnvironmentRequest request) {
+        String kind = request.targetKind() == null ? "" : request.targetKind().trim().toUpperCase(java.util.Locale.ROOT);
+        return switch (kind) {
+            case "", "EXTERNAL_ENDPOINT" -> new ExternalEndpointTarget(TargetUrl.of(request.baseUrl()));
+            case "DOCKER_IMAGE" -> dockerImageTarget(request);
+            case "DOCKER_COMPOSE" -> dockerComposeTarget(request);
+            default -> throw new IllegalArgumentException("'" + request.targetKind()
+                    + "' is not a target kind Vortex understands. Use EXTERNAL_ENDPOINT, "
+                    + "DOCKER_IMAGE or DOCKER_COMPOSE.");
+        };
+    }
+
+    private DockerImageTarget dockerImageTarget(EnvironmentRequest request) {
+        if (request.image() == null || request.image().isBlank()) {
+            throw new IllegalArgumentException(
+                    "A Docker-managed target needs the image to run, e.g. \"payment-service:1.4.2\"");
+        }
+        if (request.containerPort() == null) {
+            throw new IllegalArgumentException(
+                    "A Docker-managed target needs the port its container listens on");
+        }
+        CpuAllocation cpu = request.cpuMillicores() == null
+                ? null : CpuAllocation.ofMillicores(request.cpuMillicores());
+        MemoryAllocation memory = request.memoryMebibytes() == null
+                ? null : MemoryAllocation.ofMebibytes(request.memoryMebibytes());
+        ReadinessCheck readiness = readinessCheckFrom(request);
+        return new DockerImageTarget(new ImageReference(request.image()),
+                new ContainerPort(request.containerPort()),
+                new ResourceEnvelopeRequest(cpu, memory), readiness);
+    }
+
+    private ReadinessCheck readinessCheckFrom(EnvironmentRequest request) {
+        boolean hasPath = request.readinessPath() != null && !request.readinessPath().isBlank();
+        boolean hasStatus = request.readinessExpectedStatus() != null;
+        boolean hasTimeout = request.readinessTimeoutSeconds() != null;
+        if (!hasPath && !hasStatus && !hasTimeout) {
+            return null;
+        }
+        if (!(hasPath && hasStatus && hasTimeout)) {
+            throw new IllegalArgumentException(
+                    "A readiness check needs readinessPath, readinessExpectedStatus and "
+                            + "readinessTimeoutSeconds together, not just some of them — or none of "
+                            + "them, to fall back to a plain TCP connect once the port opens");
+        }
+        return new ReadinessCheck(request.readinessPath(), request.readinessExpectedStatus(),
+                Duration.ofSeconds(request.readinessTimeoutSeconds()));
+    }
+
+    private DockerComposeTarget dockerComposeTarget(EnvironmentRequest request) {
+        if (request.composeFile() == null || request.composeFile().isBlank()) {
+            throw new IllegalArgumentException(
+                    "An attached Compose target needs the Compose file this repository already owns");
+        }
+        if (request.composeService() == null || request.composeService().isBlank()) {
+            throw new IllegalArgumentException(
+                    "An attached Compose target needs the service name inside that Compose file");
+        }
+        if (request.containerPort() == null) {
+            throw new IllegalArgumentException(
+                    "An attached Compose target needs the port that service listens on in its container");
+        }
+        return new DockerComposeTarget(request.composeFile(), request.composeService(),
+                new ContainerPort(request.containerPort()));
     }
 
     private String slug(String raw) {

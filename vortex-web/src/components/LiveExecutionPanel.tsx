@@ -22,6 +22,7 @@ import classes from './LiveExecutionPanel.module.css';
  */
 export function LiveExecutionPanel({
   density,
+  state,
   stage,
   elapsed,
   percent,
@@ -29,10 +30,15 @@ export function LiveExecutionPanel({
   currentRate,
   p95,
   errorRate,
+  preparationMessage,
+  resourceReading,
   onConfirmCancel,
   cancelPending,
 }: {
   density: 'compact' | 'full';
+  /** The run's lifecycle state (e.g. `'STARTING'`, `'RUNNING'`) — only used to gate the
+   *  target-preparation line below; every other stat here is agnostic to it. */
+  state?: string;
   stage: string;
   elapsed: string;
   percent: number;
@@ -40,6 +46,16 @@ export function LiveExecutionPanel({
   currentRate: string | null;
   p95: string | null;
   errorRate: string | null;
+  /**
+   * The latest target-preparation status line, shown verbatim while `state === 'STARTING'` and
+   * non-blank. Rendered as-is, replacing the previous value each time a new one arrives — never
+   * accumulated, deduplicated, or parsed into a checklist. Absent for an ordinary external-endpoint
+   * run, which never has anything to report here, so this section is then a strict visual no-op.
+   */
+  preparationMessage?: string | null;
+  /** The target's live CPU/memory reading, or null when no resource-observing provider is
+   *  attached to this run's target — the same auto-hidden-when-null pattern as `p95`/`errorRate`. */
+  resourceReading?: { cpu: string; memory: string } | null;
   onConfirmCancel: () => void;
   cancelPending: boolean;
 }) {
@@ -91,7 +107,16 @@ export function LiveExecutionPanel({
         <TelemetryStat label="Actual" value={currentRate} />
         <TelemetryStat label="p95" value={p95} />
         <TelemetryStat label="Errors" value={errorRate} />
+        <TelemetryStat label="CPU" value={resourceReading?.cpu ?? null} />
+        <TelemetryStat label="Memory" value={resourceReading?.memory ?? null} />
       </div>
+
+      {state === 'STARTING' && preparationMessage && preparationMessage.trim() !== '' && (
+        <div className={classes.preparing}>
+          <span className={classes.statLabel}>Preparing target…</span>
+          <p className={classes.preparingText}>{preparationMessage}</p>
+        </div>
+      )}
 
       <CommentaryLine reducedMotion={reducedMotion} />
 

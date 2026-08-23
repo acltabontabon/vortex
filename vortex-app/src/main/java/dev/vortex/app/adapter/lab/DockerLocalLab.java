@@ -1,5 +1,6 @@
 package dev.vortex.app.adapter.lab;
 
+import dev.vortex.app.adapter.target.docker.DockerCapabilityProbe;
 import dev.vortex.core.port.LocalLab;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +53,7 @@ public final class DockerLocalLab implements LocalLab {
     private final String dockerExecutable;
     private final int composeTimeoutSeconds;
     private final Consumer<Process> onProcessStarted;
+    private final DockerCapabilityProbe capabilityProbe;
 
     public DockerLocalLab(String dockerExecutable) {
         this(dockerExecutable, DEFAULT_COMPOSE_TIMEOUT);
@@ -73,33 +75,23 @@ public final class DockerLocalLab implements LocalLab {
                 || composeTimeout.isNegative() ? DEFAULT_COMPOSE_TIMEOUT : composeTimeout;
         this.composeTimeoutSeconds = (int) Math.min(timeout.toSeconds(), Integer.MAX_VALUE);
         this.onProcessStarted = onProcessStarted;
+        this.capabilityProbe = new DockerCapabilityProbe(this.dockerExecutable);
     }
 
     @Override
     public LabStatus status() {
-        CommandResult version =
-                run(List.of(dockerExecutable, "--version"), null, PROBE_TIMEOUT_SECONDS);
-        if (!version.succeeded()) {
-            return new LabStatus(false, false, false, "",
-                    "Docker was not found. Install Docker Desktop, or Docker Engine on Linux. "
-                            + "Docker is optional — Vortex only needs it for containerised "
-                            + "dependencies or the containerised load generator.");
+        DockerCapabilityProbe.DockerAvailability availability = capabilityProbe.check();
+        if (!availability.installed()) {
+            return new LabStatus(false, false, false, "", availability.remedy());
         }
-
-        CommandResult daemon = run(
-                List.of(dockerExecutable, "version", "--format", "{{.Server.Version}}"), null,
-                PROBE_TIMEOUT_SECONDS);
-        if (!daemon.succeeded()) {
-            return new LabStatus(true, false, false, version.firstLine(),
-                    "Docker is installed but its daemon is not reachable. Start Docker Desktop, or "
-                            + "check that the docker service is running and your user can access "
-                            + "the socket.");
+        if (!availability.daemonReachable()) {
+            return new LabStatus(true, false, false, availability.version(), availability.remedy());
         }
 
         CommandResult compose =
                 run(List.of(dockerExecutable, "compose", "version"), null, PROBE_TIMEOUT_SECONDS);
         return new LabStatus(true, true, compose.succeeded(),
-                version.firstLine() + (compose.succeeded() ? ", " + compose.firstLine() : ""),
+                availability.version() + (compose.succeeded() ? ", " + compose.firstLine() : ""),
                 compose.succeeded() ? ""
                         : "Docker Compose was not found. It ships with Docker Desktop; on Linux "
                         + "install the docker-compose-plugin package.");

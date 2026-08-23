@@ -101,6 +101,8 @@ class GeneratorCeilingIntegrationTest {
                 base.peakLevel(), base.stages(), base.operations(), base.datasets(),
                 base.workloadSource(), base.thresholds(), base.environmentName(),
                 base.environmentType(),
+                new dev.vortex.core.target.ExternalEndpointTarget(
+                        dev.vortex.core.environment.TargetUrl.of(targetUrl())),
                 dev.vortex.core.environment.TargetUrl.of(targetUrl()),
                 dev.vortex.core.environment.TargetUrl.of(targetUrl()),
                 base.targetRewriteReason(), base.dependencyMode(), base.classification(),
@@ -110,7 +112,7 @@ class GeneratorCeilingIntegrationTest {
                 Map.of("preAllocatedVUs", String.valueOf(maxVirtualUsers),
                         "maxVUs", String.valueOf(maxVirtualUsers)),
                 base.runner(), base.scriptSource(), base.safetyDecisions(), base.fingerprint(),
-                base.validityPolicy());
+                base.validityPolicy(), base.workspacePath());
     }
 
     private PerformanceEngine.EngineOutcome run(EffectiveTestPlan plan, Path workspace) {

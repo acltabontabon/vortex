@@ -84,7 +84,10 @@ work rather than sitting decoratively beside the result. A named `check()` is em
 the decision appears in k6's summary as "status is 200 or 201: 3 failures" rather than only as a
 moved error rate.
 
-Operations that declare nothing keep k6's default.
+Operations that declare nothing get Vortex's own default (`{min: 100, max: 499}` — any response short
+of a server error) rather than k6's native rule. Declaring nothing is not the same as declaring
+"reject every 4xx"; that would silently reintroduce the exact failure mode this section exists to
+prevent.
 
 *Trade accepted.* A custom `Trend` per operation would give slightly richer per-operation timing than
 `http_req_duration` filtered by tag. It is not worth a script that only Vortex can read.

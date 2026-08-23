@@ -443,7 +443,9 @@ public class VortexCommandRunner {
         out.println();
         line("Workload", plan.workloadName().isBlank() ? "(unnamed)" : plan.workloadName());
         line("Release", plan.serviceVersionIfPresent().orElse("not recorded"));
-        line("Target", plan.effectiveTarget().value());
+        line("Target", plan.effectiveTargetIfPresent()
+                .map(target -> target.value())
+                .orElseGet(() -> plan.executionTarget().summary()));
         line("Environment", plan.environmentName() + " (" + plan.classification().label() + ")");
         line("LoadShape", plan.workloadModel().label() + ", " + plan.peakLevel().displayWithUnit());
         line("Duration", dev.vortex.core.threshold.Durations.display(plan.totalDuration()));

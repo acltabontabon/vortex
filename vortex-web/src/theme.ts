@@ -1,4 +1,4 @@
-import { createTheme, type MantineColorsTuple } from '@mantine/core';
+import { createTheme, type CSSVariablesResolver, type MantineColorsTuple } from '@mantine/core';
 
 /*
  * Every hue here is lifted from the existing token set in vortex.css (the `:root` block, one
@@ -39,13 +39,42 @@ const ai: MantineColorsTuple = [
   '#8a6cf0', '#6741d9', '#5633b0', '#402877', '#1c1631',
 ];
 
+// Shades 0-5 are the light-mode ramp (unchanged). Shades 6-9 are the dark-mode surface/border
+// ramp: graphite, not the green-tinted values this used to carry (#56635b/#3d473f/#242b26/#121a15
+// all leaned visibly green — G noticeably above both R and B at every one of those stops). The
+// replacement values are within a couple of units of true neutral, with at most a hair of cool
+// (blue) lean rather than green, so the "one quiet dark family" surfaces/borders/dividers all draw
+// from now reads as graphite instead of as several dark palettes stacked on top of each other.
 const neutral: MantineColorsTuple = [
   '#f7f8f6', '#eef0ec', '#dfe3dd', '#c4cbc1', '#a1aea7',
-  '#8d9a93', '#56635b', '#3d473f', '#242b26', '#121a15',
+  '#8d9a93', '#5c5e5d', '#3a3c40', '#292a2d', '#212226',
 ];
 
 const MOTION_QUICK_MS = 120;
 const MOTION_MS = 200;
+
+/*
+ * The repeated `light-dark(var(--mantine-color-neutral-N), var(--mantine-color-neutral-M))` pairs
+ * scattered across ServiceHeader/TestRow/TestResult/OverviewPage/RecentRunsRail were four call
+ * sites independently re-deriving the same two ideas — "this element's own surface" and "a
+ * structural divider on it" — from raw shade numbers, with nothing tying their choices together.
+ * Naming those two ideas once, here, via Mantine's own CSS-variables mechanism (not a parallel
+ * styling system) is what makes "card surface" and "card border" mean one consistent thing
+ * everywhere instead of four coincidentally-matching ones.
+ */
+const cssVariablesResolver: CSSVariablesResolver = () => ({
+  variables: {},
+  light: {
+    '--surface-card': 'var(--mantine-color-neutral-0)',
+    '--border-subtle': 'var(--mantine-color-neutral-1)',
+    '--border-default': 'var(--mantine-color-neutral-2)',
+  },
+  dark: {
+    '--surface-card': 'var(--mantine-color-neutral-9)',
+    '--border-subtle': 'var(--mantine-color-neutral-8)',
+    '--border-default': 'var(--mantine-color-neutral-7)',
+  },
+});
 
 export const theme = createTheme({
   primaryColor: 'brand',
@@ -95,3 +124,5 @@ export const theme = createTheme({
     },
   },
 });
+
+export { cssVariablesResolver };

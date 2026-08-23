@@ -5,6 +5,11 @@ import dev.vortex.app.adapter.lab.DockerLocalLab;
 import dev.vortex.app.adapter.observability.ActuatorObservabilityProvider;
 import dev.vortex.app.adapter.probe.HttpTargetProbe;
 import dev.vortex.app.adapter.process.ShutdownProcessRegistry;
+import dev.vortex.app.adapter.target.docker.DockerCapabilityProbe;
+import dev.vortex.app.adapter.target.docker.DockerComposeTargetExecutor;
+import dev.vortex.app.adapter.target.docker.DockerImageTargetExecutor;
+import dev.vortex.app.adapter.target.docker.DockerProcess;
+import dev.vortex.app.adapter.target.docker.SocketTargetReadinessProbe;
 import dev.vortex.core.application.PreflightService;
 import dev.vortex.core.environment.EnvironmentType;
 import dev.vortex.core.port.LocalLab;
@@ -13,6 +18,7 @@ import dev.vortex.app.adapter.observation.PrometheusObservationSource;
 import dev.vortex.core.port.ArtifactStore;
 import dev.vortex.core.port.ObservabilityProvider;
 import dev.vortex.core.port.ProductionObservationSource;
+import dev.vortex.core.port.TargetExecutor;
 import dev.vortex.core.port.TelemetryCollector;
 import dev.vortex.core.port.PerformanceEngine;
 import dev.vortex.core.port.ServiceCatalogImporter;
@@ -198,7 +204,7 @@ public class EngineConfiguration {
     @Bean
     TelemetryCollector telemetryCollector(List<ObservabilityProvider> providers,
             dev.vortex.app.adapter.observability.LoadGeneratorObservabilityProvider generator,
-            ResourceSampleSinkFactory resourceSampleSinkFactory) {
+            ResourceSampleSinkFactory resourceSampleSinkFactory, VortexProperties properties) {
 
         // Removed from the probed list so it is not asked twice: Spring injects every
         // ObservabilityProvider bean here, and this one is also a provider.
@@ -206,14 +212,42 @@ public class EngineConfiguration {
                 .filter(provider -> provider != generator)
                 .toList();
 
+        // A fresh DockerProcess rather than a shared bean: it is stateless and cheap to construct,
+        // and the collector only ever uses it to build a DockerContainerObservabilityProvider fresh
+        // per run, the same way dockerImageTargetExecutor below builds its own.
         return new dev.vortex.app.adapter.observability.ObservabilityTelemetryCollector(
-                ofTheService, generator, resourceSampleSinkFactory);
+                ofTheService, generator, resourceSampleSinkFactory, new DockerProcess(),
+                properties.engine().dockerExecutable());
     }
 
     @Bean
     LocalLab localLab(VortexProperties properties, ShutdownProcessRegistry processes) {
         return new DockerLocalLab(properties.engine().dockerExecutable(),
                 properties.engine().composeTimeout(), processes::track);
+    }
+
+    /**
+     * The {@link TargetExecutor} for {@link dev.vortex.core.target.DockerImageTarget} — one more
+     * bean added to the list {@code ExecutionService} already collects, the same shape as {@link
+     * dev.vortex.app.config.CoreConfiguration}'s {@code externalEndpointTargetExecutor}.
+     */
+    @Bean
+    TargetExecutor dockerImageTargetExecutor(VortexProperties properties) {
+        String dockerExecutable = properties.engine().dockerExecutable();
+        return new DockerImageTargetExecutor(dockerExecutable, new DockerProcess(),
+                new DockerCapabilityProbe(dockerExecutable), new SocketTargetReadinessProbe());
+    }
+
+    /**
+     * The {@link TargetExecutor} for {@link dev.vortex.core.target.DockerComposeTarget} — attach-only,
+     * same bean shape as {@link #dockerImageTargetExecutor} but with no capability probe or readiness
+     * probe to inject, since this executor never starts anything and never waits for it to become
+     * ready.
+     */
+    @Bean
+    TargetExecutor dockerComposeTargetExecutor(VortexProperties properties) {
+        return new DockerComposeTargetExecutor(properties.engine().dockerExecutable(),
+                new DockerProcess());
     }
 
     /**

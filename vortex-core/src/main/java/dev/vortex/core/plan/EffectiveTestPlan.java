@@ -5,6 +5,8 @@ import dev.vortex.core.environment.EnvironmentType;
 import dev.vortex.core.environment.TargetUrl;
 import dev.vortex.core.environment.TestClassification;
 import dev.vortex.core.intent.TestIntent;
+import dev.vortex.core.target.ExecutionTarget;
+import dev.vortex.core.target.ExternalEndpointTarget;
 import dev.vortex.core.validity.ValidityPolicy;
 import dev.vortex.core.workload.TestType;
 import dev.vortex.core.workload.WorkloadSource;
@@ -69,6 +71,7 @@ public record EffectiveTestPlan(
         ThresholdSet thresholds,
         String environmentName,
         EnvironmentType environmentType,
+        ExecutionTarget executionTarget,
         TargetUrl configuredTarget,
         TargetUrl effectiveTarget,
         String targetRewriteReason,
@@ -80,7 +83,8 @@ public record EffectiveTestPlan(
         ScriptSource scriptSource,
         List<SafetyDecision> safetyDecisions,
         PlanFingerprint fingerprint,
-        ValidityPolicy validityPolicy) {
+        ValidityPolicy validityPolicy,
+        String workspacePath) {
 
     public EffectiveTestPlan {
         Objects.requireNonNull(id, "id");
@@ -91,7 +95,7 @@ public record EffectiveTestPlan(
         Objects.requireNonNull(peakLevel, "peakLevel");
         Objects.requireNonNull(thresholds, "thresholds");
         Objects.requireNonNull(environmentType, "environmentType");
-        Objects.requireNonNull(configuredTarget, "configuredTarget");
+        Objects.requireNonNull(executionTarget, "executionTarget");
         Objects.requireNonNull(dependencyMode, "dependencyMode");
         Objects.requireNonNull(classification, "classification");
         Objects.requireNonNull(runner, "runner");
@@ -115,6 +119,11 @@ public record EffectiveTestPlan(
         workloadDescription = workloadDescription == null ? "" : workloadDescription;
         environmentName = environmentName == null ? "" : environmentName;
         targetRewriteReason = targetRewriteReason == null ? "" : targetRewriteReason;
+        // Administrative, like projectName — not one of ExperimentIdentity's fingerprint DIMENSIONS.
+        // Needed to resolve a Compose file's path against the service's checkout at target-prepare
+        // time; a plan built before this field existed, or built without a project workspace on hand,
+        // simply carries no workspace path.
+        workspacePath = workspacePath == null ? "" : workspacePath;
 
         long distinctKeys = operations.stream().map(PlannedOperation::k6ScenarioKey).distinct().count();
         if (distinctKeys != operations.size()) {
@@ -162,9 +171,10 @@ public record EffectiveTestPlan(
             PlanFingerprint fingerprint) {
         this(id, projectId, projectName, serviceVersion, intent, workloadName, workloadDescription,
                 testType, workloadModel, peakLevel, stages, operations, List.of(), workloadSource,
-                thresholds, environmentName, environmentType, configuredTarget, effectiveTarget,
+                thresholds, environmentName, environmentType,
+                new ExternalEndpointTarget(configuredTarget), configuredTarget, effectiveTarget,
                 targetRewriteReason, dependencyMode, classification, headers, k6Options, runner,
-                scriptSource, safetyDecisions, fingerprint, ValidityPolicy.defaults());
+                scriptSource, safetyDecisions, fingerprint, ValidityPolicy.defaults(), null);
     }
 
     /**
@@ -205,9 +215,10 @@ public record EffectiveTestPlan(
             PlanFingerprint fingerprint) {
         this(id, projectId, projectName, serviceVersion, intent, workloadName, workloadDescription,
                 testType, workloadModel, peakLevel, stages, operations, datasets, workloadSource,
-                thresholds, environmentName, environmentType, configuredTarget, effectiveTarget,
+                thresholds, environmentName, environmentType,
+                new ExternalEndpointTarget(configuredTarget), configuredTarget, effectiveTarget,
                 targetRewriteReason, dependencyMode, classification, headers, k6Options, runner,
-                scriptSource, safetyDecisions, fingerprint, ValidityPolicy.defaults());
+                scriptSource, safetyDecisions, fingerprint, ValidityPolicy.defaults(), null);
     }
 
     /** Returns a copy that reads the given datasets. */
@@ -215,9 +226,9 @@ public record EffectiveTestPlan(
         return new EffectiveTestPlan(id, projectId, projectName, serviceVersion, intent, workloadName,
                 workloadDescription, testType, workloadModel, peakLevel, stages, operations,
                 newDatasets, workloadSource, thresholds, environmentName, environmentType,
-                configuredTarget, effectiveTarget, targetRewriteReason, dependencyMode,
-                classification, headers, k6Options, runner, scriptSource, safetyDecisions,
-                fingerprint, validityPolicy);
+                executionTarget, configuredTarget, effectiveTarget, targetRewriteReason,
+                dependencyMode, classification, headers, k6Options, runner, scriptSource,
+                safetyDecisions, fingerprint, validityPolicy, workspacePath);
     }
 
     /** The dataset a request value names, or empty when the plan does not carry it. */
@@ -236,7 +247,18 @@ public record EffectiveTestPlan(
 
     /** Whether the target the engine will actually call differs from the one the user configured. */
     public boolean targetWasRewritten() {
-        return !configuredTarget.equals(effectiveTarget);
+        return !Objects.equals(configuredTarget, effectiveTarget);
+    }
+
+    /** The pre-run address the user configured, absent when this plan's target has none — see
+     *  {@link ExecutionTarget}. */
+    public Optional<TargetUrl> configuredTargetIfPresent() {
+        return Optional.ofNullable(configuredTarget);
+    }
+
+    /** The pre-run address the engine will actually call, absent when this plan's target has none. */
+    public Optional<TargetUrl> effectiveTargetIfPresent() {
+        return Optional.ofNullable(effectiveTarget);
     }
 
     public Optional<String> serviceVersionIfPresent() {
@@ -344,9 +366,33 @@ public record EffectiveTestPlan(
     public EffectiveTestPlan withFingerprint(PlanFingerprint newFingerprint) {
         return new EffectiveTestPlan(id, projectId, projectName, serviceVersion, intent, workloadName,
                 workloadDescription, testType, workloadModel, peakLevel, stages, operations, datasets,
-                workloadSource, thresholds, environmentName, environmentType, configuredTarget,
-                effectiveTarget, targetRewriteReason, dependencyMode, classification, headers,
-                k6Options, runner, scriptSource, safetyDecisions, newFingerprint);
+                workloadSource, thresholds, environmentName, environmentType, executionTarget,
+                configuredTarget, effectiveTarget, targetRewriteReason, dependencyMode, classification,
+                headers, k6Options, runner, scriptSource, safetyDecisions, newFingerprint,
+                validityPolicy, workspacePath);
+    }
+
+    /**
+     * Returns a copy naming a different pre-run address than the one recorded at plan resolution.
+     *
+     * <p>Exists for exactly one caller: {@code ExecutionService.run()} builds the transient,
+     * engine-facing plan copy from this once a run's target has actually been resolved (see {@code
+     * dev.vortex.core.target.TargetExecutor}), composed with whatever rewrite {@code
+     * PerformanceEngine.targetRewriteFor} still requires on top (e.g. k6 running inside a container).
+     * That copy is passed to {@code engine.execute(...)} and nowhere else — it is never persisted,
+     * and never replaces the plan a {@code TestExecution} was created with. {@code configuredTarget}/
+     * {@code effectiveTarget} keep meaning "what was configured" / "what the engine was actually told
+     * to call" throughout; this only lets the second of those be corrected once the real runtime
+     * address is known.
+     */
+    public EffectiveTestPlan withTargetAddress(TargetUrl newConfiguredTarget,
+            TargetUrl newEffectiveTarget, String newTargetRewriteReason) {
+        return new EffectiveTestPlan(id, projectId, projectName, serviceVersion, intent, workloadName,
+                workloadDescription, testType, workloadModel, peakLevel, stages, operations, datasets,
+                workloadSource, thresholds, environmentName, environmentType, executionTarget,
+                newConfiguredTarget, newEffectiveTarget, newTargetRewriteReason, dependencyMode,
+                classification, headers, k6Options, runner, scriptSource, safetyDecisions, fingerprint,
+                validityPolicy, workspacePath);
     }
 
     /** Returns a copy testing the named release. */
@@ -354,9 +400,9 @@ public record EffectiveTestPlan(
         return new EffectiveTestPlan(id, projectId, projectName, newServiceVersion, intent,
                 workloadName, workloadDescription, testType, workloadModel, peakLevel, stages,
                 operations, datasets, workloadSource, thresholds, environmentName, environmentType,
-                configuredTarget, effectiveTarget, targetRewriteReason, dependencyMode,
-                classification, headers, k6Options, runner, scriptSource, safetyDecisions,
-                fingerprint);
+                executionTarget, configuredTarget, effectiveTarget, targetRewriteReason,
+                dependencyMode, classification, headers, k6Options, runner, scriptSource,
+                safetyDecisions, fingerprint, validityPolicy, workspacePath);
     }
 
     /**

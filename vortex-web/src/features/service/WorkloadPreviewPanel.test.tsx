@@ -44,6 +44,8 @@ function aSnapshot(overrides: Partial<ComposerPreviewSnapshot> = {}): ComposerPr
     composition: [aRow()],
     shape: null,
     problem: null,
+    targetSummary: null,
+    resourceSummary: null,
     ...overrides,
   };
 }
@@ -140,6 +142,33 @@ describe('the workload preview panel', () => {
         'Ramp checkout-service to 200 req/s across 5 stages for 1 min, distributing most traffic to /accounts/{id}.',
       ),
     ).toBeInTheDocument();
+  });
+
+  it('shows the target/resource caption when the snapshot provides it', () => {
+    renderWithProviders(
+      <WorkloadPreviewPanel
+        serviceName="checkout-service" showChart
+        snapshot={aSnapshot({
+          targetSummary: 'Docker: payment-service:1.4.2',
+          resourceSummary: '0.5 CPU · 512 MiB',
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByText('Target · Docker: payment-service:1.4.2 · Resources · 0.5 CPU · 512 MiB'),
+    ).toBeInTheDocument();
+  });
+
+  it('omits the target/resource caption entirely for an external-endpoint target', () => {
+    renderWithProviders(
+      <WorkloadPreviewPanel
+        serviceName="checkout-service" showChart
+        snapshot={aSnapshot({ targetSummary: null, resourceSummary: null })}
+      />,
+    );
+
+    expect(screen.queryByText(/^Target ·/)).not.toBeInTheDocument();
   });
 
   it('hides its own chart on narrow screens, where the composer already shows it inline', () => {

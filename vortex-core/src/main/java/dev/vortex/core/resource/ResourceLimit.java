@@ -70,6 +70,12 @@ public record ResourceLimit(double value, MetricUnit unit, LimitBasis basis, Str
         return new ResourceLimit(value, unit, LimitBasis.PUBLISHED_BY_PROVIDER, describedAs);
     }
 
+    /** A limit Vortex itself configured and then confirmed was actually applied, such as a Docker
+     *  container's {@code --cpus}/{@code --memory} value. */
+    public static ResourceLimit vortexConfigured(double value, MetricUnit unit, String describedAs) {
+        return new ResourceLimit(value, unit, LimitBasis.VORTEX_CONFIGURED, describedAs);
+    }
+
     public String display() {
         return unit.symbol().isBlank()
                 ? trim(value)

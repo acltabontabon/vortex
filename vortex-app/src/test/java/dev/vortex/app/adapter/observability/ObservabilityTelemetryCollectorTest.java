@@ -2,6 +2,8 @@ package dev.vortex.app.adapter.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.vortex.app.adapter.target.docker.DockerProcess;
+import dev.vortex.core.environment.TargetUrl;
 import dev.vortex.core.fixtures.Fixtures;
 import dev.vortex.core.metrics.Aggregation;
 import dev.vortex.core.metrics.MetricObservation;
@@ -18,6 +20,11 @@ import dev.vortex.core.resource.ResourceSampleSinkFactory;
 import dev.vortex.core.resource.ResourceScope;
 import dev.vortex.core.resource.ResourceSignal;
 import dev.vortex.core.shared.ExecutionId;
+import dev.vortex.core.target.CpuAllocation;
+import dev.vortex.core.target.EffectiveResourceEnvelope;
+import dev.vortex.core.target.MemoryAllocation;
+import dev.vortex.core.target.ResolvedTarget;
+import dev.vortex.core.target.TargetOwnership;
 import dev.vortex.core.workload.ConstantArrivalRateShape;
 import dev.vortex.core.workload.TestType;
 import java.time.Duration;
@@ -27,6 +34,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -38,14 +46,25 @@ class ObservabilityTelemetryCollectorTest {
 
     private static final ExecutionId EXECUTION_ID = ExecutionId.generate();
 
+    /** What every test that is not itself about target resolution passes — an ordinary external
+     *  endpoint, behaving exactly as every run did before this class knew about resolved targets at
+     *  all. */
+    private static final ResolvedTarget EXTERNAL_TARGET =
+            ResolvedTarget.external(TargetUrl.of("http://localhost:9999"));
+
+    /** Never actually asked to run a real command in these tests: the Docker provider is only
+     *  constructed when a test's own {@code resolvedTarget} is {@code VORTEX_MANAGED}, and those
+     *  tests substitute a scripted subclass instead (see {@link ScriptedDockerProcess}). */
+    private static final DockerProcess DOCKER_PROCESS = new DockerProcess();
+
     @Test
     void finishWaitsForAnAlreadyInFlightSampleRatherThanRacingIt() throws InterruptedException {
         var plan = Fixtures.plan();
         var slowProvider = new SlowOnFirstCallProvider();
         var collector = new ObservabilityTelemetryCollector(List.of(), slowProvider,
-                ResourceSampleSinkFactory.none());
+                ResourceSampleSinkFactory.none(), DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
         // Waits for the sampler to have actually entered collect() before calling finish() — the
         // race under test is "a sample is in flight", not "the sampler thread hasn't run yet", which
         // is a different, uninteresting race that a plain interrupt() handles fine on its own.
@@ -67,9 +86,9 @@ class ObservabilityTelemetryCollectorTest {
         var providerA = new FixedReadingProvider("prometheus", "metric:system.cpu.utilization", 40.0);
         var providerB = new FixedReadingProvider("dynatrace", "metric:system.cpu.utilization", 90.0);
         var collector = new ObservabilityTelemetryCollector(List.of(providerA, providerB), null,
-                ResourceSampleSinkFactory.none());
+                ResourceSampleSinkFactory.none(), DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
         sleep(20);
         TelemetryCollector.Telemetry telemetry =
                 session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
@@ -91,9 +110,9 @@ class ObservabilityTelemetryCollectorTest {
         var provider = new FixedReadingProvider("prometheus", "metric:system.cpu.utilization", 77.0);
         var recording = new RecordingSink();
         var collector = new ObservabilityTelemetryCollector(List.of(provider), null,
-                executionId -> recording);
+                executionId -> recording, DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
         sleep(20);
         session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
 
@@ -118,9 +137,9 @@ class ObservabilityTelemetryCollectorTest {
         var provider = new FixedReadingProvider("prometheus", "metric:system.cpu.utilization", 50.0);
         var recording = new RecordingSink();
         var collector = new ObservabilityTelemetryCollector(List.of(provider), null,
-                executionId -> recording);
+                executionId -> recording, DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
         sleep(20);
         var window = new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5));
         TelemetryCollector.Telemetry first = session.finish(window);
@@ -142,9 +161,9 @@ class ObservabilityTelemetryCollectorTest {
                     10.0 + i));
         }
         var collector = new ObservabilityTelemetryCollector(manyProviders, null,
-                ResourceSampleSinkFactory.none());
+                ResourceSampleSinkFactory.none(), DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
         sleep(20);
         TelemetryCollector.Telemetry telemetry =
                 session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
@@ -171,6 +190,98 @@ class ObservabilityTelemetryCollectorTest {
         Duration longWatchdog = ObservabilityTelemetryCollector.watchdogFor(longPlan);
         // Five-hour plan: 20% of five hours (one hour) dominates the 30-minute floor.
         assertThat(longWatchdog).isEqualTo(Duration.ofHours(5).plus(Duration.ofHours(1)));
+    }
+
+    @Test
+    void aVortexManagedResolvedTargetWithATelemetryHandleAddsTheDockerProviderToTheReachableSet() {
+        var plan = Fixtures.plan();
+        var scripted = new ScriptedDockerProcess("{\"CPUPerc\":\"50.00%\",\"MemUsage\":\"16MiB / 512MiB\"}");
+        var collector = new ObservabilityTelemetryCollector(List.of(), null,
+                ResourceSampleSinkFactory.none(), scripted, "docker");
+        var resolvedTarget = new ResolvedTarget(TargetUrl.of("http://localhost:23456"),
+                TargetOwnership.VORTEX_MANAGED, "container-abc123",
+                new EffectiveResourceEnvelope(CpuAllocation.ofMillicores(750),
+                        MemoryAllocation.ofMebibytes(256)));
+
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, resolvedTarget);
+        sleep(20);
+        TelemetryCollector.Telemetry telemetry =
+                session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
+
+        assertThat(telemetry.run())
+                .as("a Vortex-managed target's container must be watched even with no other provider "
+                        + "configured at all, since it is added directly rather than through the "
+                        + "endpoint-keyed probe loop")
+                .extracting(MetricObservation::id)
+                .contains("metric:docker.cpu.utilization", "metric:docker.memory.used");
+        assertThat(telemetry.resourceSignals())
+                .hasSize(2)
+                .allSatisfy(signal -> assertThat(signal.scope()).isEqualTo(ResourceScope.SYSTEM_UNDER_TEST));
+        assertThat(telemetry.resourceSignals())
+                .filteredOn(signal -> signal.kind() == ResourceKind.CPU)
+                .singleElement()
+                .satisfies(signal -> {
+                    assertThat(signal.value()).isEqualTo(0.5);
+                    assertThat(signal.limitIfPresent()).isPresent();
+                    assertThat(signal.limit().basis())
+                            .isEqualTo(dev.vortex.core.resource.LimitBasis.VORTEX_CONFIGURED);
+                });
+        assertThat(telemetry.resourceSignals())
+                .filteredOn(signal -> signal.kind() == ResourceKind.MEMORY)
+                .singleElement()
+                .satisfies(signal -> assertThat(signal.value()).isEqualTo(16.0 * 1024 * 1024));
+    }
+
+    @Test
+    void anExternalOwnershipResolvedTargetBehavesExactlyAsBeforeAndNeverTouchesDocker() {
+        var plan = Fixtures.plan();
+        var provider = new FixedReadingProvider("prometheus", "metric:system.cpu.utilization", 33.0);
+        var collector = new ObservabilityTelemetryCollector(List.of(provider), null,
+                ResourceSampleSinkFactory.none(), new FailingDockerProcess(), "docker");
+
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
+        sleep(20);
+        TelemetryCollector.Telemetry telemetry =
+                session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
+
+        assertThat(telemetry.run())
+                .as("an ordinary external-endpoint run must behave exactly as it did before this "
+                        + "class knew about resolved targets: no Docker provider, and therefore not "
+                        + "even a chance to start a `docker stats` stream — proven here by a "
+                        + "DockerProcess double that fails the test outright if it is ever asked to")
+                .extracting(MetricObservation::id)
+                .containsExactly("metric:system.cpu.utilization");
+    }
+
+    /** Fakes {@link DockerProcess#stream} by immediately feeding a canned {@code docker stats} JSON
+     *  line to the sink and returning a no-op handle — no real process is ever spawned, matching
+     *  {@link DockerProcess}'s own documented testing seam ("not final, so a test can substitute a
+     *  scripted subclass"). */
+    private static final class ScriptedDockerProcess extends DockerProcess {
+
+        private final String cannedLine;
+
+        ScriptedDockerProcess(String cannedLine) {
+            this.cannedLine = cannedLine;
+        }
+
+        @Override
+        public StreamHandle stream(List<String> command, Consumer<String> stdoutSink) {
+            stdoutSink.accept(cannedLine);
+            return StreamHandle.noop();
+        }
+    }
+
+    /** Fails the test outright if a Docker CLI command is ever attempted — the regression guard for
+     *  an {@code EXTERNAL}-ownership resolved target, which must never cause this collector to so
+     *  much as try. */
+    private static final class FailingDockerProcess extends DockerProcess {
+
+        @Override
+        public StreamHandle stream(List<String> command, Consumer<String> stdoutSink) {
+            throw new AssertionError("docker stats must never be started for a target Vortex does "
+                    + "not manage");
+        }
     }
 
     /** Signals when collect() begins, then sleeps, so a test can race finish() against it exactly. */

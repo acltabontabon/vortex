@@ -51,6 +51,21 @@ public interface PerformanceEngine {
     /** Versions of the engine and its runtime, recorded for reproducibility. */
     ToolVersions toolVersions();
 
+    /**
+     * The rewrite this engine requires to actually reach a plan's configured target, if any — e.g.
+     * because the engine itself runs inside a container, where {@code localhost} means the container
+     * and not the host machine.
+     *
+     * <p>Defaults to "no rewrite needed," which is correct for an engine with nothing container-side
+     * to account for. {@code K6PerformanceEngine} is the one implementation with something to say
+     * here today; {@code ExecutionService} composes this with target resolution (see {@code
+     * dev.vortex.core.target.TargetExecutor}) to build the plan copy actually handed to {@link
+     * #execute}, without ever persisting the result back onto the plan a run was created with.
+     */
+    default Optional<TargetRewrite> targetRewriteFor(EffectiveTestPlan plan) {
+        return Optional.empty();
+    }
+
     /** Cooperative cancellation, polled by the engine between aggregation buckets. */
     @FunctionalInterface
     interface Cancellation {
@@ -128,5 +143,15 @@ public interface PerformanceEngine {
         public boolean producedResults() {
             return results != null;
         }
+    }
+
+    /**
+     * An adjustment to the target address the engine actually needs, versus the one that was
+     * resolved.
+     *
+     * @param newHost the host component the engine requires
+     * @param reason  why, in terms a reader of preflight or a run's evidence can understand
+     */
+    record TargetRewrite(String newHost, String reason) {
     }
 }

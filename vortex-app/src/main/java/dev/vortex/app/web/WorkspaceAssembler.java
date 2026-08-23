@@ -127,14 +127,31 @@ public class WorkspaceAssembler {
     }
 
     private TargetDto target(Environment environment) {
+        dev.vortex.core.target.ExecutionTarget executionTarget = environment.target();
+        // Only ExternalEndpointTarget has a genuine pre-run address — Docker/Compose targets resolve
+        // one only once a run actually prepares the target, so baseUrl stays empty for them rather
+        // than manufacturing a value, the same rule the domain model itself follows (see
+        // ExecutionTarget's javadoc).
+        String baseUrl = switch (executionTarget) {
+            case dev.vortex.core.target.ExternalEndpointTarget external -> external.endpoint().value();
+            case dev.vortex.core.target.DockerImageTarget ignored -> "";
+            case dev.vortex.core.target.DockerComposeTarget ignored -> "";
+        };
+        String targetKind = switch (executionTarget) {
+            case dev.vortex.core.target.ExternalEndpointTarget ignored -> "EXTERNAL_ENDPOINT";
+            case dev.vortex.core.target.DockerImageTarget ignored -> "DOCKER_IMAGE";
+            case dev.vortex.core.target.DockerComposeTarget ignored -> "DOCKER_COMPOSE";
+        };
         return new TargetDto(
                 environment.name(),
-                environment.baseUrl().value(),
+                baseUrl,
                 environment.type().label(),
                 environment.classification().name(),
                 environment.classification().label(),
                 environment.classification().caveat(),
-                environment.dependencyMode().label());
+                environment.dependencyMode().label(),
+                targetKind,
+                executionTarget.summary());
     }
 
     // ---------------------------------------------------------------- readiness

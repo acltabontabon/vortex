@@ -2,6 +2,7 @@ package dev.vortex.k6;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.vortex.core.catalog.ExpectedResponse;
 import dev.vortex.core.data.FixedValue;
 import dev.vortex.core.data.RequestValue;
 import dev.vortex.core.plan.EffectiveTestPlan;
@@ -24,6 +25,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Translates a resolved Vortex plan into a k6 script.
@@ -423,21 +425,30 @@ public final class K6ScriptGenerator {
      *
      * <p>{@code http.expectedStatuses} is k6's own mechanism for saying otherwise, so an operation's
      * declared expectation governs the error rate rather than merely producing a check beside it.
-     * Operations that declare nothing keep k6's default.
+     * Operations that declare nothing get Vortex's own default (any response short of a server error)
+     * rather than k6's native rule of "anything 400 or above" — declaring nothing is not the same as
+     * declaring "reject every 4xx".
      */
     private String responseCallbacks(EffectiveTestPlan plan) {
         StringBuilder callbacks = new StringBuilder();
         for (PlannedOperation operation : plan.operations()) {
-            if (operation.expect().isDefault()) {
-                continue;
-            }
             callbacks.append("const ").append(expectedName(operation))
                     .append(" = http.expectedStatuses(")
-                    .append(operation.expect().statuses().stream().map(String::valueOf)
-                            .reduce((a, b) -> a + ", " + b).orElse(""))
+                    .append(expectedStatusesArgs(operation.expect()))
                     .append(");\n");
         }
         return callbacks.isEmpty() ? "" : callbacks + "\n";
+    }
+
+    /**
+     * The argument list for {@code http.expectedStatuses}, uniform for explicit and default
+     * expectations alike — a default operation renders as k6's own {@code {min, max}} range form
+     * instead of silently falling back to k6's native "anything 4xx is a failure" rule.
+     */
+    private String expectedStatusesArgs(ExpectedResponse expect) {
+        return expect.isDefault()
+                ? "{ min: 100, max: 499 }"
+                : expect.statuses().stream().map(String::valueOf).collect(Collectors.joining(", "));
     }
 
     private static String expectedName(PlannedOperation operation) {
@@ -466,6 +477,15 @@ public final class K6ScriptGenerator {
             }
         }
 
+        // This generator only ever runs against the transient, post-resolution plan copy built just
+        // before the engine executes (see ExecutionService) — by then every target type has a real
+        // resolved address. Later steps guarantee this is always present; for now, absence here is
+        // a bug in the caller, not a condition this script can meaningfully run without.
+        String baseUrl = plan.effectiveTargetIfPresent()
+                .orElseThrow(() -> new IllegalStateException(
+                        "k6 requires a resolved target address; got " + plan.executionTarget().summary()))
+                .value();
+
         return """
                 const BASE_URL = %s;
 
@@ -473,7 +493,7 @@ public final class K6ScriptGenerator {
                 %s
                 const params = { headers: baseHeaders };
 
-                """.formatted(toJson(plan.effectiveTarget().value()), toJson(headers), secretHeaders);
+                """.formatted(toJson(baseUrl), toJson(headers), secretHeaders);
     }
 
     private String operationFunction(PlannedOperation operation, EffectiveTestPlan plan,
@@ -499,12 +519,8 @@ public final class K6ScriptGenerator {
             overrides.add("headers: Object.assign({}, baseHeaders, "
                     + headerObject(operation, requestData) + ")");
         }
-        if (!operation.expect().isDefault()) {
-            overrides.add("responseCallback: " + expectedName(operation));
-        }
-        String requestParams = overrides.isEmpty()
-                ? "params"
-                : "Object.assign({}, params, { " + String.join(", ", overrides) + " })";
+        overrides.add("responseCallback: " + expectedName(operation));
+        String requestParams = "Object.assign({}, params, { " + String.join(", ", overrides) + " })";
 
         // Only bind the response when something reads it. An unused const is harmless to k6 and
         // untidy to a person, and this file is meant to be read.

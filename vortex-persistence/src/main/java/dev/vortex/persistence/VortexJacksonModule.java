@@ -18,6 +18,10 @@ import dev.vortex.core.shared.LoadLevel;
 import dev.vortex.core.shared.OperationId;
 import dev.vortex.core.shared.Percentile;
 import dev.vortex.core.shared.RequestsPerSecond;
+import dev.vortex.core.target.DockerComposeTarget;
+import dev.vortex.core.target.DockerImageTarget;
+import dev.vortex.core.target.ExecutionTarget;
+import dev.vortex.core.target.ExternalEndpointTarget;
 import dev.vortex.core.threshold.ErrorRateThreshold;
 import dev.vortex.core.threshold.LatencyThreshold;
 import dev.vortex.core.threshold.Threshold;
@@ -59,6 +63,7 @@ public final class VortexJacksonModule extends SimpleModule {
         setMixInAnnotation(LoadShape.class, WorkloadMixin.class);
         setMixInAnnotation(LoadLevel.class, LoadLevelMixin.class);
         setMixInAnnotation(RequestValue.class, RequestValueMixin.class);
+        setMixInAnnotation(ExecutionTarget.class, ExecutionTargetMixin.class);
 
         addKeyDeserializer(Percentile.class, new PercentileKeyDeserializer());
         addKeyDeserializer(OperationId.class, new OperationIdKeyDeserializer());
@@ -113,6 +118,21 @@ public final class VortexJacksonModule extends SimpleModule {
             @JsonSubTypes.Type(value = EnvironmentValue.class, name = "environment")
     })
     private abstract static class RequestValueMixin {
+    }
+
+    /**
+     * A declared target is either an external endpoint, a Docker image, or a Compose attachment —
+     * {@code EffectiveTestPlan.executionTarget} needs the discriminator the same way {@code Threshold}
+     * does. Only {@code ExternalEndpointTarget} is ever actually constructed today; the other two
+     * variants are wired in now so a stored plan never needs a schema change to start using them.
+     */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = ExternalEndpointTarget.class, name = "externalEndpoint"),
+            @JsonSubTypes.Type(value = DockerImageTarget.class, name = "dockerImage"),
+            @JsonSubTypes.Type(value = DockerComposeTarget.class, name = "dockerCompose")
+    })
+    private abstract static class ExecutionTargetMixin {
     }
 
     /** Writes a body field path as its dotted form, so a stored plan reads as somebody wrote it. */

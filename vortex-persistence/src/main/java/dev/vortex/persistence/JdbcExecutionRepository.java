@@ -1,5 +1,6 @@
 package dev.vortex.persistence;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.vortex.core.analysis.DeterministicSummary;
 import dev.vortex.core.execution.ExecutionArtifacts;
@@ -13,6 +14,7 @@ import dev.vortex.core.plan.ToolVersions;
 import dev.vortex.core.port.Repositories.ExecutionRepository;
 import dev.vortex.core.shared.ExecutionId;
 import dev.vortex.core.shared.ProjectId;
+import dev.vortex.core.target.ResolvedTarget;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -43,12 +45,12 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                                     plan_fingerprint, requested_at, started_at, finished_at,
                                     plan_json, results_json, summary_json, tool_versions_json,
                                     artifacts_json, failure_reason, failure_detail,
-                                    run_quality, run_quality_json)
+                                    run_quality, run_quality_json, resolved_target_json)
             VALUES (:id, :projectId, :state, :verdict, :workloadName, :testType,
                     :environmentName, :classification, :serviceVersion, :fingerprint,
                     :requestedAt, :startedAt, :finishedAt, :planJson, :resultsJson, :summaryJson,
                     :toolVersionsJson, :artifactsJson, :failureReason, :failureDetail,
-                    :runQuality, :runQualityJson)
+                    :runQuality, :runQualityJson, :resolvedTargetJson)
             ON CONFLICT (id) DO UPDATE SET
                 state = excluded.state,
                 verdict = excluded.verdict,
@@ -61,8 +63,15 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                 failure_reason = excluded.failure_reason,
                 failure_detail = excluded.failure_detail,
                 run_quality = excluded.run_quality,
-                run_quality_json = excluded.run_quality_json
+                run_quality_json = excluded.run_quality_json,
+                resolved_target_json = excluded.resolved_target_json
             """;
+
+    /** What a {@code TestExecution} with no resolved target yet writes, instead of SQL {@code NULL}
+     *  — matching the column's own {@code NOT NULL DEFAULT '{}'}. Read back explicitly as "no
+     *  resolved target" rather than handed to Jackson, which would otherwise bind it to a {@code
+     *  ResolvedTarget} with every field null and fail the record's own non-null invariants. */
+    private static final String NO_RESOLVED_TARGET_JSON = "{}";
 
     private final JdbcClient jdbc;
     private final NamedParameterJdbcTemplate batchJdbc;
@@ -104,6 +113,7 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                 // deserialising every candidate; the findings behind it stay content.
                 .param("runQuality", execution.quality().quality().name())
                 .param("runQualityJson", write(execution.quality()))
+                .param("resolvedTargetJson", writeResolvedTarget(execution.resolvedTarget()))
                 .update();
         return execution;
     }
@@ -154,7 +164,8 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                         : execution.failureReason().name())
                 .addValue("failureDetail", execution.failureDetail())
                 .addValue("runQuality", execution.quality().quality().name())
-                .addValue("runQualityJson", write(execution.quality()));
+                .addValue("runQualityJson", write(execution.quality()))
+                .addValue("resolvedTargetJson", writeResolvedTarget(execution.resolvedTarget()));
     }
 
     @Override
@@ -245,7 +256,7 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
         return jdbc.sql("SELECT id, plan_json, plan_fingerprint FROM executions")
                 .query((rs, rowNum) -> new ExecutionRepository.ExperimentIndex(
                         ExecutionId.of(rs.getString("id")),
-                        read(rs.getString("plan_json"), EffectiveTestPlan.class),
+                        readPlan(rs.getString("plan_json")),
                         rs.getString("plan_fingerprint")))
                 .list();
     }
@@ -295,7 +306,7 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
         return new TestExecution(
                 ExecutionId.of(rs.getString("id")),
                 ProjectId.of(rs.getString("project_id")),
-                read(rs.getString("plan_json"), EffectiveTestPlan.class),
+                readPlan(rs.getString("plan_json")),
                 ExecutionState.valueOf(rs.getString("state")),
                 Instant.parse(rs.getString("requested_at")),
                 instantOrNull(rs.getString("started_at")),
@@ -307,7 +318,45 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                 rs.getString("failure_reason") == null ? null
                         : FailureReason.valueOf(rs.getString("failure_reason")),
                 rs.getString("failure_detail"),
-                readOrNull(rs.getString("run_quality_json"), RunQualityAssessment.class));
+                readOrNull(rs.getString("run_quality_json"), RunQualityAssessment.class),
+                readResolvedTarget(rs.getString("resolved_target_json")));
+    }
+
+    /**
+     * Binds a stored plan, filling in {@code executionTarget} first when the row predates it.
+     *
+     * <p>Every {@code plan_json} read goes through this one path, rather than straight to {@code
+     * EffectiveTestPlan}, so a row written before this feature shipped — with no {@code
+     * executionTarget} field at all — still resolves to the {@link
+     * dev.vortex.core.target.ExternalEndpointTarget} its legacy {@code configuredTarget} always
+     * described, instead of failing the record's own non-null invariant on that field.
+     */
+    private EffectiveTestPlan readPlan(String content) {
+        try {
+            JsonNode tree = json.readTree(content);
+            JsonNode normalized = LegacyExecutionTargetNormalizer.normalize(tree);
+            return json.treeToValue(normalized, EffectiveTestPlan.class);
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "A stored execution document could not be read. The execution's raw artifacts "
+                            + "on disk are unaffected.", e);
+        }
+    }
+
+    /** Writes {@code "{}"} rather than SQL {@code NULL} for a run whose target was never resolved —
+     *  matching {@code resolved_target_json}'s own {@code NOT NULL DEFAULT '{}'}. */
+    private String writeResolvedTarget(ResolvedTarget resolvedTarget) {
+        return resolvedTarget == null ? NO_RESOLVED_TARGET_JSON : write(resolvedTarget);
+    }
+
+    /** The inverse of {@link #writeResolvedTarget}: the empty-object sentinel (and, defensively, a
+     *  blank column) read back as absent, never as a {@code ResolvedTarget} whose fields are all
+     *  null — {@code ResolvedTarget} itself does not allow that. */
+    private ResolvedTarget readResolvedTarget(String content) {
+        if (content == null || content.isBlank() || NO_RESOLVED_TARGET_JSON.equals(content.trim())) {
+            return null;
+        }
+        return read(content, ResolvedTarget.class);
     }
 
     private Instant instantOrNull(String raw) {

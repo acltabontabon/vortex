@@ -34,8 +34,10 @@ import dev.vortex.core.port.PerformanceAssistant;
 import dev.vortex.core.port.PerformanceEngine;
 import dev.vortex.core.port.Repositories;
 import dev.vortex.core.port.ServiceCatalogImporter;
+import dev.vortex.core.port.TargetExecutor;
 import dev.vortex.core.port.TelemetryCollector;
 import dev.vortex.core.safety.ExecutionPolicy;
+import dev.vortex.core.target.ExternalEndpointTargetExecutor;
 import dev.vortex.core.threshold.ThresholdEvaluator;
 import dev.vortex.core.workload.RateAllocator;
 import java.util.List;
@@ -196,16 +198,30 @@ public class CoreConfiguration {
 
     @Bean
     PreflightService preflightService(PerformanceEngine engine, ExecutionPolicy policy,
-            PreflightService.TargetProbe targetProbe) {
-        return new PreflightService(engine, policy, name -> System.getenv(name) != null, targetProbe);
+            PreflightService.TargetProbe targetProbe, List<TargetExecutor> targetExecutors) {
+        return new PreflightService(engine, policy, name -> System.getenv(name) != null, targetProbe,
+                targetExecutors);
+    }
+
+    /**
+     * The only {@link TargetExecutor} this build registers today: every {@code Environment} still
+     * resolves to an {@link dev.vortex.core.target.ExternalEndpointTarget}, so there is exactly one
+     * kind of target to prepare. A Docker or Compose executor is a separate adapter bean added here
+     * later — {@link ExecutionService} already takes the whole list and picks whichever one supports
+     * a given run's target, so registering a second executor is the entire change that needs.
+     */
+    @Bean
+    TargetExecutor externalEndpointTargetExecutor() {
+        return new ExternalEndpointTargetExecutor();
     }
 
     @Bean
     ExecutionService executionService(PerformanceEngine engine, DeterministicAnalyzer analyzer,
             Repositories.ExecutionRepository executions, ArtifactStore artifacts,
-            DatasetStore datasets, TelemetryCollector telemetry, Clock clock) {
+            DatasetStore datasets, TelemetryCollector telemetry, Clock clock,
+            List<TargetExecutor> targetExecutors) {
         return new ExecutionService(engine, analyzer, executions, artifacts, datasets, telemetry,
-                clock);
+                clock, targetExecutors);
     }
 
     @Bean

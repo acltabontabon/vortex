@@ -132,6 +132,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-041-run-scoped-resource-telemetry.adoc[041]
 | Run-scoped resource telemetry is retained, not just its peak
+
+| xref:adr-042-execution-targets-are-not-services.adoc[042]
+| Execution targets are not services
 |===
 
 == Format

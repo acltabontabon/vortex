@@ -563,6 +563,7 @@ function TestsSection({
           onClose={onCloseComposer}
           onPreviewChange={onPreviewChange}
           showInlineChart={showInlineChart}
+          target={overview.header.target}
         />
       ) : (
         <>

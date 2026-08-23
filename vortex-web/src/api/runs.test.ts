@@ -11,6 +11,7 @@ const SAMPLE: RunProgress = {
   currentRate: '95 req/s',
   p95: '120ms',
   errorRate: '0%',
+  message: '',
 };
 
 /**

@@ -203,6 +203,22 @@ class PlanResolverTest {
         }
 
         @Test
+        @DisplayName("the workspace path comes from the project, for a target executor to resolve "
+                + "paths against — without disturbing the existing endpoint-target behaviour")
+        void workspacePathComesFromTheProjectWithoutChangingExternalEndpointBehaviour() {
+            var plan = resolve(Fixtures.configuration(), "average-load");
+
+            assertThat(plan.workspacePath()).isEqualTo(Fixtures.project().workspacePath());
+            // Unaffected by the workspace-path addition: an ExternalEndpointTarget-based plan still
+            // resolves its pre-run address exactly as before.
+            assertThat(plan.executionTarget())
+                    .isInstanceOf(dev.vortex.core.target.ExternalEndpointTarget.class);
+            assertThat(plan.configuredTargetIfPresent()).isPresent();
+            assertThat(plan.effectiveTargetIfPresent()).isPresent();
+            assertThat(plan.configuredTarget()).isEqualTo(plan.effectiveTarget());
+        }
+
+        @Test
         void bindingsSupplyRequestDataAndOverrideGeneratedDefaults() {
             var configuration = Fixtures.configuration().withBinding(
                     new OperationBinding(Fixtures.GET_ORDER,

@@ -57,10 +57,10 @@ export function Home() {
           <Stack gap="xl">
             <div>
               <Title order={2} style={{ letterSpacing: '-0.01em' }}>
-                Performance Workbench
+                Your Workbench
               </Title>
               <Text c="dimmed" size="sm" mb="sm">
-                Pick a service and continue testing.
+                Select a service to continue.
               </Text>
               <ServiceShelf
                 services={sortedCards}

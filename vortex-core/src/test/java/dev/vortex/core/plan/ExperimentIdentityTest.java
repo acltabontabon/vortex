@@ -221,6 +221,37 @@ class ExperimentIdentityTest {
         }
 
         @Test
+        @DisplayName("a Docker image target with no pre-run URL still compares on what was declared")
+        void dockerImageTarget() {
+            // Neither plan has a configuredTarget/effectiveTarget at all — the whole point of this
+            // case is that identity is still decided correctly (via executionTarget) when there is no
+            // URL to fall back on.
+            var same = withDockerTarget(Fixtures.plan(), "payment-service:1.4.2");
+            var alsoSame = withDockerTarget(Fixtures.plan(), "payment-service:1.4.2");
+            var differentImage = withDockerTarget(Fixtures.plan(), "payment-service:1.5.0");
+
+            assertCompatible(same, alsoSame);
+            assertIncompatible(same, differentImage, "target changed");
+        }
+
+        /** Builds a plan whose executionTarget is a DockerImageTarget, with no pre-run URL at all. */
+        private EffectiveTestPlan withDockerTarget(EffectiveTestPlan p, String image) {
+            var target = new dev.vortex.core.target.DockerImageTarget(
+                    new dev.vortex.core.target.ImageReference(image),
+                    new dev.vortex.core.target.ContainerPort(8080),
+                    dev.vortex.core.target.ResourceEnvelopeRequest.none(), null);
+
+            return new EffectiveTestPlan(p.id(), p.projectId(), p.projectName(), p.serviceVersion(),
+                    p.intent(), p.workloadName(), p.workloadDescription(), p.testType(),
+                    p.workloadModel(), p.peakLevel(), p.stages(), p.operations(), p.datasets(),
+                    p.workloadSource(), p.thresholds(), p.environmentName(), p.environmentType(),
+                    target, null, null, p.targetRewriteReason(), p.dependencyMode(),
+                    p.classification(), p.headers(), p.k6Options(), p.runner(), p.scriptSource(),
+                    p.safetyDecisions(), null, p.validityPolicy(), p.workspacePath())
+                    .withComputedFingerprint();
+        }
+
+        @Test
         void objectives() {
             var plan = Fixtures.plan();
             var stricter = rebuild(plan, plan.testType(), plan.workloadName(), plan.intent(),

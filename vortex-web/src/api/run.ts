@@ -154,6 +154,13 @@ export interface RunIdentity {
   targetUrl: string;
   targetWasRewritten: boolean;
   targetRewriteReason: string | null;
+  /** `EXTERNAL_ENDPOINT` | `DOCKER_IMAGE` | `DOCKER_COMPOSE` — always known. */
+  targetKind: string;
+  targetSummary: string;
+  targetOwnershipLabel: string;
+  /** The run's confirmed resource envelope, e.g. "0.5 CPU · 512 MiB" — null when none was
+   *  confirmed (an external endpoint, a Compose target, or a run with no resolved target at all). */
+  resourceSummary: string | null;
   requestedAtIso: string | null;
   finishedAtDisplay: string;
   durationDisplay: string | null;

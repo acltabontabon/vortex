@@ -599,6 +599,20 @@ function IdentitySection({
         <Fact label="Target" note={identity.targetWasRewritten ? identity.targetRewriteReason : undefined}>
           {identity.targetUrl}
         </Fact>
+        {/* Omitted for an external endpoint: its address is already the "Target" fact above, and
+            showing "EXTERNAL_ENDPOINT"'s own summary there too would say the same thing twice — the
+            same rule ServiceHeader's meta line already follows. */}
+        {identity.targetKind !== 'EXTERNAL_ENDPOINT' && (
+          <Fact label="Target kind">{identity.targetSummary}</Fact>
+        )}
+        <Fact label="Target ownership">{identity.targetOwnershipLabel}</Fact>
+        {/* Absent rather than an empty string — a historical run predating this feature, or any run
+            whose target never confirmed a resource envelope (an external endpoint, a Compose
+            target), simply has nothing to say here. */}
+        {/* "Target resources", not "Resources" — that label already names one of the five report
+            sections below (the service's own measured CPU/memory), a different concept from the
+            envelope Vortex declared and confirmed for this target before the run started. */}
+        {identity.resourceSummary && <Fact label="Target resources">{identity.resourceSummary}</Fact>}
         <Fact label="Environment">
           {identity.environmentName} — {identity.environmentTypeLabel}
         </Fact>

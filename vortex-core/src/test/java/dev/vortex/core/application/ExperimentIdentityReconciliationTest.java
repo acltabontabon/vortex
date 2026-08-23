@@ -47,7 +47,8 @@ class ExperimentIdentityReconciliationTest {
                 new NoArtifacts(),
                 new dev.vortex.core.fixtures.FakeDatasetStore(),
                 TelemetryCollector.none(),
-                Clock.fixed(Fixtures.NOW));
+                Clock.fixed(Fixtures.NOW),
+                List.of());
     }
 
     private TestExecution stored(String id, EffectiveTestPlan plan) {

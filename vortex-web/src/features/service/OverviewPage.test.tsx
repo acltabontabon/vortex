@@ -178,6 +178,8 @@ function anOverview(overrides: Partial<Overview> = {}): Overview {
         classificationCaveat:
           'Dependencies were simulated; this does not establish integrated behaviour.',
         dependencyModeLabel: 'Mocked',
+        targetKind: 'EXTERNAL_ENDPOINT',
+        targetSummary: 'http://localhost:8080',
       },
       environmentCount: 1,
       release: '2.17.0',

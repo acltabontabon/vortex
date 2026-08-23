@@ -32,6 +32,8 @@ export type BoundaryStatus =
 
 export interface Target {
   environmentName: string;
+  /** The target's real pre-run address, or the empty string for a Docker/Compose target — there is
+   *  no address to show before a run resolves one; see `targetSummary` for what to show instead. */
   baseUrl: string;
   environmentTypeLabel: string;
   classification: Classification;
@@ -39,6 +41,11 @@ export interface Target {
   /** The domain's own sentence about what this classification does not establish. */
   classificationCaveat: string;
   dependencyModeLabel: string;
+  /** `EXTERNAL_ENDPOINT` | `DOCKER_IMAGE` | `DOCKER_COMPOSE`. */
+  targetKind: string;
+  /** The target's own summary, e.g. "Docker: payment-service:1.4.2" — carries the useful identity
+   *  when `baseUrl` is empty. */
+  targetSummary: string;
 }
 
 /**

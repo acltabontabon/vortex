@@ -74,6 +74,18 @@ export interface OpenApiPreviewResponse {
   errorDetails: string[];
 }
 
+export function useDeleteServiceMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (serviceId: string) => apiClient.delete<void>(`/api/services/${serviceId}`),
+    onSuccess: () => {
+      // Refreshes the services list, the topbar's switcher (same query key), and the homepage.
+      queryClient.invalidateQueries({ queryKey: ['services'] });
+      queryClient.invalidateQueries({ queryKey: ['home'] });
+    },
+  });
+}
+
 export function useOpenApiPreviewMutation() {
   return useMutation({
     mutationFn: (request: OpenApiPreviewRequest) =>

@@ -46,6 +46,13 @@ export function ServiceHeader({ header }: { header: Header }) {
             <>
               <span className={classes.env}>{header.target.environmentName}</span>
               <span className={classes.url}>{stripScheme(header.target.baseUrl)}</span>
+              {/* A Docker/Compose target has no pre-run baseUrl (it's the empty string above), so
+                  its summary is what carries the useful identity — "Docker: payment-service:1.4.2".
+                  Omitted for an external endpoint, where stripScheme(baseUrl) above already is the
+                  useful summary and showing both would say the same thing twice. */}
+              {header.target.targetKind !== 'EXTERNAL_ENDPOINT' && (
+                <span className={classes.url}>{header.target.targetSummary}</span>
+              )}
               <ClassificationChip
                 classification={header.target.classification}
                 label={header.target.classification === 'ISOLATED' ? 'Isolated' : 'Integrated'}

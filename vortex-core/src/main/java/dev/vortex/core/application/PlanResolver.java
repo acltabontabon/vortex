@@ -11,6 +11,7 @@ import dev.vortex.core.data.DatasetRef;
 import dev.vortex.core.data.DatasetValue;
 import dev.vortex.core.data.RequestData;
 import dev.vortex.core.environment.Environment;
+import dev.vortex.core.environment.TargetUrl;
 import dev.vortex.core.intent.TestIntent;
 import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.plan.OperationKeys;
@@ -22,6 +23,8 @@ import dev.vortex.core.plan.ScriptSource;
 import dev.vortex.core.project.Project;
 import dev.vortex.core.port.DatasetStore;
 import dev.vortex.core.project.ProjectConfiguration;
+import dev.vortex.core.target.ExecutionTarget;
+import dev.vortex.core.target.ExternalEndpointTarget;
 import dev.vortex.core.workload.Workload;
 import dev.vortex.core.shared.OperationId;
 import dev.vortex.core.shared.RequestsPerSecond;
@@ -155,10 +158,16 @@ public final class PlanResolver {
                     "Some operations in this workload cannot be executed yet.", problems);
         }
 
-        var configuredTarget = environment.baseUrl();
-        var effectiveTarget = configuredTarget;
+        // Every Environment today is ExternalEndpointTarget-backed — Docker/Compose targets are not
+        // yet wired into any adapter. This is the one place both the legacy TargetUrl trio and the
+        // new executionTarget field are populated together, from the same source.
+        ExecutionTarget executionTarget = environment.target();
+        TargetUrl configuredTarget = executionTarget instanceof ExternalEndpointTarget external
+                ? external.endpoint()
+                : null;
+        TargetUrl effectiveTarget = configuredTarget;
         String rewriteReason = "";
-        if (request.targetRewrite() != null) {
+        if (configuredTarget != null && request.targetRewrite() != null) {
             effectiveTarget = configuredTarget.withHost(request.targetRewrite().newHost());
             rewriteReason = request.targetRewrite().reason();
         }
@@ -210,6 +219,7 @@ public final class PlanResolver {
                 thresholds,
                 environment.name(),
                 environment.type(),
+                executionTarget,
                 configuredTarget,
                 effectiveTarget,
                 rewriteReason,
@@ -220,7 +230,9 @@ public final class PlanResolver {
                 request.runner(),
                 request.scriptSource(),
                 request.safetyDecisions(),
-                null)
+                null,
+                null,
+                project.workspacePath())
                 .withComputedFingerprint();
     }
 

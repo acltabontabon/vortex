@@ -24,6 +24,20 @@ import java.util.Optional;
  *                       which is stated in the report rather than hidden
  * @param fingerprint    the hash of the resolved plan, so two runs can be recognised as the same
  *                       experiment
+ * @param targetKind     {@code EXTERNAL_ENDPOINT}, {@code DOCKER_IMAGE} or {@code DOCKER_COMPOSE} —
+ *                       the declared target's own kind, from the plan; always known, since a
+ *                       historical plan predating this feature normalizes to {@code
+ *                       EXTERNAL_ENDPOINT} rather than leaving this absent
+ * @param targetSummary  the declared target's own summary, e.g. {@code "Docker:
+ *                       payment-service:1.4.2"} — always known, for the same reason as {@code
+ *                       targetKind}
+ * @param targetOwnershipLabel "Vortex managed" or "Externally managed" — the run's actual resolved
+ *                       ownership where one was recorded, falling back to the declared target's own
+ *                       ownership for a run that never reached a resolved target (a historical run,
+ *                       or one that failed before target preparation completed)
+ * @param resourceSummary the run's confirmed resource envelope, e.g. {@code "0.5 CPU · 512 MiB"} —
+ *                       empty whenever no envelope was confirmed (an external endpoint, a Compose
+ *                       target, or any run with no resolved target at all), never fabricated
  */
 public record RunIdentity(
         ExecutionId executionId,
@@ -39,6 +53,10 @@ public record RunIdentity(
         DependencyMode dependencyMode,
         String targetUrl,
         String targetRewriteReason,
+        String targetKind,
+        String targetSummary,
+        String targetOwnershipLabel,
+        String resourceSummary,
         PlanFingerprint fingerprint,
         Instant requestedAt,
         Instant startedAt,
@@ -56,6 +74,10 @@ public record RunIdentity(
         environmentName = blankToEmpty(environmentName);
         targetUrl = blankToEmpty(targetUrl);
         targetRewriteReason = blankToEmpty(targetRewriteReason);
+        targetKind = blankToEmpty(targetKind);
+        targetSummary = blankToEmpty(targetSummary);
+        targetOwnershipLabel = blankToEmpty(targetOwnershipLabel);
+        resourceSummary = blankToEmpty(resourceSummary);
     }
 
     private static String blankToEmpty(String value) {
@@ -78,6 +100,10 @@ public record RunIdentity(
 
     public boolean targetWasRewritten() {
         return !targetRewriteReason.isEmpty();
+    }
+
+    public Optional<String> resourceSummaryIfPresent() {
+        return resourceSummary.isEmpty() ? Optional.empty() : Optional.of(resourceSummary);
     }
 
     /** A one-line identification, used in report headers and export filenames. */

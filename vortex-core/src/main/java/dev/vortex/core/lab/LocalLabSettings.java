@@ -1,6 +1,5 @@
 package dev.vortex.core.lab;
 
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 
 /**
@@ -26,41 +25,7 @@ import java.nio.file.Path;
 public record LocalLabSettings(String composeFile) {
 
     public LocalLabSettings {
-        composeFile = composeFile == null ? "" : composeFile.trim();
-        if (composeFile.isBlank()) {
-            throw new IllegalArgumentException(
-                    "a local lab needs the Compose file that describes this service's dependencies, "
-                            + "relative to the repository, e.g. 'compose.yaml'");
-        }
-
-        Path candidate;
-        try {
-            candidate = Path.of(composeFile);
-        } catch (InvalidPathException e) {
-            throw new IllegalArgumentException(
-                    "'" + composeFile + "' is not a usable file path: " + e.getReason());
-        }
-
-        if (candidate.isAbsolute()) {
-            throw new IllegalArgumentException(
-                    "the Compose file must be given relative to the repository, but '" + composeFile
-                            + "' is an absolute path. vortex.yaml is committed and travels between "
-                            + "machines, where that path will not exist — use something like "
-                            + "'compose.yaml' instead");
-        }
-
-        Path normalized = candidate.normalize();
-        if (normalized.toString().isBlank()) {
-            throw new IllegalArgumentException(
-                    "'" + composeFile + "' names a directory rather than a Compose file");
-        }
-        if (escapesRepository(normalized)) {
-            throw new IllegalArgumentException(
-                    "'" + composeFile + "' points outside the service's repository. Vortex runs the "
-                            + "Compose file the repository owns, so the path has to stay inside it");
-        }
-
-        composeFile = canonicalise(normalized);
+        composeFile = ComposeFileReference.normalise(composeFile);
     }
 
     /**
@@ -75,45 +40,11 @@ public record LocalLabSettings(String composeFile) {
      * themselves.
      */
     public Path resolveAgainst(String workspacePath) {
-        if (workspacePath == null || workspacePath.isBlank()) {
-            throw new IllegalArgumentException(
-                    "the service has no repository on this machine, so there is nowhere to resolve '"
-                            + composeFile + "' against");
-        }
-        Path workspace = Path.of(workspacePath).toAbsolutePath().normalize();
-        Path resolved = workspace.resolve(composeFile).normalize();
-        if (!resolved.startsWith(workspace)) {
-            throw new IllegalArgumentException(
-                    "'" + composeFile + "' resolves to " + resolved + ", which is outside the "
-                            + "service's repository at " + workspace);
-        }
-        return resolved;
+        return ComposeFileReference.resolveAgainst(composeFile, workspacePath);
     }
 
     /** How to name this setting in the interface. */
     public String describe() {
         return composeFile;
-    }
-
-    /** Whether a normalised relative path starts by climbing out of the repository. */
-    private static boolean escapesRepository(Path normalized) {
-        return normalized.getNameCount() > 0 && "..".equals(normalized.getName(0).toString());
-    }
-
-    /**
-     * The stored spelling: elements joined with {@code /}, whatever the platform separator is.
-     *
-     * <p>A path written on Windows and read on Linux has to mean the same thing, and {@code vortex
-     * .yaml} is expected to move between them.
-     */
-    private static String canonicalise(Path normalized) {
-        StringBuilder canonical = new StringBuilder();
-        for (Path element : normalized) {
-            if (!canonical.isEmpty()) {
-                canonical.append('/');
-            }
-            canonical.append(element);
-        }
-        return canonical.toString();
     }
 }

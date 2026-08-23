@@ -25,6 +25,21 @@ import java.util.Optional;
  * @param currentErrorRate error rate in the most recent bucket
  * @param stageLabel   which stage is running, e.g. {@code 100 → 150 requests/sec}
  * @param message      a human-readable status line
+ * @param currentResourceReading the target's live CPU/memory reading in the most recent bucket, or
+ *                     null when no resource-observing provider is attached to this run (an ordinary
+ *                     external-endpoint target, or a run whose telemetry collector reports nothing).
+ *                     Follows the exact nullable/{@code xIfPresent()} pattern already established by
+ *                     {@code currentRate}/{@code currentP95}/{@code currentErrorRate} above — one more
+ *                     field of the same kind, not a parallel channel.
+ *
+ *                     <p><strong>v1 status: always null.</strong> Populating it live requires {@code
+ *                     TelemetryCollector.Session} to expose an incremental "latest reading" read
+ *                     alongside its existing {@code finish()}-only shape, which Steps 1-11 did not
+ *                     build and which Step 12 (this field's own step) explicitly permits deferring as
+ *                     best-effort/lowest-priority rather than forcing an awkward wiring through the
+ *                     k6 engine's own {@code ProgressPublisher} (a different Maven module with no
+ *                     access to the telemetry session at all). The wire contract exists now so a
+ *                     future pass can populate it without another round of API/frontend changes.
  */
 public record ExecutionProgress(
         ExecutionId executionId,
@@ -36,7 +51,8 @@ public record ExecutionProgress(
         Duration currentP95,
         ErrorRate currentErrorRate,
         String stageLabel,
-        String message) {
+        String message,
+        ResourceReading currentResourceReading) {
 
     public ExecutionProgress {
         Objects.requireNonNull(executionId, "executionId");
@@ -49,7 +65,7 @@ public record ExecutionProgress(
 
     public static ExecutionProgress starting(ExecutionId id, Duration totalPlanned, String message) {
         return new ExecutionProgress(id, ExecutionState.STARTING, Duration.ZERO, totalPlanned,
-                null, null, null, null, "", message);
+                null, null, null, null, "", message, null);
     }
 
     /** Completion fraction in [0, 1], or empty when the total duration is unknown. */
@@ -75,5 +91,9 @@ public record ExecutionProgress(
 
     public Optional<ErrorRate> currentErrorRateIfPresent() {
         return Optional.ofNullable(currentErrorRate);
+    }
+
+    public Optional<ResourceReading> currentResourceReadingIfPresent() {
+        return Optional.ofNullable(currentResourceReading);
     }
 }

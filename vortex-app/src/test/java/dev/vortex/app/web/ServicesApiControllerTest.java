@@ -2,9 +2,11 @@ package dev.vortex.app.web;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,6 +17,7 @@ import dev.vortex.core.application.CatalogImportService;
 import dev.vortex.core.application.ProjectService;
 import dev.vortex.core.fixtures.Fixtures;
 import dev.vortex.core.port.ServiceCatalogImporter;
+import dev.vortex.core.shared.ProjectId;
 import dev.vortex.core.workload.RateAllocator;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -118,6 +121,35 @@ class ServicesApiControllerTest {
                 .andExpect(jsonPath("$.importOutcome.error").value(
                         "The service was created, but Vortex could not read that API description: "
                                 + "Vortex only fetches API descriptions over http or https."));
+    }
+
+    @Test
+    void deletesAService() throws Exception {
+        mockMvc.perform(delete("/api/services/" + Fixtures.project().id().value()))
+                .andExpect(status().isOk());
+
+        verify(projects).delete(Fixtures.project().id());
+    }
+
+    @Test
+    void deletingAnUnknownServiceIsReportedAsNotFound() throws Exception {
+        doThrow(new IllegalArgumentException("No project with id missing"))
+                .when(projects).delete(ProjectId.of("missing"));
+
+        mockMvc.perform(delete("/api/services/missing"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("No project with id missing"));
+    }
+
+    @Test
+    void deletingAServiceWithARunInProgressIsRefused() throws Exception {
+        doThrow(new IllegalStateException("Cannot delete 'checkout-service' while a run is in progress."))
+                .when(projects).delete(Fixtures.project().id());
+
+        mockMvc.perform(delete("/api/services/" + Fixtures.project().id().value()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(
+                        "Cannot delete 'checkout-service' while a run is in progress."));
     }
 
     @Test

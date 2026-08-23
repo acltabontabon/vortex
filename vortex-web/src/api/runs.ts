@@ -1,9 +1,14 @@
-// Field-for-field against the payload dev.vortex.app.web.ExecutionController's SSE stream sends
-// (see toPayload in ExecutionController.java) — one pre-aggregated bucket every five seconds, not
+// Field-for-field against the payload dev.vortex.app.web.RunApiController's SSE stream sends (see
+// toProgressDto in RunApiController.java) — one pre-aggregated bucket every five seconds, not
 // individual samples, so the browser cost stays negligible next to the run itself.
 
 import { useEffect, useRef, useState } from 'react';
 import { apiClient } from './client';
+
+export interface ResourceReading {
+  cpu: string;
+  memory: string;
+}
 
 export interface RunProgress {
   state: string;
@@ -14,6 +19,13 @@ export interface RunProgress {
   currentRate: string;
   p95: string;
   errorRate: string;
+  // A human-readable target-preparation status line, populated only while state === 'STARTING' for
+  // a Docker/Compose target being created — see LiveExecutionPanel's own docstring for why this is
+  // rendered verbatim, never parsed into a checklist. Empty for an ordinary external-endpoint run.
+  message: string;
+  // The target's live CPU/memory reading, or null — always null in this build (see
+  // ExecutionProgress.currentResourceReading's javadoc on the backend for why).
+  resourceReading?: ResourceReading | null;
 }
 
 const MAX_RECONNECT_FAILURES = 3;

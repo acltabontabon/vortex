@@ -1,0 +1,13 @@
+-- The run's *resolved* runtime target — the actual endpoint that was reachable, the ownership that
+-- held at prepare() time, and the effective resource envelope Docker actually applied. Genuinely new
+-- information: the *declared* target already round-trips inside plan_json via
+-- EffectiveTestPlan.executionTarget, so this column does not duplicate it.
+--
+-- Defaulted to an empty JSON object rather than allowed NULL, and read back as no resolved target
+-- (not as an object with every field null) — see JdbcExecutionRepository's explicit round-trip
+-- helpers for that sentinel. Every row written before this feature existed gets the same default: no
+-- resolved target is exactly what is known about a run that never went through target preparation.
+--
+-- No target_type/target_ownership/target_summary columns: nothing in JdbcExecutionRepository filters
+-- on a target column today, so there is no promoted column to justify.
+ALTER TABLE executions ADD COLUMN resolved_target_json TEXT NOT NULL DEFAULT '{}';

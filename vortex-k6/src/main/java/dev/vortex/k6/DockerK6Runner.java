@@ -1,5 +1,6 @@
 package dev.vortex.k6;
 
+import dev.vortex.core.environment.TargetUrl;
 import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.port.PerformanceEngine.Cancellation;
 import dev.vortex.core.port.PerformanceEngine.EngineAvailability;
@@ -122,7 +123,10 @@ public final class DockerK6Runner implements K6Runner {
      */
     @Override
     public Optional<TargetRewrite> targetRewriteFor(EffectiveTestPlan plan) {
-        if (!plan.configuredTarget().isLoopback()) {
+        // A target with no resolvable pre-run URL (Docker/Compose) has nothing to rewrite here yet —
+        // by the time this runs against the transient, post-resolution plan copy (see
+        // ExecutionService), configuredTarget is always the run's real resolved endpoint.
+        if (plan.configuredTargetIfPresent().filter(TargetUrl::isLoopback).isEmpty()) {
             return Optional.empty();
         }
         String platform = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);

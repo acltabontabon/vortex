@@ -23,10 +23,28 @@ public final class ConfigurationDtos {
     public record EnvironmentDto(String name, String baseUrl, String type, String typeLabel,
             String dependencyMode, String dependencyModeLabel, String classification,
             String classificationLabel, String classificationCaveat, boolean hasSecretReferences,
-            Map<String, String> maskedHeaders) {
+            Map<String, String> maskedHeaders, ExecutionTargetSummaryDto target) {
+    }
+
+    /**
+     * What this environment tests, and how Vortex reaches or controls it — {@code kind} is one of
+     * {@code EXTERNAL_ENDPOINT}/{@code DOCKER_IMAGE}/{@code DOCKER_COMPOSE}, the same vocabulary as
+     * {@code ConfigurationApiController.EnvironmentRequest.targetKind} and {@code vortex.yaml}'s
+     * {@code target.kind}.
+     */
+    public record ExecutionTargetSummaryDto(String kind, String summary, String ownershipLabel) {
     }
 
     public record EnvironmentTypeOptionDto(String name, String label, String description) {
+    }
+
+    /**
+     * The outcome of validating a target's non-mutating availability checks — {@code
+     * POST .../target/validate}. Distinct from {@link TestConnectionResponse}, which is a different,
+     * earlier feature (production-observation source connectivity) reusing similar words for an
+     * unrelated concern.
+     */
+    public record TargetValidationResponse(boolean valid, List<String> checks) {
     }
 
     public record DependencyModeOptionDto(String name, String label, String description) {

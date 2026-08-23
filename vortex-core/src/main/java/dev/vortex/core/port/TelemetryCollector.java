@@ -7,6 +7,7 @@ import dev.vortex.core.metrics.TimeWindow;
 import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.resource.ResourceSignal;
 import dev.vortex.core.shared.ExecutionId;
+import dev.vortex.core.target.ResolvedTarget;
 import java.util.List;
 
 /**
@@ -42,10 +43,15 @@ public interface TelemetryCollector {
      * <p>Must not throw. A collector that cannot reach the service returns a session that yields
      * nothing but may still yield the reason it yielded nothing.
      *
-     * @param executionId which execution this session belongs to, for a collector that persists what
-     *                    it samples as that execution's own artifact
+     * @param executionId    which execution this session belongs to, for a collector that persists
+     *                       what it samples as that execution's own artifact
+     * @param resolvedTarget this run's resolved runtime target — the actual reachable address, the
+     *                       ownership that held at prepare time, and (for a Vortex-managed target)
+     *                       the opaque telemetry handle and confirmed resource envelope a
+     *                       container-id-aware provider needs, since a container id is not something
+     *                       an endpoint-keyed {@link ObservabilityQuery} can carry
      */
-    Session start(EffectiveTestPlan plan, ExecutionId executionId);
+    Session start(EffectiveTestPlan plan, ExecutionId executionId, ResolvedTarget resolvedTarget);
 
     /** An in-progress sampling session. */
     interface Session {
@@ -106,6 +112,6 @@ public interface TelemetryCollector {
 
     /** A collector that gathers nothing, for tests and for runs with no observability configured. */
     static TelemetryCollector none() {
-        return (plan, executionId) -> Session.empty();
+        return (plan, executionId, resolvedTarget) -> Session.empty();
     }
 }

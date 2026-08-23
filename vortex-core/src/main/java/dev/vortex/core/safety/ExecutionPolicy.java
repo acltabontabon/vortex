@@ -55,7 +55,13 @@ public final class ExecutionPolicy {
     }
 
     private void assessTarget(EffectiveTestPlan plan, List<SafetyFinding> findings) {
-        TargetUrl target = plan.configuredTarget();
+        // A target with no resolvable pre-run URL — i.e. anything other than ExternalEndpointTarget
+        // — has no host to check against yet. A Docker/Compose target's future localhost:<port> is
+        // categorically local and gets its own availability check elsewhere, later.
+        if (plan.configuredTargetIfPresent().isEmpty()) {
+            return;
+        }
+        TargetUrl target = plan.configuredTargetIfPresent().orElseThrow();
 
         if (!limits.isHostAllowed(target.host())) {
             findings.add(SafetyFinding.blocking("target.allowlist",

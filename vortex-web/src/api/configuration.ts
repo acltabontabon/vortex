@@ -11,6 +11,14 @@ export interface EnvironmentOption {
   description: string;
 }
 
+/** Mirrors `dev.vortex.app.web.ConfigurationDtos.ExecutionTargetSummaryDto`. */
+export interface ExecutionTargetSummary {
+  /** `EXTERNAL_ENDPOINT` | `DOCKER_IMAGE` | `DOCKER_COMPOSE`. */
+  kind: string;
+  summary: string;
+  ownershipLabel: string;
+}
+
 export interface Environment {
   name: string;
   baseUrl: string;
@@ -23,6 +31,7 @@ export interface Environment {
   classificationCaveat: string;
   hasSecretReferences: boolean;
   maskedHeaders: Record<string, string>;
+  target: ExecutionTargetSummary;
 }
 
 export interface LabStatus {
@@ -157,10 +166,47 @@ export interface EnvironmentRequest {
   productionLike?: boolean;
   headerNames?: string;
   headerValues?: string;
+  // Target configuration — mirrors ConfigurationApiController.EnvironmentRequest. targetKind absent
+  // or blank means EXTERNAL_ENDPOINT, matching the backend's own default and vortex.yaml's.
+  targetKind?: string;
+  image?: string;
+  containerPort?: number;
+  // Wire field is deliberately millicores, matching CpuAllocation's integer-millicore domain
+  // representation — never a float "cpuCores" field. A form expressed in cores converts with
+  // Math.round(cores * 1000) before building this request; see EnvironmentsSection.
+  cpuMillicores?: number;
+  memoryMebibytes?: number;
+  readinessPath?: string;
+  readinessExpectedStatus?: number;
+  readinessTimeoutSeconds?: number;
+  composeFile?: string;
+  composeService?: string;
 }
 
 export const useAddEnvironmentMutation = (id: string) =>
   useConfigMutation<EnvironmentRequest>(id, '/environments');
+
+export interface TargetValidationResponse {
+  valid: boolean;
+  checks: string[];
+}
+
+/**
+ * "Test Connection" for a Docker/Compose target's configuration form — checks whatever the request
+ * body describes, never what's already saved, and never starts anything (the backend calls only
+ * `TargetExecutor#checkAvailability`, never `prepare`). Written by hand rather than through {@link
+ * useConfigMutation}: that helper's `path` is fixed at call-construction time, but this endpoint's
+ * path is parameterized on the environment name carried inside the request itself.
+ */
+export function useValidateTargetMutation(id: string) {
+  return useMutation({
+    mutationFn: (request: EnvironmentRequest) =>
+      apiClient.post<TargetValidationResponse>(
+        `/api/services/${id}/environments/${encodeURIComponent(request.name)}/target/validate`,
+        request
+      ),
+  });
+}
 
 export const useSetReleaseMutation = (id: string) =>
   useConfigMutation<{ serviceVersion: string }>(id, '/release');

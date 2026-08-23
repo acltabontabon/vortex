@@ -179,4 +179,16 @@ class ResourceSignalTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("positive");
     }
+
+    @Test
+    @DisplayName("a limit Vortex configured itself carries VORTEX_CONFIGURED, not PUBLISHED_BY_PROVIDER")
+    void vortexConfiguredCarriesItsOwnBasis() {
+        ResourceLimit limit = ResourceLimit.vortexConfigured(0.5, MetricUnit.RATIO,
+                "the container's configured CPU limit");
+
+        assertThat(limit.value()).isEqualTo(0.5);
+        assertThat(limit.unit()).isEqualTo(MetricUnit.RATIO);
+        assertThat(limit.basis()).isEqualTo(LimitBasis.VORTEX_CONFIGURED);
+        assertThat(limit.describedAs()).isEqualTo("the container's configured CPU limit");
+    }
 }

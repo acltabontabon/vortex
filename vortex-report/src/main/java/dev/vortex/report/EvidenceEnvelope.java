@@ -548,6 +548,7 @@ final class EvidenceEnvelope {
         return switch (basis) {
             case PUBLISHED_BY_PROVIDER -> "published_by_provider";
             case INHERENT_TO_UNIT -> "inherent_to_unit";
+            case VORTEX_CONFIGURED -> "vortex_configured";
         };
     }
 

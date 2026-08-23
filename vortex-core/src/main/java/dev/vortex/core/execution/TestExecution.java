@@ -7,6 +7,7 @@ import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.plan.ToolVersions;
 import dev.vortex.core.shared.ExecutionId;
 import dev.vortex.core.shared.ProjectId;
+import dev.vortex.core.target.ResolvedTarget;
 import dev.vortex.core.threshold.Verdict;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,6 +37,8 @@ import java.util.Optional;
  * @param artifacts    references to raw evidence on disk
  * @param failureReason why the run did not complete, when applicable
  * @param failureDetail diagnostic detail preserved for troubleshooting
+ * @param resolvedTarget the runtime fact produced once this run's target has been prepared, absent
+ *                       until then
  */
 public record TestExecution(
         ExecutionId id,
@@ -51,7 +54,8 @@ public record TestExecution(
         ExecutionArtifacts artifacts,
         FailureReason failureReason,
         String failureDetail,
-        RunQualityAssessment quality) {
+        RunQualityAssessment quality,
+        ResolvedTarget resolvedTarget) {
 
     public TestExecution {
         Objects.requireNonNull(id, "id");
@@ -75,7 +79,7 @@ public record TestExecution(
             ExecutionArtifacts artifacts, FailureReason failureReason, String failureDetail) {
         this(id, projectId, plan, state, requestedAt, startedAt, finishedAt, results, summary,
                 toolVersions, artifacts, failureReason, failureDetail,
-                RunQualityAssessment.notAssessed());
+                RunQualityAssessment.notAssessed(), null);
     }
 
     public static TestExecution create(ExecutionId id, EffectiveTestPlan plan, Instant now) {
@@ -93,22 +97,26 @@ public record TestExecution(
         Instant newStartedAt = next == ExecutionState.RUNNING && startedAt == null ? now : startedAt;
         Instant newFinishedAt = next.isTerminal() ? now : finishedAt;
         return new TestExecution(id, projectId, plan, next, requestedAt, newStartedAt, newFinishedAt,
-                results, summary, toolVersions, artifacts, failureReason, failureDetail, quality);
+                results, summary, toolVersions, artifacts, failureReason, failureDetail, quality,
+                resolvedTarget);
     }
 
     public TestExecution withResults(MeasuredResults newResults) {
         return new TestExecution(id, projectId, plan, state, requestedAt, startedAt, finishedAt,
-                newResults, summary, toolVersions, artifacts, failureReason, failureDetail, quality);
+                newResults, summary, toolVersions, artifacts, failureReason, failureDetail, quality,
+                resolvedTarget);
     }
 
     public TestExecution withSummary(DeterministicSummary newSummary) {
         return new TestExecution(id, projectId, plan, state, requestedAt, startedAt, finishedAt,
-                results, newSummary, toolVersions, artifacts, failureReason, failureDetail, quality);
+                results, newSummary, toolVersions, artifacts, failureReason, failureDetail, quality,
+                resolvedTarget);
     }
 
     public TestExecution withToolVersions(ToolVersions newVersions) {
         return new TestExecution(id, projectId, plan, state, requestedAt, startedAt, finishedAt,
-                results, summary, newVersions, artifacts, failureReason, failureDetail, quality);
+                results, summary, newVersions, artifacts, failureReason, failureDetail, quality,
+                resolvedTarget);
     }
 
     /**
@@ -120,24 +128,35 @@ public record TestExecution(
      */
     public TestExecution withQuality(RunQualityAssessment newQuality) {
         return new TestExecution(id, projectId, plan, state, requestedAt, startedAt, finishedAt,
-                results, summary, toolVersions, artifacts, failureReason, failureDetail, newQuality);
+                results, summary, toolVersions, artifacts, failureReason, failureDetail, newQuality,
+                resolvedTarget);
     }
 
     public TestExecution withArtifacts(ExecutionArtifacts newArtifacts) {
         return new TestExecution(id, projectId, plan, state, requestedAt, startedAt, finishedAt,
-                results, summary, toolVersions, newArtifacts, failureReason, failureDetail, quality);
+                results, summary, toolVersions, newArtifacts, failureReason, failureDetail, quality,
+                resolvedTarget);
+    }
+
+    /** Records the runtime fact produced once this run's target has been prepared. */
+    public TestExecution withResolvedTarget(ResolvedTarget newResolvedTarget) {
+        return new TestExecution(id, projectId, plan, state, requestedAt, startedAt, finishedAt,
+                results, summary, toolVersions, artifacts, failureReason, failureDetail, quality,
+                newResolvedTarget);
     }
 
     public TestExecution failed(FailureReason reason, String detail, Instant now) {
         state.requireTransitionTo(ExecutionState.FAILED);
         return new TestExecution(id, projectId, plan, ExecutionState.FAILED, requestedAt, startedAt,
-                now, results, summary, toolVersions, artifacts, reason, detail, quality);
+                now, results, summary, toolVersions, artifacts, reason, detail, quality,
+                resolvedTarget);
     }
 
     public TestExecution cancelled(Instant now) {
         state.requireTransitionTo(ExecutionState.CANCELLED);
         return new TestExecution(id, projectId, plan, ExecutionState.CANCELLED, requestedAt, startedAt,
-                now, results, summary, toolVersions, artifacts, null, "Cancelled by user", quality);
+                now, results, summary, toolVersions, artifacts, null, "Cancelled by user", quality,
+                resolvedTarget);
     }
 
     public Optional<MeasuredResults> resultsIfPresent() {
@@ -150,6 +169,10 @@ public record TestExecution(
 
     public Optional<FailureReason> failureReasonIfPresent() {
         return Optional.ofNullable(failureReason);
+    }
+
+    public Optional<ResolvedTarget> resolvedTargetIfPresent() {
+        return Optional.ofNullable(resolvedTarget);
     }
 
     public Optional<Duration> duration() {

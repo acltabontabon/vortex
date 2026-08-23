@@ -1,14 +1,28 @@
 /*
  * The one live-execution surface, shared by the service row's inline view (compact) and the
- * standalone run page (full) — tinted with the theme's `live` token, the same idiom this app
- * already uses to mark a distinct, legible state rather than a generic alert box.
+ * standalone run page (full). Light mode keeps the theme's own tinted `live` surface. Dark mode
+ * deliberately does not mirror that with a flat `live-9` fill — a saturated navy panel reads as a
+ * different application dropped into the middle of a graphite one. Instead it's the same raised
+ * neutral surface every other panel in dark mode would sit on, carrying the "this is live" idea
+ * only through a muted blue border and a faint inset highlight — legible as distinct without
+ * competing with the progress bar and LIVE indicator, which stay fully saturated `live` below.
  */
 .panel {
   margin-top: 8px;
   padding: 10px 12px;
   border-radius: var(--mantine-radius-sm);
-  background: light-dark(var(--mantine-color-live-0), var(--mantine-color-live-9));
-  border: 1px solid light-dark(var(--mantine-color-live-1), var(--mantine-color-live-8));
+  background: light-dark(
+    var(--mantine-color-live-0),
+    color-mix(in srgb, var(--mantine-color-live-9) 22%, var(--mantine-color-neutral-8))
+  );
+  border: 1px solid light-dark(
+    var(--mantine-color-live-1),
+    color-mix(in srgb, var(--mantine-color-live-6) 40%, var(--mantine-color-neutral-7))
+  );
+  box-shadow: light-dark(
+    none,
+    inset 0 1px 0 0 color-mix(in srgb, var(--mantine-color-live-5) 10%, transparent)
+  );
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -120,6 +134,20 @@
 
 .full .statValue {
   font-size: 1.1rem;
+}
+
+/* The target-preparation status line — plain prose, not monospace: this is a sentence a Docker/
+   Compose executor emitted, not an address or identifier. */
+.preparing {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.preparingText {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--mantine-color-dimmed);
 }
 
 /* Terminal/status flavour text — muted and monospace so it reads as instrumentation, not copy. */

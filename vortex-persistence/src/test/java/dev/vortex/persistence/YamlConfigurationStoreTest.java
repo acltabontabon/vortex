@@ -602,6 +602,248 @@ class YamlConfigurationStoreTest {
     }
 
     @Nested
+    @DisplayName("execution targets")
+    class ExecutionTargets {
+
+        @Test
+        @DisplayName("a file with no target: block parses to an external endpoint, exactly as before")
+        void aTargetLessFixtureParsesToAnExternalEndpoint() {
+            var configuration = parse("""
+                    version: 1
+                    environments:
+                      local:
+                        type: LOCAL_ISOLATED
+                        baseUrl: "http://localhost:8080"
+                        dependencies: MOCKED
+                    """);
+
+            var environment = configuration.environmentByName("local").orElseThrow();
+            assertThat(environment.target())
+                    .isEqualTo(new dev.vortex.core.target.ExternalEndpointTarget(
+                            dev.vortex.core.environment.TargetUrl.of("http://localhost:8080")));
+        }
+
+        @Test
+        @DisplayName("an explicit kind: EXTERNAL_ENDPOINT reads identically to an absent target block")
+        void anExplicitExternalEndpointKindReadsTheSame() {
+            var configuration = parse("""
+                    version: 1
+                    environments:
+                      local:
+                        type: LOCAL_ISOLATED
+                        baseUrl: "http://localhost:8080"
+                        dependencies: MOCKED
+                        target:
+                          kind: EXTERNAL_ENDPOINT
+                    """);
+
+            assertThat(configuration.environmentByName("local").orElseThrow().target())
+                    .isEqualTo(new dev.vortex.core.target.ExternalEndpointTarget(
+                            dev.vortex.core.environment.TargetUrl.of("http://localhost:8080")));
+        }
+
+        @Test
+        @DisplayName("a Docker image target is read with its resources and readiness check")
+        void aDockerImageTargetIsRead() {
+            var configuration = parse("""
+                    version: 1
+                    environments:
+                      local:
+                        type: LOCAL_ISOLATED
+                        baseUrl: "http://localhost:8080"
+                        dependencies: MOCKED
+                        target:
+                          kind: DOCKER_IMAGE
+                          image: "payment-service:1.4.2"
+                          containerPort: 8080
+                          cpuMillicores: 500
+                          memoryMebibytes: 512
+                          readinessPath: "/actuator/health"
+                          readinessExpectedStatus: 200
+                          readinessTimeoutSeconds: 30
+                    """);
+
+            var target = (dev.vortex.core.target.DockerImageTarget)
+                    configuration.environmentByName("local").orElseThrow().target();
+
+            assertThat(target.image().value()).isEqualTo("payment-service:1.4.2");
+            assertThat(target.containerPort().value()).isEqualTo(8080);
+            assertThat(target.resources().cpuIfPresent()).hasValue(
+                    dev.vortex.core.target.CpuAllocation.ofMillicores(500));
+            assertThat(target.resources().memoryIfPresent()).hasValue(
+                    dev.vortex.core.target.MemoryAllocation.ofMebibytes(512));
+            assertThat(target.readinessCheckIfPresent()).hasValueSatisfying(readiness -> {
+                assertThat(readiness.path()).isEqualTo("/actuator/health");
+                assertThat(readiness.expectedStatus()).isEqualTo(200);
+                assertThat(readiness.timeout()).isEqualTo(java.time.Duration.ofSeconds(30));
+            });
+        }
+
+        @Test
+        @DisplayName("a Docker image target needs at least an image and a container port")
+        void aDockerImageTargetNeedsAnImageAndAPort() {
+            assertThat(problemsIn("""
+                    version: 1
+                    environments:
+                      local:
+                        type: LOCAL_ISOLATED
+                        baseUrl: "http://localhost:8080"
+                        dependencies: MOCKED
+                        target:
+                          kind: DOCKER_IMAGE
+                    """))
+                    .anyMatch(problem -> problem.contains("environments.local.target.image")
+                            && problem.contains("must be set"));
+        }
+
+        @Test
+        @DisplayName("a partial readiness block is refused rather than silently ignored")
+        void aPartialReadinessBlockIsRefused() {
+            assertThat(problemsIn("""
+                    version: 1
+                    environments:
+                      local:
+                        type: LOCAL_ISOLATED
+                        baseUrl: "http://localhost:8080"
+                        dependencies: MOCKED
+                        target:
+                          kind: DOCKER_IMAGE
+                          image: "payment-service:1.4.2"
+                          containerPort: 8080
+                          readinessPath: "/actuator/health"
+                    """))
+                    .anyMatch(problem -> problem.contains("environments.local.target")
+                            && problem.contains("readinessPath, readinessExpectedStatus and "
+                                    + "readinessTimeoutSeconds together"));
+        }
+
+        @Test
+        @DisplayName("a Compose target is read with its file, service and port")
+        void aComposeTargetIsRead() {
+            var configuration = parse("""
+                    version: 1
+                    environments:
+                      local:
+                        type: LOCAL_ISOLATED
+                        baseUrl: "http://localhost:8080"
+                        dependencies: MOCKED
+                        target:
+                          kind: DOCKER_COMPOSE
+                          composeFile: "compose.yaml"
+                          service: "payment-service"
+                          containerPort: 8080
+                    """);
+
+            var target = (dev.vortex.core.target.DockerComposeTarget)
+                    configuration.environmentByName("local").orElseThrow().target();
+
+            assertThat(target.composeFile()).isEqualTo("compose.yaml");
+            assertThat(target.serviceName()).isEqualTo("payment-service");
+            assertThat(target.containerPort().value()).isEqualTo(8080);
+        }
+
+        @Test
+        @DisplayName("a Compose target needs a file, a service and a port")
+        void aComposeTargetNeedsItsFields() {
+            assertThat(problemsIn("""
+                    version: 1
+                    environments:
+                      local:
+                        type: LOCAL_ISOLATED
+                        baseUrl: "http://localhost:8080"
+                        dependencies: MOCKED
+                        target:
+                          kind: DOCKER_COMPOSE
+                    """))
+                    .anyMatch(problem -> problem.contains("environments.local.target.composeFile")
+                            && problem.contains("must be set"));
+        }
+
+        @Test
+        @DisplayName("round-trips a Docker image target, resources and readiness check included")
+        void aDockerImageTargetRoundTrips(@TempDir Path directory) {
+            var target = new dev.vortex.core.target.DockerImageTarget(
+                    new dev.vortex.core.target.ImageReference("payment-service:1.4.2"),
+                    new dev.vortex.core.target.ContainerPort(8080),
+                    new dev.vortex.core.target.ResourceEnvelopeRequest(
+                            dev.vortex.core.target.CpuAllocation.ofMillicores(500),
+                            dev.vortex.core.target.MemoryAllocation.ofMebibytes(512)),
+                    new dev.vortex.core.target.ReadinessCheck("/actuator/health", 200,
+                            java.time.Duration.ofSeconds(30)));
+            var withDockerTarget = Fixtures.configuration().withEnvironments(java.util.List.of(
+                    new dev.vortex.core.environment.Environment(
+                            dev.vortex.core.shared.EnvironmentId.of("local"), "local",
+                            dev.vortex.core.environment.EnvironmentType.LOCAL_ISOLATED, target,
+                            dev.vortex.core.environment.EnvironmentCapabilities.localIsolated(),
+                            dev.vortex.core.environment.DependencyMode.MOCKED, java.util.Map.of())));
+
+            store.save(directory.toString(), withDockerTarget);
+            var reloaded = store.load(directory.toString()).configuration()
+                    .environmentByName("local").orElseThrow().target();
+
+            assertThat(reloaded).isEqualTo(target);
+        }
+
+        @Test
+        @DisplayName("round-trips a Docker image target with no resources and no readiness check")
+        void aMinimalDockerImageTargetRoundTrips(@TempDir Path directory) {
+            var target = new dev.vortex.core.target.DockerImageTarget(
+                    new dev.vortex.core.target.ImageReference("payment-service:1.4.2"),
+                    new dev.vortex.core.target.ContainerPort(8080),
+                    dev.vortex.core.target.ResourceEnvelopeRequest.none(), null);
+            var withDockerTarget = Fixtures.configuration().withEnvironments(java.util.List.of(
+                    new dev.vortex.core.environment.Environment(
+                            dev.vortex.core.shared.EnvironmentId.of("local"), "local",
+                            dev.vortex.core.environment.EnvironmentType.LOCAL_ISOLATED, target,
+                            dev.vortex.core.environment.EnvironmentCapabilities.localIsolated(),
+                            dev.vortex.core.environment.DependencyMode.MOCKED, java.util.Map.of())));
+
+            store.save(directory.toString(), withDockerTarget);
+            var reloaded = store.load(directory.toString()).configuration()
+                    .environmentByName("local").orElseThrow().target();
+
+            assertThat(reloaded).isEqualTo(target);
+        }
+
+        @Test
+        @DisplayName("round-trips a Compose target")
+        void aComposeTargetRoundTrips(@TempDir Path directory) {
+            var target = new dev.vortex.core.target.DockerComposeTarget(
+                    "compose.yaml", "payment-service", new dev.vortex.core.target.ContainerPort(8080));
+            var withComposeTarget = Fixtures.configuration().withEnvironments(java.util.List.of(
+                    new dev.vortex.core.environment.Environment(
+                            dev.vortex.core.shared.EnvironmentId.of("local"), "local",
+                            dev.vortex.core.environment.EnvironmentType.LOCAL_ISOLATED, target,
+                            dev.vortex.core.environment.EnvironmentCapabilities.localIsolated(),
+                            dev.vortex.core.environment.DependencyMode.MOCKED, java.util.Map.of())));
+
+            store.save(directory.toString(), withComposeTarget);
+            var reloaded = store.load(directory.toString()).configuration()
+                    .environmentByName("local").orElseThrow().target();
+
+            assertThat(reloaded).isEqualTo(target);
+        }
+
+        @Test
+        @DisplayName("an unrecognised target kind lists the ones that exist")
+        void anUnrecognisedTargetKindListsTheOnesThatExist() {
+            assertThat(problemsIn("""
+                    version: 1
+                    environments:
+                      local:
+                        type: LOCAL_ISOLATED
+                        baseUrl: "http://localhost:8080"
+                        dependencies: MOCKED
+                        target:
+                          kind: KUBERNETES_POD
+                    """))
+                    .anyMatch(problem -> problem.contains("environments.local.target.kind")
+                            && problem.contains("DOCKER_IMAGE")
+                            && problem.contains("DOCKER_COMPOSE"));
+        }
+    }
+
+    @Nested
     @DisplayName("round trip")
     class RoundTrip {
 

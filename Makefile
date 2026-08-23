@@ -26,6 +26,11 @@ run: ## Start Vortex on 127.0.0.1:7717
 demo: ## Start the sample service on :8080
 	$(MVN) -pl vortex-demo-service spring-boot:run
 
+.PHONY: demo-image
+demo-image: ## Build the demo service's Docker image (dev tooling only — Vortex never builds images)
+	$(MVN) -pl vortex-demo-service -am package -DskipTests
+	docker build -t vortex-demo-service:latest -f vortex-demo-service/Dockerfile vortex-demo-service
+
 .PHONY: doctor
 doctor: ## Check that this machine has what Vortex needs
 	$(MVN) -q -pl vortex-app -am package -DskipTests

@@ -29,6 +29,7 @@ export function RunningTestPanel({ serviceId, running }: { serviceId: string; ru
   return (
     <LiveExecutionPanel
       density="compact"
+      state={progress?.state}
       stage={progress?.stage ?? running.stateLabel}
       elapsed={progress?.elapsed ?? '00:00'}
       percent={progress?.percent ?? 0}
@@ -36,6 +37,8 @@ export function RunningTestPanel({ serviceId, running }: { serviceId: string; ru
       currentRate={progress?.currentRate || null}
       p95={progress?.p95 || null}
       errorRate={progress?.errorRate || null}
+      preparationMessage={progress?.message || null}
+      resourceReading={progress?.resourceReading ?? null}
       onConfirmCancel={() => cancelMutation.mutate()}
       cancelPending={cancelMutation.isPending}
     />
