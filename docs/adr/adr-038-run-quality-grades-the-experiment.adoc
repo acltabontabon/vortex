@@ -10,6 +10,12 @@ invalidity, never merely because more evidence would have been nice) stands; onl
 code as the vehicle for it is gone. The web UI reports the same distinction by never presenting an
 invalid run as a pass.
 
+Amended by xref:adr-046-dropped-work-requires-service-health-to-blame-the-generator.adoc[ADR-046]:
+`OFFERED_LOAD_NOT_GENERATED`'s `dropped_iterations`-based branch now also requires the service to
+show no distress at the level the drop occurred, the same evidence the achieved-rate-shortfall branch
+below already required. The evidence-required column for that row, as originally written here, is
+superseded by ADR-046 — see that ADR for why.
+
 Four things were settled during implementation. Each is a place where the decision as written would
 otherwise have quietly failed to hold.
 
@@ -131,9 +137,11 @@ is not implemented, not approximated.
 | Reason code | Evidence required | Effect
 
 | `OFFERED_LOAD_NOT_GENERATED`
-| k6 `dropped_iterations` above zero, or achieved rate materially below offered rate on a stage the
-  service showed no distress in
-| `INVALID` for capacity claims at and above that level
+| k6 `dropped_iterations` above zero, or achieved rate materially below offered rate — either way,
+  only on a stage the service showed no distress in (amended by
+  xref:adr-046-dropped-work-requires-service-health-to-blame-the-generator.adoc[ADR-046])
+| `INVALID` for capacity claims at and above that level; `DEGRADED` where the service itself was
+  shown distressed at that level
 
 | `GENERATOR_SATURATED`
 | A `ResourceSignal` scoped `LOAD_GENERATOR` at or above its limit (ADR-037)

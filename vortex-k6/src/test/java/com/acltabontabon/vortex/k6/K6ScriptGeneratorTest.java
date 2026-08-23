@@ -35,6 +35,7 @@ import com.acltabontabon.vortex.core.shared.OperationId;
 import com.acltabontabon.vortex.core.shared.ProjectId;
 import com.acltabontabon.vortex.core.shared.RequestsPerSecond;
 import com.acltabontabon.vortex.core.shared.TestPlanId;
+import com.acltabontabon.vortex.core.threshold.ErrorRateThreshold;
 import com.acltabontabon.vortex.core.threshold.LatencyThreshold;
 import com.acltabontabon.vortex.core.threshold.ThresholdSet;
 import com.acltabontabon.vortex.core.shared.Percentile;
@@ -212,6 +213,87 @@ class K6ScriptGeneratorTest {
                     .doesNotContain("\"gracefulStop\":\"30s\"")
                     // Numeric options stay numeric: k6 rejects "500" where it wants 500.
                     .contains("\"maxVUs\":500");
+        }
+    }
+
+    @Nested
+    @DisplayName("virtual-user pool sizing")
+    class VirtualUserPoolSizing {
+
+        /** Every {@code preAllocatedVUs}/{@code maxVUs} pair a generated scenario carries. */
+        private List<int[]> vuPoolsIn(String script) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern
+                    .compile("\"preAllocatedVUs\":(\\d+),\"maxVUs\":(\\d+)")
+                    .matcher(script);
+            List<int[]> pools = new java.util.ArrayList<>();
+            while (matcher.find()) {
+                pools.add(new int[] {Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2))});
+            }
+            return pools;
+        }
+
+        private double multiplierIn(String script) {
+            List<int[]> pools = vuPoolsIn(script);
+            assertThat(pools).isNotEmpty();
+            return pools.stream().mapToDouble(pool -> (double) pool[1] / pool[0]).average().orElseThrow();
+        }
+
+        @Test
+        @DisplayName("no latency threshold keeps today's flat four-times multiplier")
+        void noLatencyThresholdKeepsTheFlatMultiplier() {
+            // A high enough rate that every operation's share clears the 50-VU floor, so the ratio
+            // reflects the 4x multiplier itself rather than the floor rounding a thin share up.
+            var base = Fixtures.plan(TestType.AVERAGE_LOAD, ConstantArrivalRateShape.of(200, Duration.ofMinutes(10)));
+            var noLatencyThreshold = withThresholds(base, ThresholdSet.of(ErrorRateThreshold.ofPercent(1)));
+
+            assertThat(multiplierIn(generator.generate(noLatencyThreshold))).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("a breakpoint plan's own latency threshold widens the budget past the flat multiplier")
+        void breakpointPlanWithLatencyThresholdWidensTheBudget() {
+            var withThreshold = withThresholds(Fixtures.breakpointPlan(),
+                    ThresholdSet.of(LatencyThreshold.of(Percentile.P99, Duration.ofSeconds(2))));
+
+            // 2s threshold * 3 (safety) * 2 (BREAKPOINT is saturating) = 12x.
+            assertThat(multiplierIn(generator.generate(withThreshold))).isEqualTo(12.0);
+        }
+
+        @Test
+        @DisplayName("the same threshold on a non-saturating test gets a narrower budget than breakpoint")
+        void nonSaturatingTestGetsANarrowerBudgetThanBreakpoint() {
+            var threshold = ThresholdSet.of(LatencyThreshold.of(Percentile.P99, Duration.ofSeconds(2)));
+            var averageLoad = withThresholds(Fixtures.plan(), threshold);
+            var breakpoint = withThresholds(Fixtures.breakpointPlan(), threshold);
+
+            double averageLoadMultiplier = multiplierIn(generator.generate(averageLoad));
+            double breakpointMultiplier = multiplierIn(generator.generate(breakpoint));
+
+            // 2s * 3 (safety), no saturating widening = 6x: narrower than breakpoint's 12x, but still
+            // wider than the flat fallback's 4x.
+            assertThat(averageLoadMultiplier).isEqualTo(6.0);
+            assertThat(averageLoadMultiplier).isLessThan(breakpointMultiplier);
+            assertThat(averageLoadMultiplier).isGreaterThan(4.0);
+        }
+
+        @Test
+        @DisplayName("an unusually generous threshold is capped, not left to grow unbounded")
+        void unusuallyGenerousThresholdIsCapped() {
+            var generous = withThresholds(Fixtures.breakpointPlan(),
+                    ThresholdSet.of(LatencyThreshold.of(Percentile.P99, Duration.ofMinutes(10))));
+
+            // Uncapped this would be 600s * 3 * 2 = 3600x; the cap holds it to 20x.
+            assertThat(multiplierIn(generator.generate(generous))).isEqualTo(20.0);
+        }
+
+        @Test
+        @DisplayName("a raw k6Options override for maxVUs still wins over the computed budget")
+        void rawOverrideStillWinsOverComputedBudget() {
+            var withThreshold = withThresholds(Fixtures.breakpointPlan(),
+                    ThresholdSet.of(LatencyThreshold.of(Percentile.P99, Duration.ofSeconds(2))));
+            var overridden = withK6Options(withThreshold, Map.of("maxVUs", "500"));
+
+            assertThat(generator.generate(overridden)).contains("\"maxVUs\":500");
         }
     }
 

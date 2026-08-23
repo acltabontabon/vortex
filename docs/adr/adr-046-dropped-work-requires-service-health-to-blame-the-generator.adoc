@@ -1,0 +1,87 @@
+= ADR-046: Dropped iterations only withhold capacity when the service itself is healthy
+
+== Status
+
+Accepted, implemented. Amends xref:adr-038-run-quality-grades-the-experiment.adoc[ADR-038]'s
+`OFFERED_LOAD_NOT_GENERATED` row.
+
+== Context
+
+A BREAKPOINT run against the demo service found a real breakpoint: p95 latency rose from ~57 ms to
+2.5 s across its final stage, objectives were first violated at 200 requests/sec, and the highest
+compliant level was 133.333 requests/sec. The load generator's own resources stayed healthy
+throughout — host CPU peaked at 0.5 of a 1.0 limit, memory nowhere near its limit. k6 reported
+`dropped_iterations = 153` (2.3% of the run), concentrated in that same final stage.
+
+`RunQualityAssessor.droppedWork()` — the direct branch of `OFFERED_LOAD_NOT_GENERATED` — treated that
+nonzero count as unconditional, sufficient-on-its-own proof the generator itself had fallen behind,
+with no check on whether the service was independently shown to be struggling. As ADR-038 wrote it,
+that was deliberate: "there is nothing to infer when the engine has already said so." The run above
+shows that reasoning does not hold. A `ramping-arrival-rate` executor's VU pool is sized against an
+assumed iteration duration; when the service slows down, each iteration occupies its VU longer than
+budgeted, and the pool exhausts — producing exactly the same `dropped_iterations` counter a genuinely
+under-provisioned generator would produce. The counter does not, and cannot, say which of the two
+happened. `droppedWork()`'s sibling method, `shortfallAttributableToTheGenerator()` (the indirect
+branch, working from a rate shortfall rather than the drop counter directly), already knew this: it
+refuses to blame the generator when the service's own p95 rose materially or its error rate went
+nonzero between the stage below and the one in question. The direct branch never got the equivalent
+guard, so a real breakpoint — the exact result Vortex exists to produce — was graded `INVALID`, and
+its capacity conclusion withheld, on a signal that does not distinguish Vortex's machine from the
+service it was measuring.
+
+== Decision
+
+`droppedWork()` now asks the same question the indirect branch already asks: did the service itself
+show distress — rising p95 or a nonzero error rate — at the level where the drop was first observed,
+compared to the stage below it? Both branches call one shared `serviceShowedDistress()` check, so
+there is one definition of "the service explains this," not two that could quietly diverge.
+
+Where distress is present, the finding survives — dropped iterations remain a real, worth-surfacing
+measurement — but downgrades from `WITHHOLDS_CAPACITY` to `QUALIFIES`, with wording that states the
+coincidence rather than assigning fault. Where there is nothing to compare against — fewer than two
+stages, no level the assessor could resolve, or a level matching no stage this run recorded, including
+the lowest one — the rule falls back to exactly its previous, unconditional behavior. The softened
+outcome is only ever reached on positive evidence of service distress; an inability to check is never
+read as that evidence, which is the same discipline ADR-038 asked of every other rule in this file.
+
+This is deliberately not a magnitude threshold on the drop count itself (a "some percent of iterations
+dropped" cutoff was considered and rejected): a healthy generator with a struggling service can drop
+one iteration or one thousand, and the number of drops says nothing about whose fault it was. The
+question that matters is not "how many," it is "was the service already shown to be the reason."
+
+`GENERATOR_SATURATED` is untouched and remains unconditional by design: it fires on a `ResourceSignal`
+scoped to the generator's own process or container being at its limit, which is a direct statement
+about Vortex's own machine, not an inference from a side effect that could belong to either side.
+`RUN_TOO_SHORT` and `TELEMETRY_INCOMPLETE` are likewise untouched.
+
+Separately, `K6ScriptGenerator`'s `maxVUs` sizing — previously a flat `preAllocatedVUs * 4` regardless
+of the plan's own configured latency thresholds — now widens for a plan that declares a latency
+threshold, and widens further for `TestType.isSaturating()` types (STRESS, SPIKE, BREAKPOINT), whose
+entire purpose is to push latency past that threshold. This reduces how often the VU pool exhausts at
+all for exactly the tests this ADR is about, without touching plans that configure no latency
+threshold (which keep the previous formula unchanged) or growing unboundedly for a plan with an
+unusually lax one (a fixed cap holds it back).
+
+== Rejected alternatives
+
+* *A percentage threshold on the drop count* (e.g. only fire above some material fraction) — rejected
+  because the drop count alone never distinguishes cause from effect; a distress check does, directly,
+  with evidence the run already collected.
+* *Suppressing the finding entirely under distress* rather than downgrading it — rejected because the
+  drop is still a real measurement. A reader deciding whether to widen the generator's own VU budget
+  needs to see it; disappearing it entirely would hide the exact number that motivates that decision.
+* *A new `ValidityEffect` for "measured, not withheld, not silent"* — rejected; `QUALIFIES` already
+  means exactly that, and ADR-038's three-state vocabulary was deliberately closed.
+
+== Consequences
+
+*Gained.* A run that legitimately finds a breakpoint — the healthiest possible outcome of a breakpoint
+test — is no longer graded identically to a run where Vortex's own generator genuinely lacked
+capacity. The two branches of `OFFERED_LOAD_NOT_GENERATED` now demand symmetric evidence before either
+blames the generator.
+
+*Cost.* One more condition in a rule ADR-038 already asked to carry a lot of nuance, and one more
+sentence variant for a reader to learn ("qualifies" vs. "withholds" for what looks like the same
+measurement). The VU-sizing change touches real resource usage on the machine running k6, not just
+evidence grading, so its multiplier and cap are constants that may need empirical tuning as more
+saturating-type runs are observed in practice.

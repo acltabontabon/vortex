@@ -144,6 +144,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-045-load-generator-resource-governance.adoc[045]
 | Load-generator resource governance
+
+| xref:adr-046-dropped-work-requires-service-health-to-blame-the-generator.adoc[046]
+| Dropped iterations only withhold capacity when the service itself is healthy, amending 038
 |===
 
 == Format

@@ -321,7 +321,7 @@ public final class K6ScriptGenerator {
             int peak = (int) Math.ceil(plan.peakLevel().asDouble() * operation.share().doubleValue());
             int preAllocated = Math.max(10, peak);
             workload.put("preAllocatedVUs", preAllocated);
-            workload.put("maxVUs", Math.max(preAllocated * 4, 50));
+            workload.put("maxVUs", maxVUsFor(plan, preAllocated));
         } else {
             // A concurrency workload always drives a single operation — see Workload's invariant —
             // so the whole virtual-user population belongs to it and there is nothing to divide.
@@ -346,6 +346,67 @@ public final class K6ScriptGenerator {
         // traffic is generated.
         plan.k6Options().forEach((key, value) -> workload.put(key, literal(value)));
         return workload;
+    }
+
+    /**
+     * Every one-second-per-VU pool falls back to this multiple when the plan declares no latency
+     * threshold to size against — exactly {@code preAllocatedVUs}'s previous, unconditional formula.
+     */
+    private static final int FALLBACK_MULTIPLIER = 4;
+
+    /**
+     * How far past its configured latency threshold an iteration may plausibly run before the pool
+     * must have budgeted for it. Three, not one, because the threshold is the point past which the
+     * service is already failing — real jitter above that point is ordinary, not exceptional.
+     */
+    private static final int THRESHOLD_SAFETY_MULTIPLIER = 3;
+
+    /**
+     * An extra multiple applied only for {@link com.acltabontabon.vortex.core.workload.TestType
+     * #isSaturating()} types. STRESS, SPIKE and BREAKPOINT exist specifically to push latency past
+     * its threshold — that is the intended outcome of the test, not a fluke to budget tightly
+     * against, so their pool must tolerate running well past the number the threshold names.
+     */
+    private static final int SATURATING_TEST_MULTIPLIER = 2;
+
+    /**
+     * The most a threshold-derived budget may inflate {@code maxVUs} over {@code preAllocatedVUs},
+     * regardless of how generous the configured threshold is. This changes real OS thread/connection
+     * usage on the machine running k6, not just a number in a report, so an unusually lax threshold
+     * (up to {@link LatencyThreshold}'s own ten-minute ceiling) must not translate into an
+     * unreasonably large pool.
+     */
+    private static final int MAX_VUS_CAP_MULTIPLIER = 20;
+
+    /**
+     * How many virtual users the pool may grow to above {@code preAllocatedVUs}, so a service that
+     * slows down under load does not exhaust the pool and silently under-deliver the offered rate.
+     *
+     * <p>Sized from the highest configured latency threshold rather than a flat constant: "how long
+     * can one iteration plausibly take" is a question the plan has already answered, since the
+     * threshold names the point past which the service is considered to be failing anyway. A plan
+     * with no latency threshold configured gets exactly today's flat multiplier, so an unconfigured
+     * plan never regresses.
+     */
+    private int maxVUsFor(EffectiveTestPlan plan, int preAllocated) {
+        java.util.Optional<java.time.Duration> highestThreshold = plan.thresholds().latencyThresholds()
+                .stream()
+                .map(LatencyThreshold::maximum)
+                .max(java.time.Duration::compareTo);
+
+        int flat = Math.max(preAllocated * FALLBACK_MULTIPLIER, 50);
+        if (highestThreshold.isEmpty()) {
+            return flat;
+        }
+
+        double budgetSeconds = Math.max(1.0, highestThreshold.get().toMillis() / 1000.0);
+        int multiplier = THRESHOLD_SAFETY_MULTIPLIER
+                * (plan.testType().isSaturating() ? SATURATING_TEST_MULTIPLIER : 1);
+        long fromThreshold = Math.round(preAllocated * budgetSeconds * multiplier);
+
+        long capped = Math.min(Math.max(fromThreshold, flat),
+                (long) preAllocated * MAX_VUS_CAP_MULTIPLIER);
+        return (int) Math.max(capped, flat);
     }
 
     /**

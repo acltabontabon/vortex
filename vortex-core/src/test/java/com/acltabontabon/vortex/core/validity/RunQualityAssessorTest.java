@@ -28,6 +28,7 @@ import com.acltabontabon.vortex.core.resource.ResourceLimit;
 import com.acltabontabon.vortex.core.resource.ResourceScope;
 import com.acltabontabon.vortex.core.resource.ResourceSignal;
 import com.acltabontabon.vortex.core.shared.ErrorRate;
+import com.acltabontabon.vortex.core.shared.LoadLevel;
 import com.acltabontabon.vortex.core.shared.RequestsPerSecond;
 import com.acltabontabon.vortex.core.workload.StageWindowBasis;
 import com.acltabontabon.vortex.core.workload.TestType;
@@ -177,6 +178,86 @@ class RunQualityAssessorTest {
 
             assertThat(assess(silent, List.of())
                     .has(ValidityReason.OFFERED_LOAD_NOT_GENERATED)).isFalse();
+        }
+
+        private MeasuredResults withDropsAt(LoadLevel level, long dropped) {
+            var series = new MetricSeries(Duration.ofSeconds(5), List.of(
+                    new SamplePoint(START, Duration.ofSeconds(5), RequestsPerSecond.of(150),
+                            ErrorRate.ZERO, Duration.ofMillis(100), level, null, dropped)));
+            return rebuild(healthy(), healthy().window(), series, reported(dropped),
+                    allSucceeded(30_852), List.of(), List.of(), List.of());
+        }
+
+        @Test
+        @DisplayName("a drop alongside rising service latency qualifies rather than withholds")
+        void droppedWorkWithRisingLatencyQualifiesInstead() {
+            var stages = List.of(
+                    stage(100, 100, 100, 5_000, List.of(), List.of()),
+                    stage(200, 150, 400, 5_000, List.of(), List.of()));
+
+            var assessment = assess(withDropsAt(RequestsPerSecond.of(200), 153), stages);
+            var finding = assessment.finding(ValidityReason.OFFERED_LOAD_NOT_GENERATED).orElseThrow();
+
+            assertThat(assessment.quality()).isEqualTo(RunQuality.DEGRADED);
+            assertThat(assessment.permitsAnyCapacityClaim()).isTrue();
+            assertThat(finding.statement()).contains("coincided with the service's own latency rising");
+        }
+
+        @Test
+        @DisplayName("a drop alongside a failing service qualifies rather than withholds")
+        void droppedWorkWithErrorsQualifiesInstead() {
+            var below = stage(100, 100, 100, 5_000, List.of(), List.of());
+            var distressed = new StageObservation(RequestsPerSecond.of(200), RequestsPerSecond.of(150),
+                    Duration.ofMillis(100), ErrorRate.ofPercent(5), 12, List.of(), List.of(),
+                    StageWindowBasis.OBSERVED, List.of(), 5_000);
+            var stages = List.of(below, distressed);
+
+            var assessment = assess(withDropsAt(RequestsPerSecond.of(200), 153), stages);
+
+            assertThat(assessment.quality()).isEqualTo(RunQuality.DEGRADED);
+            assertThat(assessment.permitsAnyCapacityClaim()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a drop alongside a healthy service still withholds, exactly as before")
+        void droppedWorkWithHealthyServiceStillWithholds() {
+            var stages = List.of(
+                    stage(100, 100, 100, 5_000, List.of(), List.of()),
+                    stage(200, 150, 100, 5_000, List.of(), List.of()));
+
+            var assessment = assess(withDropsAt(RequestsPerSecond.of(200), 153), stages);
+            var finding = assessment.finding(ValidityReason.OFFERED_LOAD_NOT_GENERATED).orElseThrow();
+
+            assertThat(assessment.quality()).isEqualTo(RunQuality.INVALID);
+            assertThat(assessment.permitsAnyCapacityClaim()).isFalse();
+            assertThat(finding.statement()).contains("A capacity figure from this run would describe "
+                    + "the machine running Vortex");
+        }
+
+        @Test
+        @DisplayName("a drop at a level no stage recorded still withholds, unable to compare")
+        void droppedWorkAtAnUnmatchedLevelStillWithholds() {
+            var stages = List.of(
+                    stage(100, 100, 100, 5_000, List.of(), List.of()),
+                    stage(200, 150, 400, 5_000, List.of(), List.of()));
+
+            var assessment = assess(withDropsAt(RequestsPerSecond.of(300), 153), stages);
+
+            assertThat(assessment.quality()).isEqualTo(RunQuality.INVALID);
+            assertThat(assessment.permitsAnyCapacityClaim()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a drop at the lowest stage has nothing below it to compare, and still withholds")
+        void droppedWorkAtTheLowestStageStillWithholds() {
+            var stages = List.of(
+                    stage(100, 100, 100, 5_000, List.of(), List.of()),
+                    stage(200, 150, 400, 5_000, List.of(), List.of()));
+
+            var assessment = assess(withDropsAt(RequestsPerSecond.of(100), 153), stages);
+
+            assertThat(assessment.quality()).isEqualTo(RunQuality.INVALID);
+            assertThat(assessment.permitsAnyCapacityClaim()).isFalse();
         }
     }
 

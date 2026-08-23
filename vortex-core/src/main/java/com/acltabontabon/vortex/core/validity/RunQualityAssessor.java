@@ -105,7 +105,17 @@ public final class RunQualityAssessor {
         return shortfallAttributableToTheGenerator(results, stages, policy);
     }
 
-    /** The engine reported it could not start work it was asked to start. */
+    /**
+     * The engine reported it could not start work it was asked to start.
+     *
+     * <p>Not on its own proof the generator was the problem: a {@code ramping-arrival-rate}
+     * executor also drops iterations when the <em>service</em> slows down enough that iterations
+     * occupy virtual users longer than the pool was sized for — the same mechanical counter either
+     * way. Where the service itself shows distress at the level the drop was first seen, this
+     * qualifies rather than withholds, for the same reason {@link
+     * #shortfallAttributableToTheGenerator} refuses to blame the generator under distress: the
+     * service, not Vortex's own machine, already explains the shortfall.
+     */
     private Optional<ValidityFinding> droppedWork(MeasuredResults results,
             List<StageObservation> stages) {
 
@@ -114,12 +124,29 @@ public final class RunQualityAssessor {
             return Optional.empty();
         }
         LoadLevel from = firstLevelWithDroppedWork(results, stages).orElse(null);
+        boolean serviceWasDistressed = serviceDistressAtDropLevel(from, stages).orElse(false);
         String where = from == null ? "" : " First observed while the workload held "
                 + from.displayWithUnit() + ".";
         String share = results.generation().droppedFraction()
                 .map(fraction -> String.format(" That is %.1f%% of the work it was asked to start.",
                         fraction.doubleValue() * 100))
                 .orElse("");
+
+        if (serviceWasDistressed) {
+            return Optional.of(new ValidityFinding(ValidityReason.OFFERED_LOAD_NOT_GENERATED,
+                    ValidityEffect.QUALIFIES,
+                    "The load generator could not start " + dropped.get() + " units of work it "
+                            + "was asked to start." + share + where + " This coincided with the "
+                            + "service's own latency rising, or errors appearing, at the same "
+                            + "level — the expected effect of a slow service consuming an "
+                            + "arrival-rate executor's virtual-user pool faster than it was sized "
+                            + "for, not evidence of the generator's own capacity. It qualifies "
+                            + "confidence in the throughput figure at this level rather than "
+                            + "withholding it.",
+                    List.of(EvidenceIds.ITERATIONS_DROPPED, EvidenceIds.THROUGHPUT_ACHIEVED,
+                            EvidenceIds.REQUEST_ERROR_RATE),
+                    from));
+        }
 
         return Optional.of(new ValidityFinding(ValidityReason.OFFERED_LOAD_NOT_GENERATED,
                 ValidityEffect.WITHHOLDS_CAPACITY,
@@ -129,6 +156,38 @@ public final class RunQualityAssessor {
                         + "running Vortex rather than the service.",
                 List.of(EvidenceIds.ITERATIONS_DROPPED, EvidenceIds.THROUGHPUT_ACHIEVED),
                 from));
+    }
+
+    /**
+     * Whether the service itself showed distress at the stage where drops were first observed,
+     * compared to the stage immediately below it — the same positive evidence {@link
+     * #shortfallAttributableToTheGenerator} requires before it will blame the generator, checked
+     * here in the opposite direction: distress here means dropped work cannot be blamed on the
+     * generator either.
+     *
+     * <p>Empty whenever there is nothing to compare against — fewer than two stages, no resolved
+     * level, or a level that matches no stage this run recorded (including the lowest one, which
+     * has nothing below it). Absence never manufactures the distress signal that would soften the
+     * finding; it only ever falls back to the unconditional read.
+     */
+    private Optional<Boolean> serviceDistressAtDropLevel(LoadLevel from,
+            List<StageObservation> stages) {
+
+        if (from == null || stages.size() < 2) {
+            return Optional.empty();
+        }
+        List<StageObservation> ascending = ascendingByLevel(stages);
+        int index = -1;
+        for (int i = 0; i < ascending.size(); i++) {
+            if (ascending.get(i).targetLoad().equals(from)) {
+                index = i;
+                break;
+            }
+        }
+        if (index <= 0) {
+            return Optional.empty();
+        }
+        return Optional.of(serviceShowedDistress(ascending.get(index - 1), ascending.get(index)));
     }
 
     /** The lowest level at which the series recorded work the generator could not start. */
@@ -170,9 +229,7 @@ public final class RunQualityAssessor {
             return Optional.empty();
         }
 
-        List<StageObservation> ascending = stages.stream()
-                .sorted(java.util.Comparator.comparingDouble(stage -> stage.targetLoad().asDouble()))
-                .toList();
+        List<StageObservation> ascending = ascendingByLevel(stages);
 
         for (int index = 1; index < ascending.size(); index++) {
             StageObservation stage = ascending.get(index);
@@ -181,7 +238,7 @@ public final class RunQualityAssessor {
             if (!isShortBy(stage, policy) || !stage.isCompliant() || !below.isCompliant()) {
                 continue;
             }
-            if (latencyRose(below, stage) || stage.errorRate().fraction().signum() > 0) {
+            if (serviceShowedDistress(below, stage)) {
                 // The service was slowing down or failing. Whatever else is true, this shortfall
                 // cannot be attributed to the generator.
                 continue;
@@ -218,6 +275,23 @@ public final class RunQualityAssessor {
         return stage.rateShortfall()
                 .map(fraction -> fraction > policy.materialShortfallFraction())
                 .orElse(false);
+    }
+
+    /** Stages sorted ascending by target load, so adjacent entries are adjacent levels. */
+    private List<StageObservation> ascendingByLevel(List<StageObservation> stages) {
+        return stages.stream()
+                .sorted(java.util.Comparator.comparingDouble(stage -> stage.targetLoad().asDouble()))
+                .toList();
+    }
+
+    /**
+     * Whether the service itself showed distress between {@code below} and {@code stage} — rising
+     * p95 or a nonzero error rate. Shared by both the indirect shortfall-attribution check and the
+     * direct dropped-work check: either way, distress here means the service, not Vortex's own
+     * machine, already explains what happened.
+     */
+    private boolean serviceShowedDistress(StageObservation below, StageObservation stage) {
+        return latencyRose(below, stage) || stage.errorRate().fraction().signum() > 0;
     }
 
     private boolean latencyRose(StageObservation below, StageObservation stage) {
