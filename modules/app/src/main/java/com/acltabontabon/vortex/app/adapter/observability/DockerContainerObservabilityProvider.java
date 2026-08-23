@@ -288,6 +288,37 @@ public final class DockerContainerObservabilityProvider implements Observability
         }
     }
 
+    /**
+     * Starts the stream now and waits, best-effort, for a first real reading — so this run's very
+     * first {@link #collect} does not spuriously report {@code NO_DATA} purely because {@code docker
+     * stats} had not refreshed yet.
+     *
+     * <p>Without this, {@link #collect}'s own check for {@link #latestReading} runs in the same
+     * instant {@link #ensureStreamStarted} spawns the process, which has had zero elapsed time to
+     * produce anything — not a property of {@code docker stats} itself (it refreshes every 0.5–1s, per
+     * this class's own investigation above), just a race between starting the stream and reading it.
+     *
+     * <p>Bounded and best-effort: if nothing arrives within {@code timeout}, this returns anyway and
+     * {@link #collect} still reports the gap exactly as it does today, honestly rather than blocking
+     * forever. Meant to be called once, during a run's setup, before any officially-reported sample is
+     * taken — it never touches the run's own measured window.
+     */
+    void warmUp(Duration timeout) {
+        ensureStreamStarted();
+        if (streamStartupFailure != null) {
+            return;
+        }
+        java.time.Instant deadline = java.time.Instant.now().plus(timeout);
+        while (latestReading.get() == null && java.time.Instant.now().isBefore(deadline)) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
     /** Called from the stream's pump thread for every raw line it reads. Only a line that actually
      *  parses updates {@link #latestReading} — see that field's Javadoc for why a junk line must
      *  leave the last known-good reading alone rather than blanking it out. */

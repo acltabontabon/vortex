@@ -233,6 +233,24 @@ class ObservabilityTelemetryCollectorTest {
     }
 
     @Test
+    void aVortexManagedResolvedTargetProbesEndpointKeyedProvidersAtItsRealAddress() {
+        // The plan's own pre-run target has no address at all for a Docker-managed run — only
+        // resolvedTarget knows the container's real, already-confirmed-reachable one, which every
+        // endpoint-keyed provider (actuator, Prometheus, Dynatrace) must be probed at instead of blank.
+        var plan = Fixtures.plan();
+        var recorder = new EndpointRecordingProvider("actuator");
+        var collector = new ObservabilityTelemetryCollector(List.of(recorder), null,
+                ResourceSampleSinkFactory.none(), new ScriptedDockerProcess(
+                        "{\"CPUPerc\":\"10.00%\",\"MemUsage\":\"8MiB / 256MiB\"}"), "docker");
+        var resolvedTarget = new ResolvedTarget(TargetUrl.of("http://localhost:34567"),
+                TargetOwnership.VORTEX_MANAGED, "container-def456", null);
+
+        collector.start(plan, EXECUTION_ID, resolvedTarget, null);
+
+        assertThat(recorder.probedEndpoint).isEqualTo("http://localhost:34567");
+    }
+
+    @Test
     void anExternalOwnershipResolvedTargetBehavesExactlyAsBeforeAndNeverTouchesDocker() {
         var plan = Fixtures.plan();
         var provider = new FixedReadingProvider("prometheus", "metric:system.cpu.utilization", 33.0);
@@ -355,6 +373,40 @@ class ObservabilityTelemetryCollectorTest {
             var signal = ResourceSignal.unbounded(observation, ResourceKind.CPU,
                     ResourceScope.SYSTEM_UNDER_TEST);
             return new Collected(List.of(observation), List.of(), List.of(signal));
+        }
+    }
+
+    /** Records the {@code endpoint} it was probed with in {@link #isAvailable}, so a test can assert
+     *  which address {@code start()} actually built for the endpoint-keyed provider loop. Reports
+     *  itself unavailable — this fake exists to observe the probe, not to produce readings. */
+    private static final class EndpointRecordingProvider implements ObservabilityProvider {
+
+        private final String providerId;
+        private volatile String probedEndpoint;
+
+        EndpointRecordingProvider(String providerId) {
+            this.providerId = providerId;
+        }
+
+        @Override
+        public String id() {
+            return providerId;
+        }
+
+        @Override
+        public List<String> defaultMetrics() {
+            return List.of();
+        }
+
+        @Override
+        public boolean isAvailable(ObservabilityQuery query) {
+            probedEndpoint = query.endpoint();
+            return false;
+        }
+
+        @Override
+        public Collected collect(ObservabilityQuery query) {
+            return new Collected(List.of(), List.of(), List.of());
         }
     }
 

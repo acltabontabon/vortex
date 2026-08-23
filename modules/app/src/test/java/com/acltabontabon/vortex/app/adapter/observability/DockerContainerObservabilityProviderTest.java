@@ -13,6 +13,7 @@ import com.acltabontabon.vortex.core.resource.ResourceSignal;
 import com.acltabontabon.vortex.core.target.CpuAllocation;
 import com.acltabontabon.vortex.core.target.EffectiveResourceEnvelope;
 import com.acltabontabon.vortex.core.target.MemoryAllocation;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.function.Consumer;
@@ -157,6 +158,31 @@ class DockerContainerObservabilityProviderTest {
     }
 
     @Test
+    void warmUpWaitsForADelayedFirstReadingSoTheNextCollectAlreadyHasData() {
+        var delayed = new DelayedDockerProcess(
+                "{\"CPUPerc\":\"10.00%\",\"MemUsage\":\"32MiB / 256MiB\"}", 100);
+        var provider = new DockerContainerObservabilityProvider(CONTAINER_ID, null, delayed, "docker");
+
+        provider.warmUp(Duration.ofSeconds(1));
+
+        assertThat(provider.collect(query()).resourceSignals())
+                .as("warmUp blocked until the delayed reading arrived, so collect() right after it "
+                        + "already has real data instead of reporting NO_DATA")
+                .isNotEmpty();
+    }
+
+    @Test
+    void warmUpGivesUpAfterItsBoundAndCollectStillReportsTheGapHonestly() {
+        var neverParses = new ScriptedDockerProcess("");
+        var provider = new DockerContainerObservabilityProvider(CONTAINER_ID, null, neverParses,
+                "docker");
+
+        provider.warmUp(Duration.ofMillis(100));
+
+        assertThat(provider.collect(query()).gaps()).isNotEmpty();
+    }
+
+    @Test
     void withRetryAFailedStreamStartRecoversOnceTheContainerExists() {
         // The load-generator case: the engine may start that container after this provider's session
         // has already begun sampling, so the first attempt failing is not proof it never will exist.
@@ -196,6 +222,36 @@ class DockerContainerObservabilityProviderTest {
         @Override
         public StreamHandle stream(List<String> command, Consumer<String> stdoutSink) {
             stdoutSink.accept(cannedLine);
+            return StreamHandle.noop();
+        }
+    }
+
+    /** Fakes a real stream's asynchronous delivery: {@link #stream} returns immediately, and the
+     *  canned line arrives on a background thread after a short delay — unlike {@link
+     *  ScriptedDockerProcess}, which delivers synchronously and so can never exercise a genuine wait. */
+    private static final class DelayedDockerProcess extends DockerProcess {
+
+        private final String cannedLine;
+        private final long delayMillis;
+
+        DelayedDockerProcess(String cannedLine, long delayMillis) {
+            this.cannedLine = cannedLine;
+            this.delayMillis = delayMillis;
+        }
+
+        @Override
+        public StreamHandle stream(List<String> command, Consumer<String> stdoutSink) {
+            Thread pump = new Thread(() -> {
+                try {
+                    Thread.sleep(delayMillis);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                stdoutSink.accept(cannedLine);
+            });
+            pump.setDaemon(true);
+            pump.start();
             return StreamHandle.noop();
         }
     }

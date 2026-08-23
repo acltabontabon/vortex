@@ -29,6 +29,8 @@ import java.util.Optional;
  * @param minimumRunDuration        shortest run of each type whose conclusions stand unqualified
  * @param sustainDuration           how long a level must be held before it can be quoted as capacity
  * @param minimumRequestsPerStage   below which a stage is too thin to be a boundary edge
+ * @param minimumBucketsPerStage    below which a stage's compliance rests on too few independent
+ *                                  samples to trust, regardless of how many requests it carried
  * @param materialShortfallFraction how far achieved load may fall below offered before the gap is a
  *                                  finding rather than noise
  * @param telemetryWindowTolerance  how far a provider's window may miss the run's before its
@@ -40,6 +42,7 @@ public record ValidityPolicy(
         Map<TestType, Duration> minimumRunDuration,
         Map<TestType, Duration> sustainDuration,
         long minimumRequestsPerStage,
+        long minimumBucketsPerStage,
         double materialShortfallFraction,
         Duration telemetryWindowTolerance,
         double targetUnavailableShare) {
@@ -50,6 +53,13 @@ public record ValidityPolicy(
         if (minimumRequestsPerStage < 0) {
             throw new IllegalArgumentException("a sample floor must not be negative");
         }
+        // Defaulted rather than rejected, like telemetryWindowTolerance below: this field did not
+        // exist before this policy was ever persisted, so a plan stored before it has no value
+        // recorded for it, and Jackson supplies a primitive long's zero for that absence. ValidityPolicy
+        // is not yet user-configurable (see the class javadoc), so zero here is never a deliberate
+        // choice that needs distinguishing from a missing one.
+        minimumBucketsPerStage = minimumBucketsPerStage < 1
+                ? DEFAULT_MINIMUM_BUCKETS_PER_STAGE : minimumBucketsPerStage;
         if (materialShortfallFraction <= 0 || materialShortfallFraction >= 1) {
             throw new IllegalArgumentException(
                     "a material shortfall is a fraction between zero and one; " + materialShortfallFraction
@@ -66,8 +76,8 @@ public record ValidityPolicy(
     /** The values Vortex ships with. See the javadoc on each for why it is what it is. */
     public static ValidityPolicy defaults() {
         return new ValidityPolicy(defaultMinimumDurations(), defaultSustainDurations(),
-                DEFAULT_MINIMUM_REQUESTS_PER_STAGE, DEFAULT_MATERIAL_SHORTFALL,
-                DEFAULT_WINDOW_TOLERANCE, DEFAULT_TARGET_UNAVAILABLE_SHARE);
+                DEFAULT_MINIMUM_REQUESTS_PER_STAGE, DEFAULT_MINIMUM_BUCKETS_PER_STAGE,
+                DEFAULT_MATERIAL_SHORTFALL, DEFAULT_WINDOW_TOLERANCE, DEFAULT_TARGET_UNAVAILABLE_SHARE);
     }
 
     /**
@@ -78,6 +88,18 @@ public record ValidityPolicy(
      * p99 needs far more than a p50 to mean anything — is the refinement, and it is P1 work.
      */
     public static final long DEFAULT_MINIMUM_REQUESTS_PER_STAGE = 100;
+
+    /**
+     * A stage below this many independent sample buckets is too thin to trust, however many requests
+     * it carried.
+     *
+     * <p>Distinct from {@link #DEFAULT_MINIMUM_REQUESTS_PER_STAGE}: a busy stage can clear that floor
+     * in a single 5-second bucket at a high enough rate, but a single bucket is one reading, and one
+     * reading is indistinguishable from a one-off blip — a GC pause, a rate-step transition,
+     * connection churn. Two, not one, is the floor below which "the stage failed" and "one sample was
+     * noisy" are the same observation.
+     */
+    public static final long DEFAULT_MINIMUM_BUCKETS_PER_STAGE = 2;
 
     /**
      * How far achieved load may fall below offered before it is worth a finding.

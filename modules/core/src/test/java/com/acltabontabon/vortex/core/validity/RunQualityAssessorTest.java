@@ -532,6 +532,39 @@ class RunQualityAssessorTest {
             assertThat(assess(healthy(), uncounted).has(ValidityReason.INSUFFICIENT_SAMPLES))
                     .isFalse();
         }
+
+        @Test
+        @DisplayName("a busy single-bucket stage fires too, and names the sample count rather than a request count")
+        void aSingleBucketStageFiresEvenWithManyRequests() {
+            // A short stage at a high rate can clear the request floor in one 5-second bucket while
+            // still being one reading — indistinguishable from a one-off blip.
+            var oneBucket = new StageObservation(RequestsPerSecond.of(130),
+                    RequestsPerSecond.of(122), Duration.ofMillis(240), ErrorRate.ZERO, 1, List.of(),
+                    List.of(), StageWindowBasis.OBSERVED, List.of(), 610);
+            var stages = List.of(
+                    stage(100, 100, 100, 9_000, List.of(), List.of()), oneBucket);
+
+            var finding = assess(healthy(), stages).finding(ValidityReason.INSUFFICIENT_SAMPLES)
+                    .orElseThrow();
+
+            assertThat(finding.statement()).contains("independent sample").doesNotContain("610");
+            assertThat(finding.effect()).isEqualTo(ValidityEffect.QUALIFIES);
+        }
+
+        @Test
+        @DisplayName("a stage thin by both floors still fires once, not twice")
+        void aStageThinByBothFloorsStillFires() {
+            var thinBoth = new StageObservation(RequestsPerSecond.of(10),
+                    RequestsPerSecond.of(9), Duration.ofMillis(60), ErrorRate.ZERO, 1, List.of(),
+                    List.of(), StageWindowBasis.OBSERVED, List.of(), 11);
+
+            var assessment = assess(healthy(), List.of(thinBoth));
+
+            assertThat(assessment.has(ValidityReason.INSUFFICIENT_SAMPLES)).isTrue();
+            assertThat(assessment.findings().stream()
+                    .filter(f -> f.reason() == ValidityReason.INSUFFICIENT_SAMPLES))
+                    .hasSize(1);
+        }
     }
 
     @Nested

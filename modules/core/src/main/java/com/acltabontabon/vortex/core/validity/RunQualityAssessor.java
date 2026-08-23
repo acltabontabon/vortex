@@ -363,23 +363,40 @@ public final class RunQualityAssessor {
                 List.of(EvidenceIds.THROUGHPUT_ACHIEVED)));
     }
 
+    /**
+     * A stage too thin to trust as a boundary edge — either too few requests, or too few independent
+     * sample buckets.
+     *
+     * <p>The two are different failures. A stage can clear the request floor in a single busy
+     * 5-second bucket while still being one reading: one bucket's compliance is indistinguishable
+     * from a one-off blip, however many requests it carried. Checking bucket count catches that case
+     * the request-count floor alone cannot.
+     */
     private Optional<ValidityFinding> insufficientSamples(List<StageObservation> stages,
             ValidityPolicy policy) {
 
-        long minimum = policy.minimumRequestsPerStage();
+        long minimumRequests = policy.minimumRequestsPerStage();
+        long minimumBuckets = policy.minimumBucketsPerStage();
         List<StageObservation> thin = stages.stream()
-                .filter(stage -> stage.requests() > 0 && !stage.hasEnoughSamples(minimum))
+                .filter(stage -> stage.requests() > 0)
+                .filter(stage -> !stage.hasEnoughSamples(minimumRequests)
+                        || stage.sampleCount() < minimumBuckets)
                 .toList();
         if (thin.isEmpty()) {
             return Optional.empty();
         }
         StageObservation worst = thin.getFirst();
+        String detail = worst.sampleCount() < minimumBuckets
+                ? worst.sampleCount() + " independent sample"
+                        + (worst.sampleCount() == 1 ? "" : "s") + " — fewer than the " + minimumBuckets
+                        + " needed before a single reading can decide a stage's compliance"
+                : worst.requests() + " requests — fewer than the " + minimumRequests + " required";
+
         return Optional.of(new ValidityFinding(ValidityReason.INSUFFICIENT_SAMPLES,
                 ValidityEffect.QUALIFIES,
-                thin.size() + " of " + stages.size() + " stages carried fewer than " + minimum
-                        + " requests — the thinnest held " + worst.targetLoad().displayWithUnit()
-                        + " and carried " + worst.requests() + ". Those stages may not be a "
-                        + "capacity boundary edge.",
+                thin.size() + " of " + stages.size() + " stages were too thin to trust. The worst, at "
+                        + worst.targetLoad().displayWithUnit() + ", carried " + detail
+                        + ". Those stages may not be a capacity boundary edge.",
                 List.of(EvidenceIds.REQUEST_COUNT),
                 worst.targetLoad()));
     }

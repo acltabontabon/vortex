@@ -82,6 +82,10 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
     /** How often the service is sampled during a run. */
     static final Duration SAMPLE_INTERVAL = Duration.ofSeconds(5);
 
+    /** How long to wait, once, for docker stats' first real reading before sampling begins —
+     *  generous against its measured 0.5–1s refresh interval, and paid only during setup. */
+    private static final Duration DOCKER_STATS_WARM_UP = Duration.ofSeconds(2);
+
     /** The larger of this, or a fifth of the plan's own duration, is added to the plan's declared
      *  duration to get a session's safety ceiling — see {@link #watchdogFor}. */
     private static final Duration MIN_WATCHDOG_MARGIN = Duration.ofMinutes(30);
@@ -144,17 +148,19 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
     public Session start(EffectiveTestPlan plan, ExecutionId executionId, ResolvedTarget resolvedTarget,
             ResolvedLoadGeneratorBudget resolvedLoadGeneratorBudget) {
         Instant now = Instant.now();
-        // A target with no resolvable pre-run URL (Docker/Compose) has no endpoint to key
-        // endpoint-based providers by yet. Still correctly blank here even now that a resolved
-        // target is available: this is the plan the run was created with, unrewritten, and a
-        // Docker/Compose target genuinely has no pre-run address — see ExecutionService.run(),
-        // which builds a transient, resolved-endpoint copy only for the engine, never for this
-        // collector. Blank simply means every endpoint-keyed provider below reports itself
-        // unreachable for this probe, which is honest rather than a crash. The Vortex-managed case
-        // this leaves unaddressed — a container has no endpoint to key a provider by at all, even a
-        // resolved one — is handled below, once the endpoint-keyed loop is done, by keying
-        // DockerContainerObservabilityProvider off the container id directly instead.
-        String endpoint = plan.effectiveTargetIfPresent().map(target -> target.value()).orElse("");
+        // The plan's own pre-run target is genuinely blank for a Docker/Compose target — it has no
+        // resolvable URL until Vortex starts the container itself. But by the time this method runs,
+        // resolvedTarget carries the container's real, already-confirmed-reachable address (the same
+        // one the readiness probe already succeeded against), so a Vortex-managed target uses that
+        // instead of falling through to blank. Every other case keeps reading the plan's own target
+        // exactly as before. The remaining Vortex-managed case this leaves unaddressed — a container
+        // has no endpoint to key a provider by at all, even a resolved one — is handled below, once
+        // the endpoint-keyed loop is done, by keying DockerContainerObservabilityProvider off the
+        // container id directly instead.
+        String endpoint = resolvedTarget != null
+                && resolvedTarget.ownership() == TargetOwnership.VORTEX_MANAGED
+                ? resolvedTarget.endpoint().value()
+                : plan.effectiveTargetIfPresent().map(target -> target.value()).orElse("");
 
         var correlation = ObservabilityProvider.RunCorrelation.of(null, plan.fingerprint());
 
@@ -204,6 +210,12 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
                 var dockerProvider = new DockerContainerObservabilityProvider(containerId.get(),
                         resolvedTarget.resourcesIfPresent().orElse(null), dockerProcess,
                         dockerExecutable);
+                // This container is already running by construction (see this provider's own
+                // Javadoc), so a brief, bounded wait here for docker stats' first real line is cheap
+                // setup-time cost that never touches the run's own measured window — and it is what
+                // keeps this run's very first sample from spuriously reporting NO_DATA merely because
+                // the stream had not refreshed yet.
+                dockerProvider.warmUp(DOCKER_STATS_WARM_UP);
                 dockerProviders.add(dockerProvider);
                 reachable.add(dockerProvider);
             }
