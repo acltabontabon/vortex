@@ -46,3 +46,5 @@ Thumbs.db
 # Native image build output
 modules/app/target/vortex
 *.build_artifacts.txt
+
+*.drawio.bkp
