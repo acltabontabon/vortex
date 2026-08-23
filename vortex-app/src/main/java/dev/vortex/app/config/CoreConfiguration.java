@@ -184,6 +184,15 @@ public class CoreConfiguration {
         return new dev.vortex.app.adapter.JdkHostInformation();
     }
 
+    /** Turns the configured load generator budget into a concrete allocation for the host Vortex is
+     *  actually running on — used identically by Settings' live preview and by a run resolving its
+     *  own budget. */
+    @Bean
+    dev.vortex.core.resource.LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver(
+            dev.vortex.core.port.HostInformation host) {
+        return new dev.vortex.core.resource.LoadGeneratorResourceBudgetResolver(host);
+    }
+
     @Bean
     PlanResolver planResolver(RateAllocator rateAllocator, RequestDataResolver requestDataResolver,
             DatasetStore datasets) {
@@ -219,9 +228,11 @@ public class CoreConfiguration {
     ExecutionService executionService(PerformanceEngine engine, DeterministicAnalyzer analyzer,
             Repositories.ExecutionRepository executions, ArtifactStore artifacts,
             DatasetStore datasets, TelemetryCollector telemetry, Clock clock,
-            List<TargetExecutor> targetExecutors) {
+            List<TargetExecutor> targetExecutors,
+            dev.vortex.core.resource.LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver,
+            dev.vortex.core.port.LoadGeneratorBudgetProvider loadGeneratorBudgetProvider) {
         return new ExecutionService(engine, analyzer, executions, artifacts, datasets, telemetry,
-                clock, targetExecutors);
+                clock, targetExecutors, loadGeneratorResourceBudgetResolver, loadGeneratorBudgetProvider);
     }
 
     @Bean

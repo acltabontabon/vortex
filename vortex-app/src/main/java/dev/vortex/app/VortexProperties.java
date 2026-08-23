@@ -22,6 +22,7 @@ public record VortexProperties(
         Workspace workspace,
         Engine engine,
         Ai ai,
+        LoadGenerator loadGenerator,
         Safety safety,
         Observability observability) {
 
@@ -30,6 +31,7 @@ public record VortexProperties(
         workspace = workspace == null ? new Workspace(null) : workspace;
         engine = engine == null ? new Engine(null, null, null, null, true, null) : engine;
         ai = ai == null ? new Ai(null, null, null, null, false) : ai;
+        loadGenerator = loadGenerator == null ? new LoadGenerator(null, null, null) : loadGenerator;
         safety = safety == null ? new Safety(null, null, null) : safety;
         observability = observability == null ? new Observability(null, null, null) : observability;
     }
@@ -136,6 +138,30 @@ public record VortexProperties(
 
         public boolean hasModel() {
             return !model.isBlank();
+        }
+    }
+
+    /**
+     * The load generator's resource budget — how much CPU and memory Vortex allows it to use.
+     *
+     * <p>{@code automatic} (the default) computes a conservative figure from the host a run actually
+     * executes on, each time a run resolves it; {@code custom} is an advanced user's explicit choice.
+     * This binding is the file's own record of the setting; the live, runtime-mutable value a run
+     * actually reads is {@code dev.vortex.app.config.LoadGeneratorBudgetSettings}, seeded from this
+     * at startup — the same split {@link Ai} and {@code dev.vortex.ai.AiSettings} already use.
+     *
+     * @param mode            {@code automatic} or {@code custom}
+     * @param cpuMillicores   only meaningful when {@code mode} is {@code custom}
+     * @param memoryMebibytes only meaningful when {@code mode} is {@code custom}
+     */
+    public record LoadGenerator(String mode, Integer cpuMillicores, Integer memoryMebibytes) {
+
+        public LoadGenerator {
+            mode = mode == null || mode.isBlank() ? "automatic" : mode.trim().toLowerCase();
+        }
+
+        public boolean isCustom() {
+            return "custom".equals(mode);
         }
     }
 

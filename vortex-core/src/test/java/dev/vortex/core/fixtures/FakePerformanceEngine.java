@@ -5,6 +5,7 @@ import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.plan.ToolVersions;
 import dev.vortex.core.port.PerformanceEngine;
 import dev.vortex.core.shared.ExecutionId;
+import dev.vortex.core.target.ResourceEnvelopeRequest;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -64,11 +65,20 @@ public final class FakePerformanceEngine implements PerformanceEngine {
         return validation;
     }
 
+    /** The load generator resources most recently handed to {@link #execute}. */
+    private ResourceEnvelopeRequest lastExecutedLoadGeneratorResources;
+
     @Override
     public EngineOutcome execute(ExecutionId executionId, EffectiveTestPlan plan,
-            Consumer<ExecutionProgress> progressSink, Cancellation cancellation) {
+            ResourceEnvelopeRequest loadGeneratorResources, Consumer<ExecutionProgress> progressSink,
+            Cancellation cancellation) {
         lastExecutedPlan = plan;
+        lastExecutedLoadGeneratorResources = loadGeneratorResources;
         return outcome.get();
+    }
+
+    public ResourceEnvelopeRequest lastExecutedLoadGeneratorResources() {
+        return lastExecutedLoadGeneratorResources;
     }
 
     @Override

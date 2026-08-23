@@ -119,7 +119,8 @@ class GeneratorCeilingIntegrationTest {
         var engine = new K6PerformanceEngine(new LocalBinaryK6Runner("k6"), new K6ScriptGenerator(),
                 new K6SummaryParser(), new K6RawMetricsAggregator(), workspace, "test", false);
 
-        return engine.execute(ExecutionId.of("ceiling"), plan, _ -> { },
+        return engine.execute(ExecutionId.of("ceiling"), plan,
+                dev.vortex.core.target.ResourceEnvelopeRequest.none(), _ -> { },
                 PerformanceEngine.Cancellation.never());
     }
 

@@ -6,6 +6,8 @@ import {
   Card,
   Container,
   Group,
+  NumberInput,
+  SegmentedControl,
   Select,
   Skeleton,
   Stack,
@@ -14,13 +16,38 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
+  useChooseLoadGeneratorBudgetMutation,
   useChooseModelMutation,
   useRetryAiMutation,
   useSettingsQuery,
 } from '../api/settings';
+import type { ChooseLoadGeneratorBudgetRequest } from '../api/settings';
 import { Fact, Facts } from '../components/Fact';
 import { errorFallback } from '../lib/queryFallback';
 import classes from './SettingsPage.module.css';
+
+/** "4 cores", "0.5 cores" — never a bare "4000" a reader has to convert. */
+function formatCores(millicores: number | null): string {
+  if (millicores === null) {
+    return '—';
+  }
+  const cores = millicores / 1000;
+  const rounded = Math.round(cores * 100) / 100;
+  return `${rounded} core${rounded === 1 ? '' : 's'}`;
+}
+
+/** "4 GiB" above one gibibyte, "256 MiB" below it — matching how the result page already shows
+ *  memory quantities. */
+function formatMemory(bytes: number | null): string {
+  if (bytes === null) {
+    return '—';
+  }
+  const gib = bytes / 1024 ** 3;
+  if (gib >= 1) {
+    return `${Math.round(gib * 10) / 10} GiB`;
+  }
+  return `${Math.round(bytes / 1024 ** 2)} MiB`;
+}
 
 /**
  * What Vortex is configured to do, and the one setting worth changing from day to day.
@@ -34,6 +61,10 @@ export function SettingsPage() {
   const retryAi = useRetryAiMutation();
   const chooseModel = useChooseModelMutation();
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const chooseLoadGeneratorBudget = useChooseLoadGeneratorBudgetMutation();
+  const [loadGeneratorMode, setLoadGeneratorMode] = useState<'automatic' | 'custom' | null>(null);
+  const [customCpuCores, setCustomCpuCores] = useState<number | ''>('');
+  const [customMemoryMebibytes, setCustomMemoryMebibytes] = useState<number | ''>('');
 
   const error = errorFallback(isError, 'Could not load settings',
       '/api/settings did not respond. Reload the page to try again.');
@@ -55,6 +86,30 @@ export function SettingsPage() {
 
   const model = selectedModel ?? data.aiSettings.model;
 
+  const loadGenerator = data.loadGenerator;
+  const loadGeneratorModeValue = loadGeneratorMode ?? loadGenerator.configured.mode;
+  // Starting point when Custom is first selected: the saved custom values if there are any,
+  // otherwise what Automatic would currently choose — so the fields never open blank.
+  const startingCpuMillicores =
+    loadGenerator.configured.cpuMillicores ?? loadGenerator.automaticPreview.allocation.cpuMillicores;
+  const startingMemoryMebibytes =
+    loadGenerator.configured.memoryMebibytes ??
+    (loadGenerator.automaticPreview.allocation.memoryBytes === null
+      ? null
+      : Math.round(loadGenerator.automaticPreview.allocation.memoryBytes / 1024 ** 2));
+  const loadGeneratorCpuCores =
+    customCpuCores !== '' ? customCpuCores : (startingCpuMillicores ?? 0) / 1000;
+  const loadGeneratorMemoryMebibytes =
+    customMemoryMebibytes !== '' ? customMemoryMebibytes : (startingMemoryMebibytes ?? '');
+  const hostCores = loadGenerator.effective.detectedHost.availableProcessors;
+  const hostMemoryBytes = loadGenerator.effective.detectedHost.totalMemoryBytes;
+  const customLeavesLittleHeadroom =
+    loadGeneratorModeValue === 'custom' &&
+    ((hostCores > 0 && loadGeneratorCpuCores >= hostCores - 0.5) ||
+      (hostMemoryBytes > 0 &&
+        loadGeneratorMemoryMebibytes !== '' &&
+        loadGeneratorMemoryMebibytes * 1024 ** 2 >= hostMemoryBytes * 0.9));
+
   function retry() {
     retryAi.mutate(undefined, {
       onSuccess: (response) => {
@@ -74,6 +129,26 @@ export function SettingsPage() {
     });
   }
 
+  function saveLoadGeneratorBudget() {
+    const request: ChooseLoadGeneratorBudgetRequest =
+      loadGeneratorModeValue === 'custom'
+        ? {
+            mode: 'custom',
+            cpuMillicores: Math.round(loadGeneratorCpuCores * 1000),
+            memoryMebibytes:
+              loadGeneratorMemoryMebibytes === '' ? undefined : loadGeneratorMemoryMebibytes,
+          }
+        : { mode: 'automatic' };
+    chooseLoadGeneratorBudget.mutate(request, {
+      onSuccess: (response) => {
+        notifications.show({ message: response.message, color: 'pass' });
+        setLoadGeneratorMode(null);
+        setCustomCpuCores('');
+        setCustomMemoryMebibytes('');
+      },
+    });
+  }
+
   return (
     <Container size={820} px={0} py="xl">
       <Stack gap="lg">
@@ -84,8 +159,8 @@ export function SettingsPage() {
           <Text c="dimmed" size="sm" maw={640}>
             Vortex reads its configuration from <code>application.yaml</code>, so it can be
             version-controlled and shared with your team. This page shows what is in effect, and
-            lets you change the one setting that&apos;s genuinely a per-machine, day-to-day choice:
-            which local AI model to use.
+            lets you change the settings that are genuinely per-machine, day-to-day choices: how
+            much of this machine the load generator may use, and which local AI model to use.
           </Text>
         </div>
 
@@ -131,6 +206,95 @@ export function SettingsPage() {
     compress-raw-metrics: ${data.engine.compressRawMetrics}`}
             </pre>
           </details>
+        </Card>
+
+        <Card withBorder radius="md">
+          <Title order={2} size="h4" mb="sm">
+            Load Generator Resources
+          </Title>
+          <Text size="sm" c="dimmed" mb="md">
+            Controls how much of this machine&apos;s CPU and memory Vortex allows the load
+            generator to use during a run. Automatic is recommended.
+          </Text>
+
+          <SegmentedControl
+            value={loadGeneratorModeValue}
+            onChange={(value) => setLoadGeneratorMode(value as 'automatic' | 'custom')}
+            data={[
+              { value: 'automatic', label: 'Automatic' },
+              { value: 'custom', label: 'Custom' },
+            ]}
+            mb="md"
+          />
+
+          {loadGeneratorModeValue === 'automatic' ? (
+            <>
+              <Facts>
+                <Fact label="Detected host">
+                  {hostCores > 0
+                    ? `${formatCores(hostCores * 1000)} / ${formatMemory(hostMemoryBytes || null)}`
+                    : 'Not recorded'}
+                </Fact>
+                <Fact label="Allocated to load generator">
+                  {formatCores(loadGenerator.effective.allocation.cpuMillicores)} /{' '}
+                  {formatMemory(loadGenerator.effective.allocation.memoryBytes)}
+                </Fact>
+              </Facts>
+              {loadGenerator.effective.colocatedWithManagedSut &&
+                loadGenerator.effective.sutReserve.cpuMillicores !== null && (
+                  <Text size="xs" c="dimmed" mt="sm">
+                    Assumes a Vortex-managed system under test may share this machine, so part of
+                    the host is reserved for it alongside the load generator.
+                  </Text>
+                )}
+            </>
+          ) : (
+            <>
+              <Group align="flex-end" gap="sm">
+                <NumberInput
+                  label="CPU"
+                  description="cores"
+                  min={0}
+                  step={0.1}
+                  decimalScale={2}
+                  value={loadGeneratorCpuCores}
+                  onChange={(value) => setCustomCpuCores(value === '' ? '' : Number(value))}
+                  w={140}
+                />
+                <NumberInput
+                  label="Memory"
+                  description="MiB"
+                  min={1}
+                  value={loadGeneratorMemoryMebibytes}
+                  onChange={(value) => setCustomMemoryMebibytes(value === '' ? '' : Number(value))}
+                  w={140}
+                />
+              </Group>
+              <Text size="xs" c="dimmed" mt="sm">
+                Automatic would currently choose{' '}
+                {formatCores(loadGenerator.automaticPreview.allocation.cpuMillicores)} /{' '}
+                {formatMemory(loadGenerator.automaticPreview.allocation.memoryBytes)}.
+              </Text>
+              {customLeavesLittleHeadroom && (
+                <Alert color="warn" mt="sm">
+                  This leaves little headroom for the host and anything else running on it.
+                </Alert>
+              )}
+            </>
+          )}
+
+          <Button
+            size="sm"
+            mt="md"
+            onClick={saveLoadGeneratorBudget}
+            loading={chooseLoadGeneratorBudget.isPending}
+            disabled={
+              loadGeneratorModeValue === 'custom' &&
+              (loadGeneratorCpuCores <= 0 || loadGeneratorMemoryMebibytes === '')
+            }
+          >
+            Save
+          </Button>
         </Card>
 
         <Card withBorder radius="md">

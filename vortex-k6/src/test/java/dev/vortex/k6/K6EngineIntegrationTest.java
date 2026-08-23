@@ -72,6 +72,7 @@ class K6EngineIntegrationTest {
     private K6Runner.ProcessOutcome inspect(Path directory, String script) throws Exception {
         Files.writeString(directory.resolve("generated-test.js"), script, StandardCharsets.UTF_8);
         return runner.run(List.of("inspect", "generated-test.js"), directory, Map.of(),
+                dev.vortex.core.target.ResourceEnvelopeRequest.none(),
                 _ -> { }, _ -> { },
                 dev.vortex.core.port.PerformanceEngine.Cancellation.never());
     }

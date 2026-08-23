@@ -11,11 +11,13 @@ import dev.vortex.core.metrics.TimeWindow;
 import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.port.ObservabilityProvider;
 import dev.vortex.core.port.TelemetryCollector;
+import dev.vortex.core.resource.ResolvedLoadGeneratorBudget;
 import dev.vortex.core.resource.ResourceSample;
 import dev.vortex.core.resource.ResourceSampleSink;
 import dev.vortex.core.resource.ResourceSampleSinkFactory;
 import dev.vortex.core.resource.ResourceSignal;
 import dev.vortex.core.shared.ExecutionId;
+import dev.vortex.core.target.EffectiveResourceEnvelope;
 import dev.vortex.core.target.ResolvedTarget;
 import dev.vortex.core.target.TargetOwnership;
 import dev.vortex.core.workload.StageWindowBasis;
@@ -139,7 +141,8 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
     }
 
     @Override
-    public Session start(EffectiveTestPlan plan, ExecutionId executionId, ResolvedTarget resolvedTarget) {
+    public Session start(EffectiveTestPlan plan, ExecutionId executionId, ResolvedTarget resolvedTarget,
+            ResolvedLoadGeneratorBudget resolvedLoadGeneratorBudget) {
         Instant now = Instant.now();
         // A target with no resolvable pre-run URL (Docker/Compose) has no endpoint to key
         // endpoint-based providers by yet. Still correctly blank here even now that a resolved
@@ -212,10 +215,21 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
         // boundary to learn it. Retried on failure, unlike the system-under-test case above: that
         // container is already running by the time this method is called; this one is started later,
         // by the engine, and may not exist yet on the first sampling attempt.
+        //
+        // The envelope passed here is what this run *requested*, not (yet) a re-inspected
+        // confirmation the way the system-under-test's is — the generator's container does not exist
+        // yet when sampling starts. That is sound rather than a shortcut: DockerK6Runner applies and
+        // confirms the same request before this run can ever reach a completed state, so a limit
+        // reported here is never seen disagreeing with what actually took effect. See
+        // ResolvedLoadGeneratorBudget's own Javadoc.
         if (generatorRunsInDocker && executionId != null) {
+            EffectiveResourceEnvelope generatorResources = resolvedLoadGeneratorBudget == null
+                    ? null
+                    : new EffectiveResourceEnvelope(resolvedLoadGeneratorBudget.allocation().cpu(),
+                            resolvedLoadGeneratorBudget.allocation().memory());
             var generatorContainerProvider = new DockerContainerObservabilityProvider(
-                    "vortex-k6-" + executionId.value(), null, dockerProcess, dockerExecutable,
-                    dev.vortex.core.resource.ResourceScope.LOAD_GENERATOR, true);
+                    "vortex-k6-" + executionId.value(), generatorResources, dockerProcess,
+                    dockerExecutable, dev.vortex.core.resource.ResourceScope.LOAD_GENERATOR, true);
             dockerProviders.add(generatorContainerProvider);
             reachable.add(generatorContainerProvider);
         }

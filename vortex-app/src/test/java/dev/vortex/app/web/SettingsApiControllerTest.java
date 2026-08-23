@@ -1,6 +1,8 @@
 package dev.vortex.app.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -12,10 +14,19 @@ import dev.vortex.ai.AiSettings;
 import dev.vortex.ai.OllamaAvailability;
 import dev.vortex.app.VortexProperties;
 import dev.vortex.app.config.AiModelPreferenceStore;
+import dev.vortex.app.config.LoadGeneratorBudgetPreferenceStore;
+import dev.vortex.app.config.LoadGeneratorBudgetSettings;
 import dev.vortex.app.service.LocalLabRunner;
+import dev.vortex.core.evidence.HostShape;
 import dev.vortex.core.port.LocalLab;
 import dev.vortex.core.port.PerformanceAssistant;
 import dev.vortex.core.port.PerformanceEngine;
+import dev.vortex.core.resource.LoadGeneratorResourceBudget;
+import dev.vortex.core.resource.LoadGeneratorResourceBudgetResolver;
+import dev.vortex.core.resource.ResolvedLoadGeneratorBudget;
+import dev.vortex.core.target.CpuAllocation;
+import dev.vortex.core.target.MemoryAllocation;
+import dev.vortex.core.target.ResourceEnvelopeRequest;
 import dev.vortex.core.workload.RateAllocator;
 import dev.vortex.persistence.VortexWorkspace;
 import java.nio.file.Path;
@@ -47,6 +58,11 @@ class SettingsApiControllerTest {
         AiSettings aiSettings() {
             return new AiSettings("ollama", "http://localhost:11434", "qwen3:4b", null, false);
         }
+
+        @Bean
+        LoadGeneratorBudgetSettings loadGeneratorBudgetSettings() {
+            return LoadGeneratorBudgetSettings.seeded(LoadGeneratorResourceBudget.automatic());
+        }
     }
 
     @Autowired
@@ -54,6 +70,9 @@ class SettingsApiControllerTest {
 
     @Autowired
     private AiSettings aiSettings;
+
+    @Autowired
+    private LoadGeneratorBudgetSettings loadGeneratorBudgetSettings;
 
     @MockitoBean
     private VortexProperties properties;
@@ -76,6 +95,25 @@ class SettingsApiControllerTest {
     @MockitoBean
     private VortexWorkspace workspace;
 
+    @MockitoBean
+    private LoadGeneratorBudgetPreferenceStore loadGeneratorBudgetPreferences;
+
+    @MockitoBean
+    private LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver;
+
+    private static ResolvedLoadGeneratorBudget resolvedAutomaticBudget() {
+        return new ResolvedLoadGeneratorBudget(
+                LoadGeneratorResourceBudget.BudgetMode.AUTOMATIC,
+                new ResourceEnvelopeRequest(CpuAllocation.ofMillicores(4000),
+                        MemoryAllocation.ofMebibytes(4096)),
+                new HostShape("Mac OS X", "15.6", "aarch64", 12, 34_359_738_368L),
+                new ResourceEnvelopeRequest(CpuAllocation.ofMillicores(1800),
+                        MemoryAllocation.ofMebibytes(3277)),
+                new ResourceEnvelopeRequest(CpuAllocation.ofMillicores(5100),
+                        MemoryAllocation.ofMebibytes(14_746)),
+                true);
+    }
+
     @BeforeEach
     void wiring() {
         when(properties.version()).thenReturn("0.1.0-SNAPSHOT");
@@ -88,6 +126,8 @@ class SettingsApiControllerTest {
         when(ollama.installedModels()).thenReturn(List.of("qwen3:4b", "llama3.2:3b"));
         when(lab.status()).thenReturn(new LocalLab.LabStatus(true, true, true, "24.0.0", ""));
         when(workspace.root()).thenReturn(Path.of("/tmp/vortex-workspace"));
+        when(loadGeneratorResourceBudgetResolver.resolve(any(), anyBoolean()))
+                .thenReturn(resolvedAutomaticBudget());
     }
 
     @Test
@@ -102,7 +142,16 @@ class SettingsApiControllerTest {
                 .andExpect(jsonPath("$.aiAvailability.available").value(true))
                 .andExpect(jsonPath("$.installedModels[0]").value("qwen3:4b"))
                 .andExpect(jsonPath("$.labStatus.usable").value(true))
-                .andExpect(jsonPath("$.workspacePath").value("/tmp/vortex-workspace"));
+                .andExpect(jsonPath("$.workspacePath").value("/tmp/vortex-workspace"))
+                .andExpect(jsonPath("$.loadGenerator.configured.mode").value("automatic"))
+                .andExpect(jsonPath("$.loadGenerator.configured.cpuMillicores").doesNotExist())
+                .andExpect(jsonPath("$.loadGenerator.effective.mode").value("automatic"))
+                .andExpect(jsonPath("$.loadGenerator.effective.allocation.cpuMillicores").value(4000))
+                .andExpect(jsonPath("$.loadGenerator.effective.detectedHost.availableProcessors")
+                        .value(12))
+                .andExpect(jsonPath("$.loadGenerator.effective.colocatedWithManagedSut").value(true))
+                .andExpect(jsonPath("$.loadGenerator.automaticPreview.allocation.cpuMillicores")
+                        .value(4000));
     }
 
     @Test
@@ -155,5 +204,66 @@ class SettingsApiControllerTest {
                 .andExpect(jsonPath("$.message").value("No model selected."));
 
         assertThat(aiSettings.model()).isEmpty();
+    }
+
+    @Test
+    void choosingACustomLoadGeneratorBudgetSavesItAndTakesEffectImmediately() throws Exception {
+        mockMvc.perform(post("/api/settings/load-generator")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"mode":"custom","cpuMillicores":2000,"memoryMebibytes":2048}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Now using a custom load generator budget."));
+
+        var current = loadGeneratorBudgetSettings.current();
+        assertThat(current.mode()).isEqualTo(LoadGeneratorResourceBudget.BudgetMode.CUSTOM);
+        assertThat(current.envelope().cpuIfPresent()).contains(CpuAllocation.ofMillicores(2000));
+        assertThat(current.envelope().memoryIfPresent()).contains(MemoryAllocation.ofMebibytes(2048));
+        verify(loadGeneratorBudgetPreferences).saveBudget(current);
+    }
+
+    @Test
+    void choosingAutomaticNeedsNoValues() throws Exception {
+        mockMvc.perform(post("/api/settings/load-generator")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"mode":"automatic"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Now using an automatic load generator budget."));
+
+        assertThat(loadGeneratorBudgetSettings.current().mode())
+                .isEqualTo(LoadGeneratorResourceBudget.BudgetMode.AUTOMATIC);
+    }
+
+    @Test
+    void customWithoutBothValuesIsRejected() throws Exception {
+        mockMvc.perform(post("/api/settings/load-generator")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"mode":"custom","cpuMillicores":2000}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void customBelowTheViableMemoryFloorIsRejected() throws Exception {
+        mockMvc.perform(post("/api/settings/load-generator")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"mode":"custom","cpuMillicores":2000,"memoryMebibytes":32}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void customWithNonPositiveCpuIsRejected() throws Exception {
+        mockMvc.perform(post("/api/settings/load-generator")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"mode":"custom","cpuMillicores":0,"memoryMebibytes":2048}
+                                """))
+                .andExpect(status().isBadRequest());
     }
 }

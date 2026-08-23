@@ -48,7 +48,10 @@ class ExperimentIdentityReconciliationTest {
                 new dev.vortex.core.fixtures.FakeDatasetStore(),
                 TelemetryCollector.none(),
                 Clock.fixed(Fixtures.NOW),
-                List.of());
+                List.of(),
+                new dev.vortex.core.resource.LoadGeneratorResourceBudgetResolver(
+                        dev.vortex.core.port.HostInformation.unknown()),
+                dev.vortex.core.resource.LoadGeneratorResourceBudget::automatic);
     }
 
     private TestExecution stored(String id, EffectiveTestPlan plan) {
@@ -133,6 +136,7 @@ class ExperimentIdentityReconciliationTest {
 
         @Override
         public EngineOutcome execute(ExecutionId executionId, EffectiveTestPlan plan,
+                dev.vortex.core.target.ResourceEnvelopeRequest loadGeneratorResources,
                 java.util.function.Consumer<dev.vortex.core.execution.ExecutionProgress> progress,
                 Cancellation cancellation) {
             throw new UnsupportedOperationException("not used");

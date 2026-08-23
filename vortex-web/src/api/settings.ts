@@ -41,6 +41,48 @@ export interface LabStatus {
   remedy: string;
 }
 
+export interface ResourceEnvelope {
+  cpuMillicores: number | null;
+  memoryBytes: number | null;
+}
+
+export interface HostShape {
+  operatingSystem: string;
+  osVersion: string;
+  architecture: string;
+  availableProcessors: number;
+  totalMemoryBytes: number;
+}
+
+/** What a budget resolves to right now, on this host. */
+export interface ResolvedLoadGeneratorBudget {
+  mode: 'automatic' | 'custom';
+  allocation: ResourceEnvelope;
+  detectedHost: HostShape;
+  osAndVortexReserve: ResourceEnvelope;
+  sutReserve: ResourceEnvelope;
+  colocatedWithManagedSut: boolean;
+}
+
+/** As saved — cpuMillicores/memoryMebibytes are only meaningful when mode is 'custom'. */
+export interface ConfiguredLoadGeneratorBudget {
+  mode: 'automatic' | 'custom';
+  cpuMillicores: number | null;
+  memoryMebibytes: number | null;
+}
+
+/**
+ * Three distinct things, never conflated: `configured` is what was saved; `effective` is what
+ * actually applies right now given `configured.mode`; `automaticPreview` is always what Automatic
+ * would currently choose, regardless of the saved mode, so a Custom user can see what switching back
+ * would give them without `effective` ever silently overriding their saved values.
+ */
+export interface LoadGeneratorSettings {
+  configured: ConfiguredLoadGeneratorBudget;
+  effective: ResolvedLoadGeneratorBudget;
+  automaticPreview: ResolvedLoadGeneratorBudget;
+}
+
 export interface Settings {
   vortexVersion: string;
   engine: EngineSettings;
@@ -50,6 +92,7 @@ export interface Settings {
   installedModels: string[];
   labStatus: LabStatus;
   workspacePath: string;
+  loadGenerator: LoadGeneratorSettings;
 }
 
 export function useSettingsQuery() {
@@ -82,6 +125,25 @@ export function useChooseModelMutation() {
   return useMutation({
     mutationFn: (model: string) =>
       apiClient.post<ChooseModelResponse>('/api/settings/ai/model', { model }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+  });
+}
+
+export interface ChooseLoadGeneratorBudgetRequest {
+  mode: 'automatic' | 'custom';
+  cpuMillicores?: number;
+  memoryMebibytes?: number;
+}
+
+export interface ChooseLoadGeneratorBudgetResponse {
+  message: string;
+}
+
+export function useChooseLoadGeneratorBudgetMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: ChooseLoadGeneratorBudgetRequest) =>
+      apiClient.post<ChooseLoadGeneratorBudgetResponse>('/api/settings/load-generator', request),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
   });
 }

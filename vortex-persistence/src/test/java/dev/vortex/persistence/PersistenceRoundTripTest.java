@@ -311,6 +311,23 @@ class PersistenceRoundTripTest {
                             MemoryAllocation.ofMebibytes(512)));
         }
 
+        /** What {@code LoadGeneratorResourceBudgetResolver.resolve()} would have produced for this
+         *  run — the runtime fact resolution discovers alongside the target, never part of the plan
+         *  itself. */
+        private dev.vortex.core.resource.ResolvedLoadGeneratorBudget resolvedLoadGeneratorBudget() {
+            return new dev.vortex.core.resource.ResolvedLoadGeneratorBudget(
+                    dev.vortex.core.resource.LoadGeneratorResourceBudget.BudgetMode.AUTOMATIC,
+                    new ResourceEnvelopeRequest(CpuAllocation.ofMillicores(4000),
+                            MemoryAllocation.ofMebibytes(4096)),
+                    new dev.vortex.core.evidence.HostShape("Linux", "6.0", "aarch64", 12,
+                            34_359_738_368L),
+                    new ResourceEnvelopeRequest(CpuAllocation.ofMillicores(1800),
+                            MemoryAllocation.ofMebibytes(3277)),
+                    new ResourceEnvelopeRequest(CpuAllocation.ofMillicores(5100),
+                            MemoryAllocation.ofMebibytes(14_746)),
+                    true);
+        }
+
         private TestExecution dockerExecution(String id) {
             var results = Fixtures.results(281, 0.0008);
             return new TestExecution(ExecutionId.of(id), ProjectId.of("checkout"), dockerImagePlan(),
@@ -319,7 +336,7 @@ class PersistenceRoundTripTest {
                     dev.vortex.core.plan.ToolVersions.unknown(),
                     dev.vortex.core.execution.ExecutionArtifacts.empty(), null, "",
                     dev.vortex.core.validity.RunQualityAssessment.notAssessed(),
-                    dockerResolvedTarget());
+                    dockerResolvedTarget(), resolvedLoadGeneratorBudget());
         }
 
         @Test
@@ -345,17 +362,28 @@ class PersistenceRoundTripTest {
                             .hasValue(MemoryAllocation.ofMebibytes(512));
                 });
             });
+            assertThat(loaded.resolvedLoadGeneratorBudgetIfPresent()).hasValueSatisfying(resolved -> {
+                assertThat(resolved.mode()).isEqualTo(
+                        dev.vortex.core.resource.LoadGeneratorResourceBudget.BudgetMode.AUTOMATIC);
+                assertThat(resolved.allocation().cpuIfPresent())
+                        .hasValue(CpuAllocation.ofMillicores(4000));
+                assertThat(resolved.allocation().memoryIfPresent())
+                        .hasValue(MemoryAllocation.ofMebibytes(4096));
+                assertThat(resolved.colocatedWithManagedSut()).isTrue();
+            });
         }
 
         @Test
-        @DisplayName("a run whose target was never resolved comes back with no resolved target, not "
-                + "an empty-but-present one")
+        @DisplayName("a run whose target was never resolved comes back with no resolved target, and "
+                + "no resolved load generator budget, not empty-but-present ones")
         void absentResolvedTargetRoundTripsToNullRatherThanAnEmptyObject() {
             storedProject();
             TestExecution saved = executions.save(completedExecution("exec1"));
             assertThat(saved.resolvedTarget()).isNull();
+            assertThat(saved.resolvedLoadGeneratorBudget()).isNull();
 
             TestExecution loaded = executions.findById(saved.id()).orElseThrow();
+            assertThat(loaded.resolvedLoadGeneratorBudgetIfPresent()).isEmpty();
 
             assertThat(loaded.resolvedTarget()).isNull();
             assertThat(loaded.resolvedTargetIfPresent()).isEmpty();

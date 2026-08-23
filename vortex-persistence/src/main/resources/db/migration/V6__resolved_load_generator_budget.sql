@@ -1,0 +1,11 @@
+-- The run's *resolved* load generator resource budget — the concrete CPU/memory allocation Vortex
+-- actually used, computed once when this run's target ownership became known. Genuinely new
+-- information, the same way resolved_target_json is: the *configured* budget lives in Settings
+-- (~/.vortex/config.yaml), not in this run's own document, and Settings can change after a run
+-- completes without that run's own evidence changing under it.
+--
+-- Defaulted to an empty JSON object rather than allowed NULL, and read back as no resolved budget
+-- (not as an object with every field null) — see JdbcExecutionRepository's explicit round-trip
+-- helpers for that sentinel. Every row written before this feature existed gets the same default: no
+-- resolved budget is exactly what is known about a run recorded before it existed.
+ALTER TABLE executions ADD COLUMN resolved_load_generator_budget_json TEXT NOT NULL DEFAULT '{}';

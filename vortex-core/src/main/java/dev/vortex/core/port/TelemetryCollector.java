@@ -5,6 +5,7 @@ import dev.vortex.core.metrics.StageTelemetry;
 import dev.vortex.core.metrics.TelemetryGap;
 import dev.vortex.core.metrics.TimeWindow;
 import dev.vortex.core.plan.EffectiveTestPlan;
+import dev.vortex.core.resource.ResolvedLoadGeneratorBudget;
 import dev.vortex.core.resource.ResourceSignal;
 import dev.vortex.core.shared.ExecutionId;
 import dev.vortex.core.target.ResolvedTarget;
@@ -50,8 +51,16 @@ public interface TelemetryCollector {
      *                       the opaque telemetry handle and confirmed resource envelope a
      *                       container-id-aware provider needs, since a container id is not something
      *                       an endpoint-keyed {@link ObservabilityQuery} can carry
+     * @param resolvedLoadGeneratorBudget this run's resolved load generator budget — the allocation a
+     *                       container-scoped provider compares the generator's own container against.
+     *                       Requested, not necessarily confirmed applied at the moment sampling starts
+     *                       (the generator's container does not exist yet when a run begins
+     *                       observing); a run whose engine could not actually apply it fails outright
+     *                       before producing a result, so a completed run's telemetry never disagrees
+     *                       with what was requested
      */
-    Session start(EffectiveTestPlan plan, ExecutionId executionId, ResolvedTarget resolvedTarget);
+    Session start(EffectiveTestPlan plan, ExecutionId executionId, ResolvedTarget resolvedTarget,
+            ResolvedLoadGeneratorBudget resolvedLoadGeneratorBudget);
 
     /** An in-progress sampling session. */
     interface Session {
@@ -112,6 +121,6 @@ public interface TelemetryCollector {
 
     /** A collector that gathers nothing, for tests and for runs with no observability configured. */
     static TelemetryCollector none() {
-        return (plan, executionId, resolvedTarget) -> Session.empty();
+        return (plan, executionId, resolvedTarget, resolvedLoadGeneratorBudget) -> Session.empty();
     }
 }

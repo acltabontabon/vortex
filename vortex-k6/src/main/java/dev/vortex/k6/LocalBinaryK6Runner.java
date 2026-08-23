@@ -3,6 +3,7 @@ package dev.vortex.k6;
 import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.port.PerformanceEngine.Cancellation;
 import dev.vortex.core.port.PerformanceEngine.EngineAvailability;
+import dev.vortex.core.target.ResourceEnvelopeRequest;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -97,9 +98,18 @@ public final class LocalBinaryK6Runner implements K6Runner {
         return Optional.empty();
     }
 
+    /**
+     * {@code resources} is accepted but never applied — a native process has no cross-platform
+     * mechanism Vortex can rely on to enforce a CPU/memory ceiling (see {@code
+     * AutomaticLoadGeneratorAllocation}'s Javadoc and the ADR this runner's resource story is
+     * documented under). Claiming enforcement it cannot guarantee would be worse than not
+     * attempting it, so {@link ProcessOutcome#effectiveResources} always comes back {@code null}
+     * here, honestly, regardless of what was requested.
+     */
     @Override
     public ProcessOutcome run(List<String> arguments, Path workingDir, Map<String, String> environment,
-            Consumer<String> stdoutSink, Consumer<String> stderrSink, Cancellation cancellation) {
+            ResourceEnvelopeRequest resources, Consumer<String> stdoutSink,
+            Consumer<String> stderrSink, Cancellation cancellation) {
 
         if (!Files.isDirectory(workingDir)) {
             throw new K6ExecutionException("The execution directory does not exist.",

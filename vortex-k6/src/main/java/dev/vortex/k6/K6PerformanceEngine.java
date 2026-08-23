@@ -11,6 +11,7 @@ import dev.vortex.core.plan.ScriptSource;
 import dev.vortex.core.plan.ToolVersions;
 import dev.vortex.core.port.PerformanceEngine;
 import dev.vortex.core.shared.ExecutionId;
+import dev.vortex.core.target.ResourceEnvelopeRequest;
 import dev.vortex.core.threshold.Durations;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -138,6 +139,7 @@ public final class K6PerformanceEngine implements PerformanceEngine {
                     List.of("inspect", SCRIPT_FILE),
                     directory,
                     Map.of(),
+                    ResourceEnvelopeRequest.none(),
                     _ -> { },
                     problems::add,
                     Cancellation.never());
@@ -179,7 +181,8 @@ public final class K6PerformanceEngine implements PerformanceEngine {
 
     @Override
     public EngineOutcome execute(ExecutionId executionId, EffectiveTestPlan plan,
-            Consumer<ExecutionProgress> progressSink, Cancellation cancellation) {
+            ResourceEnvelopeRequest loadGeneratorResources, Consumer<ExecutionProgress> progressSink,
+            Cancellation cancellation) {
 
         Path directory = executionDirectory(executionId);
         Instant startedAt = Instant.now();
@@ -224,7 +227,7 @@ public final class K6PerformanceEngine implements PerformanceEngine {
 
         K6Runner.ProcessOutcome outcome;
         try {
-            outcome = runner.run(arguments, directory, environment,
+            outcome = runner.run(arguments, directory, environment, loadGeneratorResources,
                     line -> {
                         stdoutLines.add(line);
                         progress.noteEngineOutput(line);
@@ -459,8 +462,21 @@ public final class K6PerformanceEngine implements PerformanceEngine {
 
     private String failureDetail(K6Runner.ProcessOutcome outcome, List<String> stderrLines) {
         StringBuilder detail = new StringBuilder();
-        detail.append("The execution engine exited with code ").append(outcome.exitCode())
-                .append(" without producing a summary.\n");
+        if (outcome.generatorOomKilled()) {
+            // Direct, unambiguous cause — never left to read as a bare, unexplained exit code. This
+            // run never produced a summary because the generator itself was killed for exceeding the
+            // memory budget Vortex configured and confirmed was applied; the shortfall this run would
+            // otherwise report is the generator's own ceiling, not the system under test's.
+            detail.append("The load generator exceeded its configured memory budget and was ")
+                    .append("terminated by the operating system before it could finish.\n")
+                    .append("This run cannot establish the capacity of the system under test — the ")
+                    .append("generator itself ran out of the resources Vortex allocated to it. ")
+                    .append("Increase the load generator's memory budget under Settings → Load ")
+                    .append("Generator Resources and try again.\n");
+        } else {
+            detail.append("The execution engine exited with code ").append(outcome.exitCode())
+                    .append(" without producing a summary.\n");
+        }
         if (!stderrLines.isEmpty()) {
             detail.append("\nEngine output:\n");
             stderrLines.stream().limit(40).forEach(line -> detail.append("  ").append(line).append('\n'));

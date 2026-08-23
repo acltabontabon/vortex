@@ -4,17 +4,29 @@ import dev.vortex.ai.AiSettings;
 import dev.vortex.ai.OllamaAvailability;
 import dev.vortex.app.VortexProperties;
 import dev.vortex.app.config.AiModelPreferenceStore;
+import dev.vortex.app.config.LoadGeneratorBudgetPreferenceStore;
+import dev.vortex.app.config.LoadGeneratorBudgetSettings;
 import dev.vortex.app.service.LocalLabRunner;
+import dev.vortex.core.evidence.HostShape;
 import dev.vortex.core.port.PerformanceAssistant;
 import dev.vortex.core.port.PerformanceEngine;
+import dev.vortex.core.resource.LoadGeneratorResourceBudget;
+import dev.vortex.core.resource.LoadGeneratorResourceBudgetResolver;
+import dev.vortex.core.resource.ResolvedLoadGeneratorBudget;
+import dev.vortex.core.target.CpuAllocation;
+import dev.vortex.core.target.MemoryAllocation;
+import dev.vortex.core.target.ResourceEnvelopeRequest;
 import dev.vortex.persistence.VortexWorkspace;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Settings and diagnostics, as JSON.
@@ -36,10 +48,16 @@ public class SettingsApiController {
     private final AiModelPreferenceStore aiModelPreferences;
     private final LocalLabRunner lab;
     private final VortexWorkspace workspace;
+    private final LoadGeneratorBudgetSettings loadGeneratorBudgetSettings;
+    private final LoadGeneratorBudgetPreferenceStore loadGeneratorBudgetPreferences;
+    private final LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver;
 
     public SettingsApiController(VortexProperties properties, PerformanceEngine engine,
             PerformanceAssistant assistant, OllamaAvailability ollama, AiSettings aiSettings,
-            AiModelPreferenceStore aiModelPreferences, LocalLabRunner lab, VortexWorkspace workspace) {
+            AiModelPreferenceStore aiModelPreferences, LocalLabRunner lab, VortexWorkspace workspace,
+            LoadGeneratorBudgetSettings loadGeneratorBudgetSettings,
+            LoadGeneratorBudgetPreferenceStore loadGeneratorBudgetPreferences,
+            LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver) {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.engine = Objects.requireNonNull(engine, "engine");
         this.assistant = Objects.requireNonNull(assistant, "assistant");
@@ -48,6 +66,12 @@ public class SettingsApiController {
         this.aiModelPreferences = Objects.requireNonNull(aiModelPreferences, "aiModelPreferences");
         this.lab = Objects.requireNonNull(lab, "lab");
         this.workspace = Objects.requireNonNull(workspace, "workspace");
+        this.loadGeneratorBudgetSettings =
+                Objects.requireNonNull(loadGeneratorBudgetSettings, "loadGeneratorBudgetSettings");
+        this.loadGeneratorBudgetPreferences =
+                Objects.requireNonNull(loadGeneratorBudgetPreferences, "loadGeneratorBudgetPreferences");
+        this.loadGeneratorResourceBudgetResolver = Objects.requireNonNull(
+                loadGeneratorResourceBudgetResolver, "loadGeneratorResourceBudgetResolver");
     }
 
     public record EngineSettingsDto(boolean usesDocker, String runner, String executable,
@@ -67,7 +91,32 @@ public class SettingsApiController {
     public record SettingsDto(String vortexVersion, EngineSettingsDto engine,
             EngineAvailabilityDto engineAvailability, AiSettingsDto aiSettings,
             AiAvailabilityDto aiAvailability, List<String> installedModels, LabStatusDto labStatus,
-            String workspacePath) {}
+            String workspacePath, LoadGeneratorSettingsDto loadGenerator) {}
+
+    /** As saved — {@code cpuMillicores}/{@code memoryMebibytes} are only meaningful when
+     *  {@code mode} is {@code "custom"}. */
+    public record ConfiguredLoadGeneratorBudgetDto(String mode, Integer cpuMillicores,
+            Integer memoryMebibytes) {}
+
+    public record ResourceEnvelopeDto(Integer cpuMillicores, Long memoryBytes) {}
+
+    public record HostShapeDto(String operatingSystem, String osVersion, String architecture,
+            int availableProcessors, long totalMemoryBytes) {}
+
+    /** What a budget resolves to right now, on this host. */
+    public record ResolvedLoadGeneratorBudgetDto(String mode, ResourceEnvelopeDto allocation,
+            HostShapeDto detectedHost, ResourceEnvelopeDto osAndVortexReserve,
+            ResourceEnvelopeDto sutReserve, boolean colocatedWithManagedSut) {}
+
+    /**
+     * Three distinct things, never conflated: {@code configured} is what was saved; {@code effective}
+     * is what actually applies right now given {@code configured.mode}; {@code automaticPreview} is
+     * always what Automatic would currently choose, regardless of the saved mode, so a Custom user can
+     * see what switching back would give them without {@code effective} ever silently overriding their
+     * saved values.
+     */
+    public record LoadGeneratorSettingsDto(ConfiguredLoadGeneratorBudgetDto configured,
+            ResolvedLoadGeneratorBudgetDto effective, ResolvedLoadGeneratorBudgetDto automaticPreview) {}
 
     @GetMapping
     public SettingsDto settings() {
@@ -79,7 +128,8 @@ public class SettingsApiController {
                 toDto(assistant.availability()),
                 ollama.installedModels(),
                 toDto(lab.status()),
-                workspace.root().toString());
+                workspace.root().toString(),
+                loadGeneratorSettings());
     }
 
     public record RetryAiResponse(AiAvailabilityDto availability, String message,
@@ -135,5 +185,99 @@ public class SettingsApiController {
     private LabStatusDto toDto(dev.vortex.core.port.LocalLab.LabStatus status) {
         return new LabStatusDto(status.dockerAvailable(), status.daemonRunning(),
                 status.composeAvailable(), status.isUsable(), status.version(), status.remedy());
+    }
+
+    private static final int MINIMUM_VIABLE_MEMORY_MEBIBYTES = 128;
+
+    public record ChooseLoadGeneratorBudgetRequest(String mode, Integer cpuMillicores,
+            Integer memoryMebibytes) {}
+
+    public record ChooseLoadGeneratorBudgetResponse(String message) {}
+
+    /**
+     * Switches the load generator's resource budget, effective for the next run that resolves it, and
+     * writes it to {@code ~/.vortex/config.yaml} so it survives a restart.
+     */
+    @PostMapping("/load-generator")
+    public ChooseLoadGeneratorBudgetResponse chooseLoadGeneratorBudget(
+            @RequestBody ChooseLoadGeneratorBudgetRequest request) {
+        LoadGeneratorResourceBudget budget = parseLoadGeneratorBudget(request);
+        loadGeneratorBudgetSettings.update(budget);
+        loadGeneratorBudgetPreferences.saveBudget(budget);
+        return new ChooseLoadGeneratorBudgetResponse(
+                budget.mode() == LoadGeneratorResourceBudget.BudgetMode.CUSTOM
+                        ? "Now using a custom load generator budget."
+                        : "Now using an automatic load generator budget.");
+    }
+
+    private LoadGeneratorResourceBudget parseLoadGeneratorBudget(
+            ChooseLoadGeneratorBudgetRequest request) {
+        String mode = request.mode() == null ? "" : request.mode().trim().toLowerCase(Locale.ROOT);
+        if (!"custom".equals(mode)) {
+            return LoadGeneratorResourceBudget.automatic();
+        }
+        if (request.cpuMillicores() == null || request.memoryMebibytes() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A custom load generator budget needs both a CPU and a memory value.");
+        }
+        if (request.memoryMebibytes() < MINIMUM_VIABLE_MEMORY_MEBIBYTES) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A memory budget below " + MINIMUM_VIABLE_MEMORY_MEBIBYTES + " MiB is not enough "
+                            + "for the load generator to run.");
+        }
+        try {
+            return LoadGeneratorResourceBudget.custom(
+                    CpuAllocation.ofMillicores(request.cpuMillicores()),
+                    MemoryAllocation.ofMebibytes(request.memoryMebibytes()));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Settings has no run to reason about yet, so it previews the same conservative assumption a run
+     * makes before it knows its own target: that a colocated, Vortex-managed system under test might
+     * share this host. See {@link LoadGeneratorResourceBudgetResolver}.
+     */
+    private static final boolean CONSERVATIVELY_ASSUME_COLOCATED_SUT = true;
+
+    private LoadGeneratorSettingsDto loadGeneratorSettings() {
+        LoadGeneratorResourceBudget configured = loadGeneratorBudgetSettings.current();
+        ResolvedLoadGeneratorBudget effective = loadGeneratorResourceBudgetResolver.resolve(
+                configured, CONSERVATIVELY_ASSUME_COLOCATED_SUT);
+        ResolvedLoadGeneratorBudget automaticPreview = loadGeneratorResourceBudgetResolver.resolve(
+                LoadGeneratorResourceBudget.automatic(), CONSERVATIVELY_ASSUME_COLOCATED_SUT);
+
+        return new LoadGeneratorSettingsDto(toConfiguredDto(configured), toResolvedDto(effective),
+                toResolvedDto(automaticPreview));
+    }
+
+    private ConfiguredLoadGeneratorBudgetDto toConfiguredDto(LoadGeneratorResourceBudget configured) {
+        return new ConfiguredLoadGeneratorBudgetDto(
+                configured.mode().name().toLowerCase(Locale.ROOT),
+                configured.envelope().cpuIfPresent().map(CpuAllocation::millicores).orElse(null),
+                configured.envelope().memoryIfPresent()
+                        .map(memory -> (int) (memory.bytes() / (1024 * 1024))).orElse(null));
+    }
+
+    private ResolvedLoadGeneratorBudgetDto toResolvedDto(ResolvedLoadGeneratorBudget resolved) {
+        return new ResolvedLoadGeneratorBudgetDto(
+                resolved.mode().name().toLowerCase(Locale.ROOT),
+                toEnvelopeDto(resolved.allocation()),
+                toHostShapeDto(resolved.detectedHost()),
+                toEnvelopeDto(resolved.osAndVortexReserve()),
+                toEnvelopeDto(resolved.sutReserve()),
+                resolved.colocatedWithManagedSut());
+    }
+
+    private ResourceEnvelopeDto toEnvelopeDto(ResourceEnvelopeRequest envelope) {
+        return new ResourceEnvelopeDto(
+                envelope.cpuIfPresent().map(CpuAllocation::millicores).orElse(null),
+                envelope.memoryIfPresent().map(MemoryAllocation::bytes).orElse(null));
+    }
+
+    private HostShapeDto toHostShapeDto(HostShape host) {
+        return new HostShapeDto(host.operatingSystem(), host.osVersion(), host.architecture(),
+                host.availableProcessors(), host.totalMemoryBytes());
     }
 }

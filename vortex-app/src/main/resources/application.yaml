@@ -83,6 +83,12 @@ vortex:
     # not logged unless someone asks for them.
     log-prompts: false
 
+  load-generator:
+    # 'automatic' computes a conservative CPU/memory budget from the host each run executes on.
+    # 'custom' uses cpu-millicores/memory-mebibytes instead, both otherwise unset. Settings →
+    # Load Generator Resources changes this without a restart, writing it to ~/.vortex/config.yaml.
+    mode: automatic
+
   safety:
     max-duration: 4h
     # When non-empty, the only hosts Vortex will send traffic to.

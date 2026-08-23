@@ -81,7 +81,10 @@ class ExecutionServiceTest {
                 new FakeDatasetStore(),
                 TelemetryCollector.none(),
                 Clock.fixed(Fixtures.NOW),
-                List.of(executor));
+                List.of(executor),
+                new dev.vortex.core.resource.LoadGeneratorResourceBudgetResolver(
+                        dev.vortex.core.port.HostInformation.unknown()),
+                dev.vortex.core.resource.LoadGeneratorResourceBudget::automatic);
     }
 
     @Test
@@ -97,6 +100,9 @@ class ExecutionServiceTest {
         assertThat(finished.resultsIfPresent()).isPresent();
         assertThat(finished.summaryIfPresent()).isPresent();
         assertThat(finished.quality()).isNotNull();
+        assertThat(finished.resolvedLoadGeneratorBudgetIfPresent()).isPresent();
+        assertThat(engine.lastExecutedLoadGeneratorResources()).isNotNull();
+        assertThat(engine.lastExecutedLoadGeneratorResources().isEmpty()).isFalse();
         assertThat(executions.findById(created.id())).hasValueSatisfying(
                 stored -> assertThat(stored.state()).isEqualTo(ExecutionState.COMPLETED));
     }

@@ -74,7 +74,7 @@ class ReproducibleEvidenceTest {
                 ExecutionState.COMPLETED, Fixtures.NOW, Fixtures.NOW,
                 Fixtures.NOW.plusSeconds(600), results, summary,
                 new dev.vortex.core.plan.ToolVersions("0.1.0", "k6 v1.3.0", "Java 25", ""),
-                null, null, "", quality, null);
+                null, null, "", quality, null, null);
     }
 
     private RunEvidence evidenceFor(TestExecution execution) {

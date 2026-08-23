@@ -12,6 +12,7 @@ import dev.vortex.core.validity.RunQualityAssessment;
 import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.plan.ToolVersions;
 import dev.vortex.core.port.Repositories.ExecutionRepository;
+import dev.vortex.core.resource.ResolvedLoadGeneratorBudget;
 import dev.vortex.core.shared.ExecutionId;
 import dev.vortex.core.shared.ProjectId;
 import dev.vortex.core.target.ResolvedTarget;
@@ -45,12 +46,14 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                                     plan_fingerprint, requested_at, started_at, finished_at,
                                     plan_json, results_json, summary_json, tool_versions_json,
                                     artifacts_json, failure_reason, failure_detail,
-                                    run_quality, run_quality_json, resolved_target_json)
+                                    run_quality, run_quality_json, resolved_target_json,
+                                    resolved_load_generator_budget_json)
             VALUES (:id, :projectId, :state, :verdict, :workloadName, :testType,
                     :environmentName, :classification, :serviceVersion, :fingerprint,
                     :requestedAt, :startedAt, :finishedAt, :planJson, :resultsJson, :summaryJson,
                     :toolVersionsJson, :artifactsJson, :failureReason, :failureDetail,
-                    :runQuality, :runQualityJson, :resolvedTargetJson)
+                    :runQuality, :runQualityJson, :resolvedTargetJson,
+                    :resolvedLoadGeneratorBudgetJson)
             ON CONFLICT (id) DO UPDATE SET
                 state = excluded.state,
                 verdict = excluded.verdict,
@@ -64,7 +67,8 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                 failure_detail = excluded.failure_detail,
                 run_quality = excluded.run_quality,
                 run_quality_json = excluded.run_quality_json,
-                resolved_target_json = excluded.resolved_target_json
+                resolved_target_json = excluded.resolved_target_json,
+                resolved_load_generator_budget_json = excluded.resolved_load_generator_budget_json
             """;
 
     /** What a {@code TestExecution} with no resolved target yet writes, instead of SQL {@code NULL}
@@ -72,6 +76,9 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
      *  resolved target" rather than handed to Jackson, which would otherwise bind it to a {@code
      *  ResolvedTarget} with every field null and fail the record's own non-null invariants. */
     private static final String NO_RESOLVED_TARGET_JSON = "{}";
+
+    /** Same sentinel, same reason, for {@code resolved_load_generator_budget_json}. */
+    private static final String NO_RESOLVED_LOAD_GENERATOR_BUDGET_JSON = "{}";
 
     private final JdbcClient jdbc;
     private final NamedParameterJdbcTemplate batchJdbc;
@@ -114,6 +121,8 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                 .param("runQuality", execution.quality().quality().name())
                 .param("runQualityJson", write(execution.quality()))
                 .param("resolvedTargetJson", writeResolvedTarget(execution.resolvedTarget()))
+                .param("resolvedLoadGeneratorBudgetJson",
+                        writeResolvedLoadGeneratorBudget(execution.resolvedLoadGeneratorBudget()))
                 .update();
         return execution;
     }
@@ -165,7 +174,9 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                 .addValue("failureDetail", execution.failureDetail())
                 .addValue("runQuality", execution.quality().quality().name())
                 .addValue("runQualityJson", write(execution.quality()))
-                .addValue("resolvedTargetJson", writeResolvedTarget(execution.resolvedTarget()));
+                .addValue("resolvedTargetJson", writeResolvedTarget(execution.resolvedTarget()))
+                .addValue("resolvedLoadGeneratorBudgetJson",
+                        writeResolvedLoadGeneratorBudget(execution.resolvedLoadGeneratorBudget()));
     }
 
     @Override
@@ -319,7 +330,8 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
                         : FailureReason.valueOf(rs.getString("failure_reason")),
                 rs.getString("failure_detail"),
                 readOrNull(rs.getString("run_quality_json"), RunQualityAssessment.class),
-                readResolvedTarget(rs.getString("resolved_target_json")));
+                readResolvedTarget(rs.getString("resolved_target_json")),
+                readResolvedLoadGeneratorBudget(rs.getString("resolved_load_generator_budget_json")));
     }
 
     /**
@@ -357,6 +369,22 @@ public final class JdbcExecutionRepository implements ExecutionRepository {
             return null;
         }
         return read(content, ResolvedTarget.class);
+    }
+
+    /** Writes {@code "{}"} rather than SQL {@code NULL} for a run whose load generator budget was
+     *  never resolved — matching {@code resolved_load_generator_budget_json}'s own
+     *  {@code NOT NULL DEFAULT '{}'}. */
+    private String writeResolvedLoadGeneratorBudget(ResolvedLoadGeneratorBudget resolvedBudget) {
+        return resolvedBudget == null ? NO_RESOLVED_LOAD_GENERATOR_BUDGET_JSON : write(resolvedBudget);
+    }
+
+    /** The inverse of {@link #writeResolvedLoadGeneratorBudget}. */
+    private ResolvedLoadGeneratorBudget readResolvedLoadGeneratorBudget(String content) {
+        if (content == null || content.isBlank()
+                || NO_RESOLVED_LOAD_GENERATOR_BUDGET_JSON.equals(content.trim())) {
+            return null;
+        }
+        return read(content, ResolvedLoadGeneratorBudget.class);
     }
 
     private Instant instantOrNull(String raw) {

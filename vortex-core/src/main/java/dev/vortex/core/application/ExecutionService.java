@@ -12,10 +12,12 @@ import dev.vortex.core.plan.PlannedDataset;
 import dev.vortex.core.port.ArtifactStore;
 import dev.vortex.core.port.Clock;
 import dev.vortex.core.port.DatasetStore;
+import dev.vortex.core.port.LoadGeneratorBudgetProvider;
 import dev.vortex.core.port.PerformanceEngine;
 import dev.vortex.core.port.Repositories.ExecutionRepository;
 import dev.vortex.core.port.TargetExecutor;
 import dev.vortex.core.port.TelemetryCollector;
+import dev.vortex.core.resource.LoadGeneratorResourceBudgetResolver;
 import dev.vortex.core.shared.ExecutionId;
 import dev.vortex.core.target.CleanupOutcome;
 import dev.vortex.core.target.PreparedTarget;
@@ -56,6 +58,8 @@ public final class ExecutionService {
     private final TelemetryCollector telemetry;
     private final Clock clock;
     private final List<TargetExecutor> targetExecutors;
+    private final LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver;
+    private final LoadGeneratorBudgetProvider loadGeneratorBudgetProvider;
 
     /**
      * Grades whether the experiment was carried out as specified.
@@ -68,7 +72,9 @@ public final class ExecutionService {
 
     public ExecutionService(PerformanceEngine engine, DeterministicAnalyzer analyzer,
             ExecutionRepository executions, ArtifactStore artifacts, DatasetStore datasets,
-            TelemetryCollector telemetry, Clock clock, List<TargetExecutor> targetExecutors) {
+            TelemetryCollector telemetry, Clock clock, List<TargetExecutor> targetExecutors,
+            LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver,
+            LoadGeneratorBudgetProvider loadGeneratorBudgetProvider) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.analyzer = Objects.requireNonNull(analyzer, "analyzer");
         this.executions = Objects.requireNonNull(executions, "executions");
@@ -77,6 +83,10 @@ public final class ExecutionService {
         this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.targetExecutors = List.copyOf(Objects.requireNonNull(targetExecutors, "targetExecutors"));
+        this.loadGeneratorResourceBudgetResolver = Objects.requireNonNull(
+                loadGeneratorResourceBudgetResolver, "loadGeneratorResourceBudgetResolver");
+        this.loadGeneratorBudgetProvider =
+                Objects.requireNonNull(loadGeneratorBudgetProvider, "loadGeneratorBudgetProvider");
     }
 
     /**
@@ -146,6 +156,17 @@ public final class ExecutionService {
                 return fail(execution, e.reason(), e.getMessage());
             }
             execution = execution.withResolvedTarget(prepared.resolvedTarget());
+
+            // Resolved here, once, alongside the target — not read again for the rest of this run.
+            // A colocated, Vortex-managed system under test is only known now that the target has
+            // been prepared, and a Settings change after this point must never alter a run already
+            // in flight; the resolved figure below is what evidence, enforcement and telemetry all
+            // use from here on, regardless of anything Settings says later.
+            boolean colocatedManagedSut =
+                    prepared.resolvedTarget().ownership() == dev.vortex.core.target.TargetOwnership.VORTEX_MANAGED;
+            var resolvedLoadGeneratorBudget = loadGeneratorResourceBudgetResolver.resolve(
+                    loadGeneratorBudgetProvider.current(), colocatedManagedSut);
+            execution = execution.withResolvedLoadGeneratorBudget(resolvedLoadGeneratorBudget);
             executions.save(execution);
 
             execution = advance(execution, ExecutionState.READY);
@@ -158,7 +179,8 @@ public final class ExecutionService {
             // Sampling starts before traffic and runs alongside it. The measurements that explain a
             // bottleneck — pool utilisation, queue depth — are instantaneous gauges, and reading
             // them after the load stops would report a service sitting idle.
-            telemetrySession = startTelemetry(execution.plan(), id, execution.resolvedTarget());
+            telemetrySession = startTelemetry(execution.plan(), id, execution.resolvedTarget(),
+                    resolvedLoadGeneratorBudget);
 
             // Transient, engine-facing plan — never persisted, and never what execution.plan() (or
             // anything saved to the repository) returns. Composes SUT resolution — this run's real
@@ -168,7 +190,8 @@ public final class ExecutionService {
             EffectiveTestPlan planForEngine = planForEngine(execution.plan(), prepared.resolvedTarget());
 
             PerformanceEngine.EngineOutcome outcome =
-                    engine.execute(id, planForEngine, progressSink, cancellation);
+                    engine.execute(id, planForEngine, resolvedLoadGeneratorBudget.allocation(),
+                            progressSink, cancellation);
 
             if (cancellation.isCancelled()) {
                 // A cancelled run keeps whatever it measured, and is graded rather than discarded.
@@ -261,7 +284,7 @@ public final class ExecutionService {
                         FailureReason.INTERRUPTED.guidance(),
                         validity.assess(execution.plan(), execution.results(), stagesOf(execution),
                                 ExecutionState.FAILED, FailureReason.INTERRUPTED),
-                        execution.resolvedTarget()))
+                        execution.resolvedTarget(), execution.resolvedLoadGeneratorBudget()))
                 .toList();
         executions.saveAll(failed);
         return failed.size();
@@ -302,9 +325,10 @@ public final class ExecutionService {
 
     /** Begins telemetry sampling, tolerating a collector that cannot start at all. */
     private TelemetryCollector.Session startTelemetry(dev.vortex.core.plan.EffectiveTestPlan plan,
-            ExecutionId id, ResolvedTarget resolvedTarget) {
+            ExecutionId id, ResolvedTarget resolvedTarget,
+            dev.vortex.core.resource.ResolvedLoadGeneratorBudget resolvedLoadGeneratorBudget) {
         try {
-            return telemetry.start(plan, id, resolvedTarget);
+            return telemetry.start(plan, id, resolvedTarget, resolvedLoadGeneratorBudget);
         } catch (RuntimeException e) {
             return TelemetryCollector.Session.empty();
         }

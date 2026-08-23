@@ -11,6 +11,7 @@ let queryResult: { data: Settings | undefined; isError: boolean } = {
 };
 const retryMutate = vi.fn();
 const chooseModelMutate = vi.fn();
+const chooseLoadGeneratorBudgetMutate = vi.fn();
 
 vi.mock('../api/settings', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/settings')>();
@@ -19,6 +20,10 @@ vi.mock('../api/settings', async (importOriginal) => {
     useSettingsQuery: () => queryResult,
     useRetryAiMutation: () => ({ mutate: retryMutate, isPending: false }),
     useChooseModelMutation: () => ({ mutate: chooseModelMutate, isPending: false }),
+    useChooseLoadGeneratorBudgetMutation: () => ({
+      mutate: chooseLoadGeneratorBudgetMutate,
+      isPending: false,
+    }),
   };
 });
 
@@ -51,6 +56,37 @@ function aSettings(overrides: Partial<Settings> = {}): Settings {
       remedy: '',
     },
     workspacePath: '/Users/dev/.vortex',
+    loadGenerator: {
+      configured: { mode: 'automatic', cpuMillicores: null, memoryMebibytes: null },
+      effective: {
+        mode: 'automatic',
+        allocation: { cpuMillicores: 4000, memoryBytes: 4 * 1024 ** 3 },
+        detectedHost: {
+          operatingSystem: 'Mac OS X',
+          osVersion: '15.6',
+          architecture: 'aarch64',
+          availableProcessors: 12,
+          totalMemoryBytes: 32 * 1024 ** 3,
+        },
+        osAndVortexReserve: { cpuMillicores: 1800, memoryBytes: Math.round(3.2 * 1024 ** 3) },
+        sutReserve: { cpuMillicores: 5100, memoryBytes: Math.round(14.4 * 1024 ** 3) },
+        colocatedWithManagedSut: true,
+      },
+      automaticPreview: {
+        mode: 'automatic',
+        allocation: { cpuMillicores: 4000, memoryBytes: 4 * 1024 ** 3 },
+        detectedHost: {
+          operatingSystem: 'Mac OS X',
+          osVersion: '15.6',
+          architecture: 'aarch64',
+          availableProcessors: 12,
+          totalMemoryBytes: 32 * 1024 ** 3,
+        },
+        osAndVortexReserve: { cpuMillicores: 1800, memoryBytes: Math.round(3.2 * 1024 ** 3) },
+        sutReserve: { cpuMillicores: 5100, memoryBytes: Math.round(14.4 * 1024 ** 3) },
+        colocatedWithManagedSut: true,
+      },
+    },
     ...overrides,
   };
 }
@@ -94,7 +130,8 @@ describe('the settings page', () => {
     queryResult = { data: aSettings(), isError: false };
     renderWithProviders(<SettingsPage />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' });
+    await userEvent.click(saveButtons[saveButtons.length - 1]);
     expect(chooseModelMutate).toHaveBeenCalledWith('qwen3:4b', expect.anything());
   });
 
@@ -103,5 +140,56 @@ describe('the settings page', () => {
     renderWithProviders(<SettingsPage />);
 
     expect(screen.getByText('Could not load settings')).toBeInTheDocument();
+  });
+
+  describe('load generator resources', () => {
+    it('shows the automatic allocation computed for this host', () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      expect(screen.getByText('4 cores / 4 GiB')).toBeInTheDocument();
+    });
+
+    it('switching to custom prefills from what automatic would currently choose', async () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Custom' }));
+
+      expect(screen.getByLabelText('CPU')).toHaveValue('4');
+      expect(screen.getByLabelText('Memory')).toHaveValue('4096');
+    });
+
+    it('saves a custom budget as millicores and mebibytes', async () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Custom' }));
+      await userEvent.clear(screen.getByLabelText('CPU'));
+      await userEvent.type(screen.getByLabelText('CPU'), '2');
+      await userEvent.clear(screen.getByLabelText('Memory'));
+      await userEvent.type(screen.getByLabelText('Memory'), '2048');
+
+      const saveButtons = screen.getAllByRole('button', { name: 'Save' });
+      await userEvent.click(saveButtons[0]);
+
+      expect(chooseLoadGeneratorBudgetMutate).toHaveBeenCalledWith(
+        { mode: 'custom', cpuMillicores: 2000, memoryMebibytes: 2048 },
+        expect.anything(),
+      );
+    });
+
+    it('warns, without blocking, when custom leaves little headroom', async () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Custom' }));
+      await userEvent.clear(screen.getByLabelText('CPU'));
+      await userEvent.type(screen.getByLabelText('CPU'), '12');
+
+      expect(
+        screen.getByText('This leaves little headroom for the host and anything else running on it.'),
+      ).toBeInTheDocument();
+    });
   });
 });

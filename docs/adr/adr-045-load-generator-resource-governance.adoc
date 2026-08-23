@@ -1,0 +1,143 @@
+= ADR-045: Load-generator resource governance
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+k6 — Vortex's load generator — ran completely unconstrained. `LocalBinaryK6Runner` spawned a bare
+native process with no resource control; `DockerK6Runner`'s `docker run` never set `--cpus`/
+`--memory`. A generator that runs out of CPU or memory can silently under-deliver the workload it was
+asked to produce, and without governance Vortex had no way to tell that apart from the system under
+test actually being at its limit — the exact failure mode the evidence model exists to prevent.
+
+Investigating this found the situation better than it first appeared. `ResourceScope.LOAD_GENERATOR`/
+`LOAD_GENERATOR_HOST` (ADR-037), `ValidityReason.GENERATOR_SATURATED`/`GENERATOR_HOST_UNDER_PRESSURE`,
+`RunQualityAssessor`'s rules for both, and the result page's rendering of them already existed, fully
+tested, from earlier work. The real gap was narrower: no resource budget was ever configured, so those
+rules had nothing legitimate to compare against — `ObservabilityTelemetryCollector` wired the
+k6-container observability provider with a `null` resource envelope, and nothing on the native path
+supplied one either.
+
+A first implementation pass proposed closing that gap with a new `LimitBasis` constant so an
+unenforced native budget could still populate `ResourceSignal.limit` and let the existing
+`isAtItsLimit()` machinery fire. Review caught that this was wrong: `ResourceLimit`/`LimitBasis`
+(ADR-037) model a ceiling known to be real — published by a provider, inherent to a unit, or Vortex's
+own configuration confirmed applied. An unenforced budget is not that; it is a target the process is
+free to ignore. A load generator using 5 cores against a 4-core *unenforced* budget while still
+delivering the full requested workload with zero dropped iterations is not saturated, and treating it
+as such would have been exactly the distortion ADR-037 exists to prevent.
+
+== Decision
+
+=== A new domain type, reusing existing value types
+
+`LoadGeneratorResourceBudget` (`dev.vortex.core.resource`) — `mode: AUTOMATIC | CUSTOM` plus a
+`ResourceEnvelopeRequest`, the same independently-optional cpu/memory type an `ExecutionTarget`
+already carries for the system under test. `AUTOMATIC` names an intent; it never carries a concrete
+envelope. Resolving one — `LoadGeneratorResourceBudgetResolver`, backed by the existing
+`HostInformation` port — produces a `ResolvedLoadGeneratorBudget`: structured facts (detected host,
+what was reserved for the OS and for a colocated system under test, the resulting allocation), never a
+rendered sentence, so a UI or a report can each say it in their own words from the same numbers.
+
+=== Automatic allocation: a deterministic, conservative formula
+
+`AutomaticLoadGeneratorAllocation` reserves a floor for the OS and Vortex itself (15% of CPU / 10% of
+memory, minimum 1 core / 1 GiB), halves what is left for a colocated, Vortex-managed system under
+test, and caps the generator's share at 4 cores / 4 GiB. Every constant is named and documented as a
+product default subject to empirical tuning, not a derived truth. The formula guarantees a positive
+allocation on any host with at least one core and one byte of memory — the OS reserve is itself capped
+so it can never claim the entire host, because a load generator given zero resources is a worse
+outcome than an optimistic reservation.
+
+=== Persistence: `~/.vortex/config.yaml`, not a new table
+
+The budget is a per-machine, day-to-day setting — the same shape `AiModelPreferenceStore` already
+solved for the AI model choice — not project intent, so it lives beside it rather than in a service's
+`vortex.yaml`: a laptop's conservative numbers must never travel with a shared project file and
+silently apply, unmodified, on a much larger CI box.
+
+=== Settings API: configured, effective, and automaticPreview, never conflated
+
+`GET /api/settings`'s `loadGenerator` distinguishes `configured` (what was saved), `effective` (what
+actually applies right now, given `configured.mode`), and `automaticPreview` (what Automatic would
+choose right now, regardless of the saved mode). Both `effective` and `automaticPreview` are produced
+by the same resolver call — one algorithm, called twice — so `mode = CUSTOM` can never leave a reader
+thinking `effective` silently overrode what was configured.
+
+=== Enforcement: real for Docker, honest about its absence for native
+
+`K6Runner.run(...)` and `PerformanceEngine.execute(...)` both gained a `ResourceEnvelopeRequest`
+parameter, threaded from `ExecutionService.run()` — the budget is resolved exactly once per run,
+immediately after the system under test's target ownership is known (so `AUTOMATIC` can reason about
+colocation), and travels unchanged from there into enforcement, telemetry, and the run's own record.
+
+`DockerK6Runner` applies `--cpus`/`--memory` at `docker run` time and re-confirms them by inspecting
+the container once it has stopped — the same apply-then-confirm discipline `DockerImageTargetExecutor`
+already uses for the system under test. The container is never started with `--rm`: Vortex removes it
+itself, after inspection, because `--rm` would delete the evidence of an out-of-memory kill in the same
+moment it becomes readable. A container whose `State.OOMKilled` comes back true is reported through
+`ProcessOutcome.generatorOomKilled()`, which `K6PerformanceEngine` turns into a specific failure
+message naming the cause — reusing the existing `EngineOutcome`/`FailureReason.ENGINE_FAILED` failure
+path, not a new `ValidityReason`, since a run that never produced a summary is an execution failure,
+not a completed run whose evidence needs qualifying.
+
+`LocalBinaryK6Runner` accepts the same parameter and does nothing with it: no cgroups, no process
+priority, no platform-specific mechanism. `ProcessOutcome.effectiveResources()` is always `null` on
+this path. Native saturation continues to rest entirely on the generator-health evidence Vortex already
+collects — host-relative CPU/memory pressure, dropped iterations, offered-versus-delivered shortfall —
+which needed no change at all to keep working correctly, because it was never wired to a configured
+budget in the first place.
+
+=== `ObservabilityTelemetryCollector`'s null envelope
+
+The one concrete wiring bug: the k6-container observability provider was constructed with
+`resources = null`. It now receives the resolved budget's allocation directly — sound, not a
+shortcut, because `DockerK6Runner` applies and confirms that same request before a run can ever reach
+a completed state, so a limit reported here is never seen disagreeing with what actually took effect.
+
+=== Reproducibility
+
+`TestExecution` gained `resolvedLoadGeneratorBudget`, alongside `resolvedTarget`, persisted via a new
+`resolved_load_generator_budget_json` column (`V6__resolved_load_generator_budget.sql`), following the
+same empty-object-sentinel convention `resolved_target_json` established. A run's evidence records the
+budget it actually used, independent of whatever Settings says today.
+
+== Rejected alternatives
+
+* *A new `LimitBasis` for unenforced native budgets* — rejected on investigation; distorts ADR-037's
+  model of what a ceiling is. See Context above.
+* *Linux cgroups v2 for native execution* — rejected for this pass: platform-inconsistent guarantees
+  (works on Linux, silently would not on macOS/Windows) are worse than uniform, honest
+  non-enforcement, and it is a mechanism Vortex does not otherwise need. `LocalBinaryK6Runner`'s
+  `ResourceEnvelopeRequest` parameter is already the seam a future enforcer would use — nothing here
+  blocks it, and nothing here gives it a false head start.
+* *A second `ValidityReason` for the OOM case* — `GENERATOR_SATURATED` already exists and an OOM kill
+  is its most unambiguous possible evidence, but a run killed before producing a summary is a failed
+  *execution*, not a completed one needing a validity qualification — the existing failure-detail path
+  is the correct mechanism, not a new one.
+* *Kubernetes enforcement* — no execution path exists yet (ADR-040's own "deliberately not done").
+  `CpuAllocation`'s millicores unit is already Kubernetes-portable; nothing here blocks a future
+  `KubernetesExecutionProvider` from translating the same domain type.
+* *A new SQLite `settings` table* — the existing `~/.vortex/config.yaml` precedent already fits, and a
+  new table would be the first one built for a single cohesive value with no query/filter need.
+* *Per-target/per-test resource overrides* — no concrete use case surfaced; Settings-level defaults,
+  snapshotted per run, satisfy every stated requirement.
+
+== Consequences
+
+Positive: a first-time user tunes nothing and gets a conservative, explainable default; an advanced
+user has a real escape hatch; Docker-run generators are now actually bounded and the bound is
+independently confirmed rather than assumed; an out-of-memory generator produces a specific,
+actionable failure message instead of an opaque exit code.
+
+Costs: `PerformanceEngine.execute(...)` and `TelemetryCollector.start(...)` — both core ports — gained
+a parameter each, rippling into every implementation and test double (`K6PerformanceEngine`,
+`FakePerformanceEngine`, `ObservabilityTelemetryCollector`, and every direct `TestExecution`/
+`ExecutionService` construction site across five modules' test suites). Native execution remains
+genuinely unprotected against a runaway generator; only Docker execution is actually bounded. A
+`DockerK6Runner` resource-limit mismatch (a scenario not exercised against a real daemon, since a
+correctly-behaving Docker installation does not disagree with what it was asked to apply) falls
+through to the generic `FailureReason.INTERNAL_ERROR` path rather than a dedicated reason, mirroring
+how genuinely exceptional infrastructure disagreements are already handled elsewhere in this codebase.

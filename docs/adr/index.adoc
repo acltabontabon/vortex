@@ -141,6 +141,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-044-vortex-report-removed.adoc[044]
 | vortex-report removed; PDF export dropped
+
+| xref:adr-045-load-generator-resource-governance.adoc[045]
+| Load-generator resource governance
 |===
 
 == Format

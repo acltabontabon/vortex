@@ -5,6 +5,7 @@ import dev.vortex.core.metrics.MeasuredResults;
 import dev.vortex.core.plan.EffectiveTestPlan;
 import dev.vortex.core.plan.ToolVersions;
 import dev.vortex.core.shared.ExecutionId;
+import dev.vortex.core.target.ResourceEnvelopeRequest;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -41,12 +42,18 @@ public interface PerformanceEngine {
      *
      * @param executionId    identifies the run and its artifact directory
      * @param plan           what to execute
+     * @param loadGeneratorResources the load generator's resolved resource budget for this run —
+     *                       independently optional on each axis, and empty when nothing was
+     *                       configured; an engine that can enforce it does so and reports what it
+     *                       actually applied, one that cannot simply runs unconstrained rather than
+     *                       claiming a limit it cannot guarantee
      * @param progressSink   receives periodic progress; must not block
      * @param cancellation   polled between buckets so a run can be stopped
      * @return the normalised measurements
      */
     EngineOutcome execute(ExecutionId executionId, EffectiveTestPlan plan,
-            Consumer<ExecutionProgress> progressSink, Cancellation cancellation);
+            ResourceEnvelopeRequest loadGeneratorResources, Consumer<ExecutionProgress> progressSink,
+            Cancellation cancellation);
 
     /** Versions of the engine and its runtime, recorded for reproducibility. */
     ToolVersions toolVersions();

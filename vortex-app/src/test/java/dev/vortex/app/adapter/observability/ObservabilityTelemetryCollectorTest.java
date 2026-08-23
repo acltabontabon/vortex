@@ -64,7 +64,7 @@ class ObservabilityTelemetryCollectorTest {
         var collector = new ObservabilityTelemetryCollector(List.of(), slowProvider,
                 ResourceSampleSinkFactory.none(), DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET, null);
         // Waits for the sampler to have actually entered collect() before calling finish() — the
         // race under test is "a sample is in flight", not "the sampler thread hasn't run yet", which
         // is a different, uninteresting race that a plain interrupt() handles fine on its own.
@@ -88,7 +88,7 @@ class ObservabilityTelemetryCollectorTest {
         var collector = new ObservabilityTelemetryCollector(List.of(providerA, providerB), null,
                 ResourceSampleSinkFactory.none(), DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET, null);
         sleep(20);
         TelemetryCollector.Telemetry telemetry =
                 session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
@@ -112,7 +112,7 @@ class ObservabilityTelemetryCollectorTest {
         var collector = new ObservabilityTelemetryCollector(List.of(provider), null,
                 executionId -> recording, DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET, null);
         sleep(20);
         session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
 
@@ -139,7 +139,7 @@ class ObservabilityTelemetryCollectorTest {
         var collector = new ObservabilityTelemetryCollector(List.of(provider), null,
                 executionId -> recording, DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET, null);
         sleep(20);
         var window = new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5));
         TelemetryCollector.Telemetry first = session.finish(window);
@@ -163,7 +163,7 @@ class ObservabilityTelemetryCollectorTest {
         var collector = new ObservabilityTelemetryCollector(manyProviders, null,
                 ResourceSampleSinkFactory.none(), DOCKER_PROCESS, "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET, null);
         sleep(20);
         TelemetryCollector.Telemetry telemetry =
                 session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
@@ -203,7 +203,7 @@ class ObservabilityTelemetryCollectorTest {
                 new EffectiveResourceEnvelope(CpuAllocation.ofMillicores(750),
                         MemoryAllocation.ofMebibytes(256)));
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, resolvedTarget);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, resolvedTarget, null);
         sleep(20);
         TelemetryCollector.Telemetry telemetry =
                 session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
@@ -239,7 +239,7 @@ class ObservabilityTelemetryCollectorTest {
         var collector = new ObservabilityTelemetryCollector(List.of(provider), null,
                 ResourceSampleSinkFactory.none(), new FailingDockerProcess(), "docker");
 
-        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET);
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET, null);
         sleep(20);
         TelemetryCollector.Telemetry telemetry =
                 session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(5)));
