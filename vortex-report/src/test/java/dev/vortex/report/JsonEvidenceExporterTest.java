@@ -158,7 +158,7 @@ class JsonEvidenceExporterTest {
 
             assertThat(provenance.get("engineVersion").asText()).isEqualTo("k6 v1.3.0");
             assertThat(provenance.get("configurationHash").asText()).startsWith("SHA-256:");
-            assertThat(provenance.get("reproductionCommand").asText()).startsWith("vortex run ");
+            assertThat(provenance.get("reproductionCommand").asText()).startsWith("workload ");
             assertThat(provenance.get("generatedAt").asText()).startsWith("2026-08-21T11:00");
         }
     }

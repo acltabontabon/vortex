@@ -655,13 +655,13 @@ public final class RunEvidenceService {
         return providers.isEmpty() ? TelemetryCoverage.none() : new TelemetryCoverage(providers);
     }
 
-    /** The command that would run this test again, for a reader who has the repository. */
+    /** What running this test again requires, for a reader who has the repository. */
     private String reproductionCommand(EffectiveTestPlan plan) {
-        StringBuilder command = new StringBuilder("vortex run ");
-        command.append(plan.workloadName().isBlank() ? "<workload>" : plan.workloadName());
+        StringBuilder description = new StringBuilder("workload ");
+        description.append(plan.workloadName().isBlank() ? "<workload>" : plan.workloadName());
         if (!plan.environmentName().isBlank()) {
-            command.append(" --environment ").append(plan.environmentName());
+            description.append(" against environment ").append(plan.environmentName());
         }
-        return sanitizer.text(command.toString());
+        return sanitizer.text(description.toString());
     }
 }

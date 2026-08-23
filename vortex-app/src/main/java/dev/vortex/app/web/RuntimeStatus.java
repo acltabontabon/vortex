@@ -1,6 +1,6 @@
 package dev.vortex.app.web;
 
-import dev.vortex.app.cli.DoctorReport;
+import dev.vortex.app.readiness.DoctorReport;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -21,8 +21,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>So the trigger is neutral. It names what was counted — {@code 4/5} — and the popover shows
  * each capability with its own state and its own remedy. The only judgement it makes is the one
- * {@link DoctorReport#isReady(List)} already makes and the {@code doctor} command already exits on:
- * whether everything Vortex <em>requires</em> is present. Nothing here is coloured by an optional
+ * {@link DoctorReport#isReady(List)} already makes: whether everything Vortex <em>requires</em> is
+ * present. Nothing here is coloured by an optional
  * tool being absent, because absent optional tools are not a problem.
  *
  * <p>Whether a particular service can be reached is a different question with a different answer

@@ -124,10 +124,10 @@ class ReproducibleEvidenceTest {
         }
 
         @Test
-        @DisplayName("and a command that names the experiment rather than the run")
+        @DisplayName("and a description that names the experiment rather than the run")
         void carriesAReproductionCommand() {
             assertThat(provenance.reproductionCommand())
-                    .startsWith("vortex run ")
+                    .startsWith("workload ")
                     .contains(Fixtures.plan().workloadName());
         }
     }

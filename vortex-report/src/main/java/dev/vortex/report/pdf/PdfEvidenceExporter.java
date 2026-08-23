@@ -661,7 +661,7 @@ public final class PdfEvidenceExporter implements EvidenceExporter {
         for (String query : provenance.evidenceQueries()) {
             row(table, "Query", query);
         }
-        row(table, "Command", provenance.reproductionCommand());
+        row(table, "Reproduce", provenance.reproductionCommand());
         row(table, "Generated", TIMESTAMP.format(provenance.generatedAt()));
         document.add(table);
     }

@@ -3,7 +3,12 @@
 == Status
 
 Accepted, and implemented in slice 4.5 of
-xref:../01-product/roadmap.adoc[Phase 4 — HTTP foundation hardening].
+xref:../01-product/roadmap.adoc[Phase 4 — HTTP foundation hardening]. The `ExitCode` mechanism
+described below was removed with the CLI — see
+xref:adr-043-cli-and-ci-surface-removed.adoc[ADR-043]. The principle it implemented (fail closed on
+invalidity, never merely because more evidence would have been nice) stands; only the CLI's exit
+code as the vehicle for it is gone. The web UI reports the same distinction by never presenting an
+invalid run as a pass.
 
 Four things were settled during implementation. Each is a place where the decision as written would
 otherwise have quietly failed to hold.

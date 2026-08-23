@@ -80,17 +80,7 @@ Which build of *your service* these results describe — not the Vortex version.
 A run that cannot name its build can still be read, but it cannot be compared with the next one:
 "p95 rose by 20%" says nothing useful without knowing what changed between the two runs.
 
-Precedence, highest first:
-
-[source,bash]
-----
-vortex run peak . --service-version "$GIT_SHA"   # 1. the command line
-                                                 # 2. service.version, below
-                                                 # 3. absent
-----
-
-A pipeline normally uses the flag, so the value follows the commit actually checked out rather than
-whatever was last committed to this file. Absent stays absent — Vortex will not substitute
+Set from `service.version`, below, or left absent. Absent stays absent — Vortex will not substitute
 "unknown", because a placeholder that looks like a version is worse than an admitted gap.
 
 The release is deliberately *not* part of experiment identity: two runs of the same experiment

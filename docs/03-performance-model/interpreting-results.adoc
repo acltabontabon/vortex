@@ -277,7 +277,8 @@ from data that does not exist would send you somewhere else entirely.
 == Reproduction details
 
 Under "raw evidence": the execution id, the plan fingerprint, the versions of Vortex, k6 and the
-Java runtime, the artifact directory, and the command line that would run the same test again.
+Java runtime, the artifact directory, and the workload and environment that would reproduce this
+run.
 
 Two runs with the same plan fingerprint tested the same thing. That is what makes a regression
 comparison meaningful rather than arithmetic.

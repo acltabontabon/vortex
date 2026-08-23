@@ -392,7 +392,7 @@ public final class MarkdownEvidenceExporter implements EvidenceExporter {
         var versions = provenance.toolVersions();
 
         out.append("<details>\n<summary>Reproducing this run</summary>\n\n");
-        out.append("```\n").append(provenance.reproductionCommand()).append("\n```\n\n");
+        out.append(provenance.reproductionCommand()).append("\n\n");
         field(out, "Run", evidence.identity().executionId().value());
         field(out, "Vortex", versions.vortexVersion());
         field(out, "Engine", versions.engineVersion());

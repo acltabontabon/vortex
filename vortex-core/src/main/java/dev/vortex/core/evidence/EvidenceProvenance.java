@@ -23,7 +23,7 @@ import java.util.Optional;
  * @param evidenceQueries  the observability queries that were issued, for a reader who wants to
  *                         re-run them
  * @param generatedAt      when this document was produced, which is not when the run happened
- * @param reproductionCommand the command line that would run this test again
+ * @param reproductionCommand what running this test again requires — the workload and environment
  * @param secretReferences  the environment variables the run depended on, by name only.
  *                          Masking a header costs a reader the one thing they need to run the
  *                          test again; naming the variable gives it back, and a name is not a

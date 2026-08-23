@@ -89,9 +89,7 @@ The configured workload was sustained (99% delivered).
 <details>
 <summary>Reproducing this run</summary>
 
-```
-vortex run average_load --environment local
-```
+workload average_load against environment local
 
 **Run:** a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6  
 **Vortex:** 0.1.0  

@@ -377,13 +377,10 @@ question rather than by showing a chart.
 
 | Evidence export — JSON, Markdown, PDF
 | Working. `evidence.json` and `report.md` are written into every completed run's directory; all
-  three are downloadable from the result page and from `vortex export`
+  three are downloadable from the result page
 
 | AI: workload explanation, result interpretation
 | Working, optional
-
-| CLI: `doctor`, `validate`, `run --headless`
-| Working
 
 | Native image
 | Configured, *not verified*

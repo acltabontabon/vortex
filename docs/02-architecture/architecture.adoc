@@ -12,7 +12,6 @@ architectural cosplay.
 ----
 flowchart TB
     UI[Web interface<br/>React · Mantine] --> CORE
-    CLI[Command line<br/>doctor · validate · run] --> CORE
 
     CORE["<b>vortex-core</b><br/>domain · application services · ports<br/>deterministic calculators<br/><i>zero framework dependencies</i>"]
 
@@ -37,9 +36,9 @@ anything remote. Remote and distributed execution (<<remote-execution,below>>) i
 separate path the Workbench can choose instead; it adds new components rather than extending this
 one, and none of them sit underneath local execution.
 
-Both front ends — the web UI and the CLI — call the same application services. That is not
-incidental: a tool whose CI mode is a separate implementation will eventually disagree with its
-interactive mode about whether a build passed, and by then nobody will trust either.
+The web UI calls the application services directly, with no separate implementation standing in
+for it — the interface that is not being run and verified is the one that quietly disagrees with
+the one that is.
 
 Storage follows the same discipline as everything else here: `vortex.yaml` is the portable test
 intent and belongs in the service's own repository, `~/.vortex/vortex.db` is a local index, and
@@ -95,7 +94,7 @@ without benefit, and the friction is paid on every change forever.
 | OpenPDF
 
 | `vortex-app`
-| Composition root, web UI, CLI, SSE, small adapters
+| Composition root, web UI, SSE, small adapters
 | Spring Boot
 
 | `vortex-demo-service`
@@ -218,9 +217,6 @@ If Vortex ever consolidates into fewer Maven modules, Modulith becomes the right
 | A page
 | `vortex-app/web`
 
-| A CLI command
-| `vortex-app/cli`
-
 | A migration
 | `vortex-persistence/resources/db/migration`
 
@@ -290,7 +286,7 @@ abstract factories.
 
 `vortex-core` has no knowledge of who calls through these ports — enforced by ArchUnit and by the
 absence of any web dependency in that module. The same application services execute behind the
-web UI, the CLI, and whatever comes next; the two lifecycles those services drive — a
+web UI and whatever comes next; the two lifecycles those services drive — a
 deterministic execution state machine that is never blocked by AI, and a separate analysis
 resource layered on top once a run already has a verdict — are described in full in
 xref:execution-and-evidence.adoc[], along with the evidence hierarchy (raw evidence through
@@ -1114,6 +1110,6 @@ architecture for].
 
 == Where the UI sits
 
-The web interface is one adapter among several, calling the same application services as the CLI.
+The web interface calls application services directly, with nothing standing between the two.
 Its structure — the app shell, the service-centric workspace, the command palette, how pages map
 to routes — is its own concern and is covered in xref:interface.adoc[].

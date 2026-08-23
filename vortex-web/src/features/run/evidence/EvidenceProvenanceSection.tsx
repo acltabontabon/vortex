@@ -14,7 +14,7 @@ import classes from './EvidenceProvenanceSection.module.css';
 /**
  * "Why does Vortex believe this" — every audit-level detail the old page scattered through the main
  * reading path, grouped and collapsed here instead: workload configuration, what telemetry was
- * consulted and what wasn't, the tool versions and reproduction command, the load axis, and the raw
+ * consulted and what wasn't, the tool versions and how to reproduce the run, the load axis, and the raw
  * sample table. Nothing here is new data; it is the same fields the old page always sent, reorganized
  * so they no longer sit between a reader and the conclusion.
  */
@@ -147,7 +147,7 @@ export function EvidenceProvenanceSection({
 
         <details className={shared.disclosure}>
           <summary>Reproduction</summary>
-          <Text size="xs" c="dimmed" style={{ fontFamily: 'var(--mantine-font-family-monospace)' }}>
+          <Text size="xs" c="dimmed">
             {provenance.reproductionCommand}
           </Text>
         </details>

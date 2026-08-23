@@ -86,8 +86,9 @@ measured and what it merely computed, and then holding that line in the evidence
   observed alongside the degradation, not shown to have produced it.
 
 Still to come: a remote and distributed execution path for the runs that outgrow one machine (Phase
-5), and deciding whether a change in this evidence should stop a pipeline (Phase 6). Keeping the second of
-those out of Phase 3 is deliberate — producing the evidence and acting on it are different problems.
+5), and, optionally and later, deciding whether a change in this evidence should stop a pipeline
+(<<automation-ci-quality-gates,Automation / CI quality gates>>). Keeping the second of those out of
+Phase 3 is deliberate — producing the evidence and acting on it are different problems.
 
 The destination is defensible capacity evidence, not charts. Vortex keeps what it needs to explain its
 own conclusion and a way back to the system that measured it. For trace exploration, arbitrary queries
@@ -118,7 +119,7 @@ of resource they are, whose it is, and the limit they were measured against, so 
 can no longer be mistaken for a saturated machine. Vortex observes its own host, so "the service
 could not go faster" and "we could not ask faster" are different answers. Every completed run carries
 a `RunQuality` with reason codes that each cite a measurement; an invalid run keeps every number it
-took and states which claims it cannot support, and a pipeline sees exit code 5. Four limits are
+took and states which claims it cannot support, and is never reported as a pass. Four limits are
 reported separately, sustainable capacity is the headline, and headroom is computed from it._
 
 *This phase was a gate, not a list.* Every phase before it was useful on its own and none blocked the
@@ -391,22 +392,13 @@ Eligibility is scoped to what the degradation actually undermines:
 | Anything resting on telemetry correlation
 |===
 
-Wired into capacity, headroom, per-code regression-baseline eligibility, and a new
-`ExitCode 5 — evidence not valid` so a pipeline fails closed when Vortex cannot tell:
+Wired into capacity, headroom, and per-code regression-baseline eligibility, so an invalid run is
+never reported as though it had passed.
 
-----
-0   all objectives met
-1   tool failure
-2   objective violated
-3   configuration or preflight failed
-4   cancelled
-5   evidence not valid  ← new
-----
-
-*Invalidity fails closed* — a pipeline that green-lights a deploy on a run which never generated the
-load it asked for is the exact outcome this concept exists to prevent. *Degradation does not* — the
-verdict decides the exit code and the qualification is printed beside it; failing a build because
-telemetry was incomplete would train teams to stop collecting telemetry. `RunQuality` is not a
+*Invalidity fails closed* — a result that reads as a pass on a run which never generated the load it
+asked for is the exact outcome this concept exists to prevent. *Degradation does not* — the verdict
+stands and the qualification is shown beside it; treating incomplete telemetry as a failure would
+train teams to stop collecting telemetry. `RunQuality` is not a
 heuristic health score (no blended number, no letter grade), not a replacement for the verdict
 (validity says whether the experiment happened correctly, the verdict says whether the service met
 its objectives — both appear, neither is derived from the other), and not a way to hide bad results
@@ -550,8 +542,8 @@ Concrete and testable. Each criterion is a thing a test can assert, not a thing 
   none of them says so.
 . *Sustainable capacity.* Reported as the headline with every one of its five conditions
   individually evaluated, refused with a reason when any is unmet, and used as headroom's numerator.
-. *Pipeline behaviour.* An invalid run exits `5`; a degraded run exits on its verdict with the
-  qualification printed. Both asserted.
+. *Validity reporting.* An invalid run is never reported as passed; a degraded run reports its
+  verdict with the qualification shown alongside it. Both asserted.
 . *No fabrication.* With resource telemetry absent, a run produces a valid capacity conclusion and no
   limiting-resource claim. Asserted, not assumed.
 . *Provenance.* An `evidence.json` copied to another machine six months later states the Vortex and
@@ -585,10 +577,10 @@ Deciding whether a generator was the limiting system is materially harder once i
 building either stage before `RunQuality` and the four limits exist would mean building that
 reasoning twice: once for a host, once for a worker fleet.
 
-*Continuous performance engineering (Phase 6)* puts a verdict in a pipeline. A gate that fails a
-build on a run whose validity nobody assessed is a gate that will be switched off within a month.
-Automated regression detection in particular should consume run quality, capacity movement and
-efficiency deltas — all of which are P0 and P1 here.
+*Automation / CI quality gates*, if and when they are built, put a verdict in a pipeline. A gate
+that fails a build on a run whose validity nobody assessed is a gate that will be switched off
+within a month. Automated regression detection in particular should consume run quality, capacity
+movement and efficiency deltas — all of which are P0 and P1 here.
 
 *Asynchronous workload testing (Phase 7)* is the phase this gate most directly protects. Its evidence
 model reuses telemetry, resource observation, validity, saturation, capacity and provenance
@@ -798,19 +790,36 @@ execution multiplies execution capacity, and it multiplies bad evidence exactly 
 evidence semantics underneath it are still wrong. See <<deferred-behind-the-gate,deferred behind the
 gate>>, above.
 
-== Phase 6 — Continuous performance engineering 🔜
+[[automation-ci-quality-gates]]
+== Optional — Automation / CI quality gates 🔜
 
-* *A fully portable project.* `vortex run <workload> <path>` already adopts a committed
-  `vortex.yaml` on a machine that has never run Vortex, which is what a pipeline does. The review
-  state of mutating operations is now committed with it — an approval visible in a pull request is
-  stronger evidence than a click in somebody's browser. What remains local is the API description
-  itself, so a fresh checkout can resolve workloads and objectives but cannot yet resolve the
-  operations they name. Closing this means making the specification reference committable too.
-* CI templates (GitLab, GitHub Actions)
-* Performance gates on the documented exit codes
-* Automated regression detection across releases, on the capacity evidence Phase 3 records
-* Scheduled runs
-* Team dashboards and cross-service comparison
+Vortex today is the Workbench alone — see
+xref:../adr/adr-043-cli-and-ci-surface-removed.adoc[ADR-043]. Everything below is explicitly
+optional future work, not a committed next phase: it returns only once the execution and evidence
+model underneath it has stopped moving, and only as an addition alongside the Workbench, never as a
+second interface it has to stay in sync with.
+
+The shape it would take, at a high level:
+
+----
+CI/CD  →  Vortex Coordinator  →  controlled execution  →  evidence  →  quality-gate result
+----
+
+A CI/CD system would talk to a Vortex Coordinator (xref:../adr/adr-040-vortex-coordinator-for-remote-execution.adoc[ADR-040]) —
+not to a revived CLI, and not to `vortex-core` directly — which runs the workload under its own
+control and hands back the same evidence model the Workbench already renders. The gate reads that
+evidence; it does not reimplement evaluation.
+
+What that would eventually make possible, once designed:
+
+* A fully portable project, so a pipeline checkout with no prior Vortex history can resolve and run
+  a committed `vortex.yaml` unattended.
+* Performance gates on the run's verdict.
+* Automated regression detection across releases, on the capacity evidence Phase 3 records.
+* Scheduled runs, and team dashboards across services.
+
+None of this is designed or implemented yet — the mechanism, its interface and its authentication
+model are future work, tracked here rather than assumed.
 
 == Phase 7 — Asynchronous workload testing 🔜
 

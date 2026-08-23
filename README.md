@@ -51,7 +51,6 @@ traffic recorder, or a guarantee of production capacity. See
 ```mermaid
 flowchart TB
   UI[Web interface] --> CORE
-  CLI[Command line] --> CORE
   CORE[Vortex core<br/>modelling · safety · evaluation] --> OAI[OpenAPI import]
   CORE --> K6A[k6 adapter]
   CORE --> PER[Local storage]
@@ -93,35 +92,9 @@ Vortex listens on <http://127.0.0.1:7717> — the loopback address only. It gene
 behalf and has no authentication, so exposing it to a network is a deliberate decision, not a
 default. See [docs/02-architecture/security.adoc](docs/02-architecture/security.adoc).
 
-Not sure whether your machine is ready? The same binary is the command line:
-
-```bash
-./mvnw -pl vortex-app -am package -DskipTests
-java -jar vortex-app/target/vortex.jar doctor
-```
-
-```
-Vortex Doctor
-
-  Java             ✓  25.0.3 (Java HotSpot(TM) 64-Bit Server VM)
-  Load generator   ✓  k6 v2.2.0 (commit/devel, go1.26.5, darwin/arm64)
-  Workspace        ✓  /Users/you/.vortex
-  Docker           ✓  Docker version 28.0.4, build b8034c0
-  Local AI         ○  Ollama was not detected at http://localhost:11434.
-
-Optional — Local AI
-  Vortex works fully without it — onboarding, workload configuration, execution,
-  threshold evaluation, history and reports are all unaffected. AI only adds
-  interpretation on top of results that already exist.
-
-  To enable it: install Ollama from https://ollama.com, then start it with 'ollama serve'.
-
-Vortex is ready to run tests.
-```
-
+Not sure whether your machine is ready? The top bar shows what Vortex can currently do — Java, the
+load generator, the workspace, Docker and a local model, each with its own state and its own remedy.
 Anything optional that is missing gets that treatment: what you lose, and what to do about it.
-`doctor` exits `0` when everything *required* is present, and `3` when it is not — so it is
-usable as a CI precondition.
 
 ---
 
@@ -223,10 +196,10 @@ against different builds are the comparison, not an incomparable pair. See
 [experiment identity](docs/02-architecture/execution-and-evidence.adoc#experiment-identity).
 
 **The test definition is portable.** What to test is written to `.vortex/vortex.yaml` in your
-service's repository. Commit it, review it in a pull request, and point Vortex straight at the
-directory — `vortex run production-peak ./checkout-service` adopts it without modifying the file. That includes
-the human review that gates mutating operations: an approval visible in a pull request is stronger
-evidence than a click in somebody's browser.
+service's repository. Commit it, review it in a pull request, and point Vortex at the checkout —
+it adopts the existing file without modifying it. That includes the human review that gates
+mutating operations: an approval visible in a pull request is stronger evidence than a click in
+somebody's browser.
 
 A dataset can travel with it too, if you say so: an uploaded file stays on your machine by default,
 and committing it alongside the service is a separate action that names the exact file it will write
@@ -263,65 +236,7 @@ discarded before anyone sees it, and the gap is reported as missing telemetry in
 
 **Vortex is fully usable with no model at all.** Onboarding, configuration, execution, threshold
 evaluation, breakpoints, history, comparison and reports all work without one. AI is enrichment,
-never the critical path — which is also why `vortex run peak --headless` finishes deterministically
-in a pipeline that has never heard of Ollama.
-
----
-
-## From the command line
-
-The jar is the CLI. Put it on your `PATH` as `vortex`, or invoke it directly:
-
-```bash
-java -jar vortex-app/target/vortex.jar doctor
-java -jar vortex-app/target/vortex.jar validate examples/checkout-service
-java -jar vortex-app/target/vortex.jar run peak --headless              # the local project
-java -jar vortex-app/target/vortex.jar run peak ./checkout-service      # adopt a committed config
-java -jar vortex-app/target/vortex.jar compare --previous <run>         # against the last compatible run
-java -jar vortex-app/target/vortex.jar export <run> --format pdf        # a report from a past run
-```
-
-In a pipeline, name the build you are testing:
-
-```bash
-vortex run peak . --service-version "$GIT_SHA" --headless
-```
-
-Without it a run can still be read but not compared — "p95 rose 20%" means nothing if nobody
-recorded what changed between the two runs. `--service-version` overrides `service.version` in
-`vortex.yaml`, so the value follows the commit actually checked out.
-
-A run against a shared or production-like environment needs the environment named back:
-
-```bash
-vortex run peak . --confirm staging
-```
-
-Without it, no traffic is generated and Vortex prints the exact flag that would allow it. The web
-interface makes a person type the environment name; requiring the same on the command line is what
-stops a pipeline generating load somewhere nobody agreed to.
-
-To keep the result as a build artifact, ask for it:
-
-```bash
-vortex run peak . --service-version "$GIT_SHA" --export pdf,json --headless
-```
-
-Every completed run already writes `evidence.json` and `report.md` into its own directory under
-`~/.vortex/executions/`, so the artifact directory is self-describing without asking. `--export`
-additionally writes the named formats into the working directory, and can never change the exit
-code — a pipeline's gate reflects the service's performance, not the report generator's mood.
-
-Exit codes are a contract, because continuous integration must be able to tell a performance
-regression apart from a broken tool:
-
-| Code | Meaning |
-|-----:|---------|
-| `0` | completed, every objective met |
-| `1` | Vortex itself failed |
-| `2` | completed, an objective was violated |
-| `3` | configuration or preflight failed, no traffic generated |
-| `4` | cancelled |
+never the critical path.
 
 ---
 
@@ -354,9 +269,12 @@ absent is
 [documented as absent](docs/01-product/roadmap.adoc) rather than stubbed out.
 
 Notably **not yet done**: distributed execution through the k6 Operator, observability integrations
-beyond a service's own metrics endpoint, scheduled runs, and CI templates. The abstractions those
-will sit behind exist and are exercised by real implementations, but the implementations themselves
-are future work.
+beyond a service's own metrics endpoint, and scheduled runs. The abstractions those will sit behind
+exist and are exercised by real implementations, but the implementations themselves are future work.
+
+The web interface is the only supported way to run Vortex today — a scriptable/headless entry point
+and CI integration are an explicitly optional future capability, not a maintained second interface;
+see [the roadmap](docs/01-product/roadmap.adoc).
 
 Native compilation is configured but **has not been verified on any machine** — see
 [docs/02-architecture/architecture.adoc](docs/02-architecture/architecture.adoc#native-image) for exactly what remains.

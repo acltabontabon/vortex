@@ -198,7 +198,7 @@ function anEvidence(overrides: Partial<Run['evidence']> = {}): NonNullable<Run['
       configurationHash: 'abc123',
       secretReferences: [],
       artifactDirectory: '/tmp/exec-1',
-      reproductionCommand: 'vortex run capacity-check',
+      reproductionCommand: 'workload capacity-check',
       hasArtifacts: false,
       artifactNames: [],
     },

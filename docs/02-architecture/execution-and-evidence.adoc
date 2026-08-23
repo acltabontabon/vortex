@@ -285,8 +285,8 @@ xref:../adr/adr-038-run-quality-grades-the-experiment.adoc[ADR-038].
 An invalid run stores and renders exactly what a valid one does — the raw stream, the percentiles,
 the telemetry, the artifacts. What changes is what Vortex is willing to *state*: capacity is not
 quoted, headroom is refused with its reason, no capacity observation enters the record, and the run
-is not offered as a regression baseline. A pipeline sees exit code `5`. Degradation does not change
-the exit code; the verdict decides it and the qualification is printed beside it.
+is not offered as a regression baseline. It is never reported as though it had passed. Degradation
+does not change that — the verdict stands and the qualification is shown beside it.
 
 === Execution environment, a future provenance extension
 

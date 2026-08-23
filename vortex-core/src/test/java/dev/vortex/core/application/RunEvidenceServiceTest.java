@@ -118,7 +118,7 @@ class RunEvidenceServiceTest {
             var provenance = evidence.provenance();
             assertThat(provenance.schemaVersion()).isEqualTo(EvidenceProvenance.SCHEMA_VERSION);
             assertThat(provenance.generatedAt()).isEqualTo(GENERATED_AT);
-            assertThat(provenance.reproductionCommand()).startsWith("vortex run ");
+            assertThat(provenance.reproductionCommand()).startsWith("workload ");
             assertThat(provenance.artifactDirectory()).isEqualTo("/tmp/executions/exec1");
             assertThat(provenance.artifactNames()).contains("plan.json");
         }

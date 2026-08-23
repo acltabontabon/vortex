@@ -1,4 +1,4 @@
-package dev.vortex.app.cli;
+package dev.vortex.app.readiness;
 
 import dev.vortex.core.port.LocalLab;
 import dev.vortex.core.port.PerformanceAssistant;
@@ -52,7 +52,7 @@ public class DoctorReport {
             return status == Status.OK;
         }
 
-        /** The symbol used in terminal output. */
+        /** The symbol shown alongside this check. */
         public String mark() {
             return switch (status) {
                 case OK -> "✓";

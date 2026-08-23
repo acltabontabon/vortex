@@ -2,7 +2,9 @@
 
 == Status
 
-Accepted
+Accepted; amended by xref:adr-043-cli-and-ci-surface-removed.adoc[ADR-043] — the CLI and CI surface
+described here was removed. The underlying principle (one implementation of what running a test
+means, callable without web-only state) stands and now applies to the web UI alone.
 
 == Context
 
@@ -26,3 +28,9 @@ verdict from the same definition.
 servlet types in signatures.
 
 *Enforced by:* ArchUnit — the domain must not depend on web technology.
+
+== Amendment (ADR-043)
+
+The CLI and its exit-code contract with continuous integration were removed. See
+xref:adr-043-cli-and-ci-surface-removed.adoc[ADR-043] for why, and for what returns later and under
+what conditions.

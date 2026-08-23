@@ -30,7 +30,6 @@ import dev.vortex.core.shared.ExecutionId;
 import dev.vortex.core.shared.ProjectId;
 import dev.vortex.k6.K6PerformanceEngine;
 import dev.vortex.persistence.JsonDocuments;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -44,14 +43,11 @@ import org.springframework.stereotype.Service;
 /**
  * Turns "run the production-peak workload" into a completed, evaluated, recorded test.
  *
- * <p>Used identically by the web interface and the command line. The web interface starts a run on
- * a background thread and streams progress; the command line blocks and prints. Neither has its own
- * notion of what running a test means.
+ * <p>The web interface starts a run on a background thread and streams progress.
  *
  * <p>The sequence is deliberate: resolve the plan, snapshot it, check safety, run, collect, evaluate,
- * record capacity. AI is not part of it. A run is complete and has a verdict before any model is
- * consulted, which is what makes {@code vortex run peak} usable in a pipeline that has never heard
- * of Ollama.
+ * record capacity. AI is not part of it — a run is complete and has a verdict before any model is
+ * consulted.
  */
 @Service
 public class TestRunner {
@@ -219,111 +215,6 @@ public class TestRunner {
         }
     }
 
-    /**
-     * What a command-line run needs beyond the project itself.
-     *
-     * @param serviceVersion the release under test, overriding the configured value; blank to use it
-     * @param confirmations  values supplied to satisfy typed safety challenges, one per
-     *                       {@code --confirm}
-     */
-    public record RunRequest(
-            ProjectId projectId,
-            String workloadName,
-            String environmentName,
-            String serviceVersion,
-            List<String> confirmations) {
-
-        public RunRequest {
-            serviceVersion = serviceVersion == null ? "" : serviceVersion.trim();
-            confirmations = confirmations == null ? List.of() : List.copyOf(confirmations);
-        }
-    }
-
-    /**
-     * Runs a workload end to end, as the command line does.
-     *
-     * @param onPreflight receives the report before any traffic is generated, so a caller can show
-     *                    what is about to happen. The web interface renders this as a screen; the
-     *                    command line prints a summary. Neither has its own idea of what was checked.
-     */
-    public Outcome runToCompletion(RunRequest request, Consumer<PreflightReport> onPreflight,
-            Consumer<ExecutionProgress> progressSink) {
-
-        ProjectId projectId = request.projectId();
-        String workloadName = request.workloadName();
-        String environmentName = request.environmentName();
-
-        EffectiveTestPlan plan = resolve(projectId, workloadName, environmentName, null, List.of(),
-                request.serviceVersion());
-        PreflightReport report = preflight.check(plan);
-        onPreflight.accept(report);
-
-        if (!report.canRun()) {
-            List<String> problems = new ArrayList<>();
-            report.failures().forEach(check -> problems.add(
-                    check.name() + ": " + check.detail()
-                            + (check.remedy().isBlank() ? "" : " — " + check.remedy())));
-            report.safety().blocking().forEach(finding -> problems.add(
-                    finding.title() + " — " + finding.detail()));
-            return new Outcome(null, true, false, problems, "");
-        }
-
-        // A typed challenge is the strongest gate Vortex has, and it is the one that matters most
-        // where nobody is watching. The web interface makes a person type the environment name; the
-        // command line requires the same value as --confirm rather than accepting the fact that
-        // somebody ran the command, because in a pipeline nobody did.
-        List<String> unmet = unmetChallenges(report, request.confirmations());
-        if (!unmet.isEmpty()) {
-            return new Outcome(null, true, false, unmet, "");
-        }
-
-        // Remaining warnings — a mutating operation, a production-looking hostname — are
-        // acknowledged rather than challenged, and the acknowledgement is recorded on the plan so
-        // the artifact says what was accepted.
-        if (report.requiresConfirmation()) {
-            List<SafetyDecision> decisions = report.safety().warnings().stream()
-                    .map(finding -> new SafetyDecision(finding.policyId(),
-                            finding.title(), clock.now()))
-                    .toList();
-            plan = resolve(projectId, workloadName, environmentName, null, decisions,
-                    request.serviceVersion());
-        }
-
-        TestExecution created = create(plan);
-        TestExecution finished = execute(created.id(), progressSink);
-
-        return new Outcome(finished,
-                false,
-                finished.state() == dev.vortex.core.execution.ExecutionState.CANCELLED,
-                List.of(),
-                artifacts.directoryFor(finished.id()));
-    }
-
-    /**
-     * The challenges this run requires that the caller did not supply.
-     *
-     * <p>Phrased as instructions rather than as a refusal, because the caller is usually a pipeline
-     * definition somebody has to edit: knowing the exact flag to add is the whole of what they need.
-     *
-     * <p>Matching is exact. A challenge exists to make the operator name the thing they are about to
-     * do, and accepting a near-miss would turn it back into "Are you sure?".
-     */
-    private List<String> unmetChallenges(PreflightReport report, List<String> supplied) {
-        List<String> unmet = new ArrayList<>();
-        for (String challenge : report.safety().requiredChallenges()) {
-            if (!supplied.contains(challenge)) {
-                unmet.add("This run needs an explicit confirmation that was not given. "
-                        + "Re-run it with:  --confirm " + challenge);
-            }
-        }
-        if (!unmet.isEmpty()) {
-            report.safety().warnings().stream()
-                    .filter(finding -> finding.requiresTypedConfirmation())
-                    .forEach(finding -> unmet.add(finding.title() + " — " + finding.detail()));
-        }
-        return unmet;
-    }
-
     /** Asks a running execution to stop. */
     public boolean cancel(ExecutionId executionId) {
         AtomicBoolean flag = cancellations.get(executionId.value());
@@ -425,24 +316,6 @@ public class TestRunner {
                     environment.dependencyMode(), environment.classification(), Map.of(), Map.of(),
                     RunnerKind.LOCAL_BINARY, ScriptSource.GENERATED, List.of(), null,
                     dev.vortex.core.validity.ValidityPolicy.defaults(), "");
-        }
-    }
-
-    /**
-     * What a command-line run produced.
-     *
-     * @param execution         the finished run, when one happened
-     * @param preflightFailed   checks failed, so no traffic was generated
-     * @param cancelled         a person stopped it
-     * @param problems          what went wrong, phrased so a user can act
-     * @param artifactDirectory where the evidence was written
-     */
-    public record Outcome(TestExecution execution, boolean preflightFailed, boolean cancelled,
-            List<String> problems, String artifactDirectory) {
-
-        public Outcome {
-            problems = problems == null ? List.of() : List.copyOf(problems);
-            artifactDirectory = artifactDirectory == null ? "" : artifactDirectory;
         }
     }
 }

@@ -27,7 +27,6 @@ Or as a jar:
 ```bash
 ./mvnw -pl vortex-app -am package -DskipTests
 java -jar vortex-app/target/vortex.jar
-java -jar vortex-app/target/vortex.jar doctor      # the CLI is the same binary
 ```
 
 ## Architecture in one page
@@ -128,11 +127,12 @@ verified by hand:
 
 ```bash
 ollama serve
-java -jar vortex-app/target/vortex.jar doctor    # Local AI should report a model
+./mvnw -pl vortex-app spring-boot:run
 ```
 
-Then request an analysis from the Result page, stop Ollama, and request another — the verdict and
-every measured number must be identical either way.
+Open the app — the top bar's readiness status should report a model. Then request an analysis from
+the Result page, stop Ollama, and request another — the verdict and every measured number must be
+identical either way.
 
 ## Common tasks
 
@@ -214,12 +214,6 @@ See [ADR-028](docs/adr/adr-028-run-evidence-is-a-first-class-model.adoc).
 The section belongs in `core.evidence` and in a fragment in `templates/evidence.html`. The result
 page and the printable report both compose those fragments, and the three exporters read the same
 model, so a section added in one place appears everywhere and cannot disagree with itself.
-
-### Adding a CLI command
-
-Add it to `VortexCommandRunner`. Exit codes are a contract with continuous integration
-([ExitCode](vortex-app/src/main/java/dev/vortex/app/cli/ExitCode.java)) — changing one is a breaking
-change.
 
 ### Building a native image
 

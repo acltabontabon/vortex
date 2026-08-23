@@ -19,7 +19,6 @@ way it is, not just what it does.
 ./mvnw -pl vortex-core test                # tests for one module
 ./mvnw -pl vortex-core test -Dtest=ClassName#methodName   # a single test
 ./mvnw -pl vortex-app -am package -DskipTests             # build the runnable jar
-java -jar vortex-app/target/vortex.jar doctor             # check local machine readiness
 ./mvnw -pl vortex-app spring-boot:run      # run Vortex on 127.0.0.1:7717
 ./mvnw -pl vortex-demo-service spring-boot:run             # sample service (has a deliberate bottleneck) on :8080
 make help                                  # same targets as convenience wrappers
@@ -66,7 +65,7 @@ vortex-ai           assistant, prompts, response handling (quarantines Spring AI
 vortex-persistence  SQLite, Flyway migrations, repositories, artifacts, vortex.yaml (quarantines
                     sqlite-jdbc, Flyway, YAML)
 vortex-report       evidence exporters: JSON, Markdown, PDF (quarantines OpenPDF)
-vortex-app          composition root: web (React SPA, served over a JSON API), CLI, SSE, small
+vortex-app          composition root: web (React SPA, served over a JSON API), SSE, small
                     adapters (Docker, Actuator, HTTP probe) — the only module depending on Spring Boot
 vortex-demo-service sample service with a deliberate, documented bottleneck for demos/tests
 vortex-web          React + TypeScript + Mantine SPA, built by Vite, compiled into
@@ -76,8 +75,8 @@ vortex-web          React + TypeScript + Mantine SPA, built by Vite, compiled in
 Everything external to the domain sits behind a port in `dev.vortex.core.port` (`PerformanceEngine`,
 `PerformanceAssistant`, `ObservabilityProvider`, `ProductionObservationSource`,
 `TelemetryCollector`, `ServiceCatalogImporter`, `ConfigurationStore`, `ArtifactStore`, `LocalLab`,
-`Clock`, repositories). Both the CLI and the web UI call the *same* application services — there is
-no separate "CI mode" implementation.
+`Clock`, repositories). The web UI is the only supported interface, and it calls application
+services directly — there is no separate "headless mode" implementation to keep in sync.
 
 ### The two lifecycles (do not conflate them)
 
@@ -133,7 +132,8 @@ These are tested; if a change makes one of these tests fail, the test is probabl
 - An unevaluated objective must never be reported as passed.
 - A capacity or headroom figure must never be produced detached from the conditions that produced it
   (version, environment, dependency mode, workload model, operation mix, objectives, duration).
-- A run must never start against a non-local target without an explicit `--confirm <environment>`.
+- A run must never start against a non-local target without an explicit, typed confirmation of the
+  target environment.
 - A resolved secret must never reach a plan, artifact, log, or prompt.
 - Arrival rate and concurrency must never be conflated, and a workload level must never drop its unit.
 - One operation's measurements must never be attributed to another.
@@ -158,9 +158,6 @@ These are tested; if a change makes one of these tests fail, the test is probabl
   report `sampleResolution` and `OperationMixCoverage` honestly rather than overstating coverage.
 - **DB migration**: add `V<n>__<description>.sql` under
   `vortex-persistence/src/main/resources/db/migration/`; never edit an applied one; Flyway runs at startup.
-- **CLI command**: add to `VortexCommandRunner`. Exit codes (`ExitCode`) are a CI contract — changing
-  one is a breaking change (`0` all objectives met, `1` tool failure, `2` objective violated,
-  `3` config/preflight failed, `4` cancelled, `5` evidence not valid).
 - **Validity reason code**: add to `ValidityReason` *only* if a measurement Vortex already collects
   produces it, add its rule to `RunQualityAssessor`, and put the threshold it compares against in
   `ValidityPolicy` rather than in the rule. Every finding must state the number it crossed, cite

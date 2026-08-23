@@ -1,0 +1,62 @@
+= ADR-043: The CLI and CI surface is removed; the Workbench is the only interface
+
+== Status
+
+Accepted
+
+== Context
+
+xref:adr-012-ui-cli-and-ci-share-application-services.adoc[ADR-012] committed the web UI and a
+command line to calling the same application services, on the reasoning that a tool whose CI mode
+diverges from its interactive mode eventually disagrees with itself about whether a build passed.
+That reasoning is unaffected by this decision — the CLI never grew a divergent implementation.
+
+What has changed is which interfaces are worth maintaining right now. The execution and evidence
+model is still being hardened, and every surface that reads or writes it is a surface that has to
+stay correct while that model moves. The CLI (`vortex doctor`, `validate`, `run`, `compare`,
+`export`, and the `--headless`/`--confirm`/`--export` flags) was a second front end exercised far
+less than the web UI, asserting its own exit-code contract with continuous integration in
+`CLAUDE.md`, `README.md` and `CONTRIBUTING.md` — a contract nothing in this repository's own CI
+actually consumed, since no pipeline definition exists here. Maintaining it bought scriptability
+nobody was yet using, at the cost of a parallel argument-parsing and output-formatting layer that
+had to be kept in sync with every change to the run and safety-confirmation flow.
+
+== Decision
+
+The CLI is removed: `VortexCommandRunner`, `ExitCode`, and the command-dispatch branch in
+`VortexApplication.main` are deleted. `dev.vortex.app.VortexApplication` now only starts the web
+server. `DoctorReport` — a shared readiness check, not a CLI concern despite its former package —
+moves to `dev.vortex.app.readiness` and continues to back the web UI's runtime-status pill via
+`RuntimeStatus`/`RuntimeApiController`.
+
+`TestRunner.runToCompletion`, `RunRequest`, `Outcome` and `unmetChallenges` — the CLI's synchronous
+run-and-report wrapper — are deleted as dead code once their only caller is gone. The safety
+invariant they enforced (a run against a non-local target needs an explicit, typed confirmation) is
+unaffected: the web UI already enforces it independently in `RunApiController`, against the same
+`PreflightService`/`SafetyAssessment` domain logic, and that path is untouched.
+
+`vortex-report` and the exporters behind `EvidenceExporter` are *not* removed. `ExportController`
+(`GET /runs/{id}/export.{format}`) is a web-reachable capability independent of the CLI's own
+`export` command, and evidence is still written to every completed run's artifact directory
+eagerly. Only the CLI's own `export`/`--export` flag handling goes.
+
+The web interface is now the only supported way to run Vortex. This is not a statement that
+scriptable or CI-driven execution is undesirable — see
+xref:../01-product/roadmap.adoc#automation-ci-quality-gates[the roadmap]'s optional automation
+phase, and xref:adr-040-vortex-coordinator-for-remote-execution.adoc[ADR-040]'s Coordinator, which
+is the shape a future CI integration would consume rather than a revived CLI.
+
+== Consequences
+
+*Gained:* one interface to keep correct while the execution and evidence model hardens. No
+argument-parsing/output-formatting layer duplicating what the web UI already renders. No exit-code
+compatibility contract to honor across changes nothing in this repository exercises yet.
+
+*Cost:* Vortex cannot currently be driven headlessly or from a script. Anyone who was invoking the
+jar directly loses that until automation returns deliberately, as described in the roadmap.
+
+*Reversible:* the application services a CLI would call (`TestRunner`, `ComparisonService`,
+`CalibrationService`, `ConfigurationStore`, `RunExporter`) are all still there, used identically by
+the web UI. Reintroducing scriptable execution is an adapter, not a redesign — see the roadmap for
+the shape it is expected to take (a CI system talking to a Vortex Coordinator, not a CLI talking to
+`vortex-core` directly).

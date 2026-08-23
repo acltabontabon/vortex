@@ -108,7 +108,7 @@ const evidence: NonNullable<Run['evidence']> = {
     configurationHash: 'abc123',
     secretReferences: [],
     artifactDirectory: '/tmp/exec-1',
-    reproductionCommand: 'vortex run average-load',
+    reproductionCommand: 'workload average-load',
     hasArtifacts: false,
     artifactNames: [],
   },

@@ -31,11 +31,6 @@ demo-image: ## Build the demo service's Docker image (dev tooling only — Vorte
 	$(MVN) -pl vortex-demo-service -am package -DskipTests
 	docker build -t vortex-demo-service:latest -f vortex-demo-service/Dockerfile vortex-demo-service
 
-.PHONY: doctor
-doctor: ## Check that this machine has what Vortex needs
-	$(MVN) -q -pl vortex-app -am package -DskipTests
-	@java -jar vortex-app/target/vortex.jar doctor
-
 .PHONY: package
 package: ## Build the executable jar
 	$(MVN) -pl vortex-app -am package -DskipTests
