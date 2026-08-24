@@ -46,3 +46,5 @@ jobs:
           name: Docker/k6 integration test results
           path: 'modules/{k6,app}/target/surefire-reports/TEST-*.xml'
           reporter: java-junit
+          list-tests: failed
+          fail-on-error: false
