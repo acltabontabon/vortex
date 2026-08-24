@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Button, Grid, Skeleton, Stack, Text, Title } from '@mantine/core';
 import { useElementSize, useMediaQuery } from '@mantine/hooks';
@@ -30,6 +30,15 @@ import classes from './OverviewPage.module.css';
  */
 function isUnconfigured(overview: Overview): boolean {
   return overview.header.target === null || overview.header.operationCount === 0;
+}
+
+/** Scrolls a test's row into view if it isn't already — jsdom has no `scrollIntoView` at all;
+ *  every real browser does. */
+function scrollTestRowIntoView(name: string): void {
+  const row = document.querySelector(`[data-test-row="${CSS.escape(name)}"]`);
+  if (row && typeof row.scrollIntoView === 'function') {
+    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 /**
@@ -141,11 +150,7 @@ export function OverviewPage() {
   // "nearest" block only moves the viewport when the target genuinely isn't in it.
   useEffect(() => {
     if (!selectedTest) return;
-    const row = document.querySelector(`[data-test-row="${CSS.escape(selectedTest.name)}"]`);
-    // jsdom (the test environment) has no scrollIntoView at all; every real browser does.
-    if (row && typeof row.scrollIntoView === 'function') {
-      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
+    scrollTestRowIntoView(selectedTest.name);
   }, [selectedTest]);
 
   function selectTest(name: string) {
@@ -157,6 +162,33 @@ export function OverviewPage() {
       return next;
     }, { replace: true });
   }
+
+  // Unlike `selectTest`, never toggles — a run that just finished should always end up expanded,
+  // even if somebody had already collapsed this very row while it was running.
+  function forceSelectTest(name: string) {
+    setParams((next) => {
+      next.set('test', name);
+      return next;
+    }, { replace: true });
+  }
+
+  // The test currently executing, if any — followed rather than merely displayed: the moment one
+  // starts, its row has already jumped to the top of the sorted list above, and here is where that
+  // move gets chased into view. The moment it *stops*, this is also where the row that just produced
+  // a fresh result gets expanded — nobody has to click Expand on the test they were just watching.
+  const runningTestName = data?.header.running?.testName ?? null;
+  const previousRunningRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousRunningRef.current;
+    previousRunningRef.current = runningTestName;
+
+    if (runningTestName && runningTestName !== previous) {
+      scrollTestRowIntoView(runningTestName);
+    } else if (previous && !runningTestName) {
+      forceSelectTest(previous);
+      scrollTestRowIntoView(previous);
+    }
+  }, [runningTestName]);
 
   const error = errorFallback(isError, 'Could not load this service',
       `/api/services/${id}/overview did not respond. Reload the page to try again.`);
@@ -446,15 +478,21 @@ function TestsSection({
 }) {
   const defaultEnvironment = overview.header.target?.environmentName ?? null;
   const blockedCount = overview.tests.filter((test) => !test.runnable).length;
+  const runningName = overview.header.running?.testName ?? null;
   // Most recently run first — the same "what's active" ordering the Home page's own service
   // shelf uses (see `recencyMillis` in workbenchState.ts). A test that has never run sorts last:
   // it has no run to be recent about, not a claim that it's older than one that ran long ago.
+  // A test that is running right now always leads, ahead of even its own past runs — it's what
+  // the eye should find, and `motion.article`'s `layout` prop on each row is what makes that
+  // reordering read as motion instead of a jump cut.
   const sortedTests = useMemo(
     () =>
-      [...overview.tests].sort(
-        (a, b) => lastRunMillis(b) - lastRunMillis(a),
-      ),
-    [overview.tests],
+      [...overview.tests].sort((a, b) => {
+        if (a.name === runningName) return -1;
+        if (b.name === runningName) return 1;
+        return lastRunMillis(b) - lastRunMillis(a);
+      }),
+    [overview.tests, runningName],
   );
 
   return (

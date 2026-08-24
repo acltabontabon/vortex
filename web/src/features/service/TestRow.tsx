@@ -131,7 +131,9 @@ export function TestRow({
 
   return (
     <>
-      <article
+      <motion.article
+        layout
+        transition={{ duration: 0.28, ease: 'easeOut' }}
         className={`${classes.row} ${test.runnable ? '' : classes.blocked} ${
           selected ? classes.selected : ''
         }`}
@@ -294,7 +296,7 @@ export function TestRow({
         <Collapse expanded={selected && rowState !== 'running'} transitionDuration={200} keepMounted={false}>
           <TestResult test={test} production={production} />
         </Collapse>
-      </article>
+      </motion.article>
 
       <TestDetailsDrawer test={test} opened={drawerOpened} onClose={drawer.close} />
       <PreflightDrawer
