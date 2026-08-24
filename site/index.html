@@ -146,12 +146,16 @@
           notesLink.href = release.html_url;
         })
         .catch(function () {
+          // The repo is currently private, so the public API call above 404s for
+          // anonymous visitors. This pinned asset link only resolves for someone
+          // already authenticated with repo access (e.g. the owner) — it is not a
+          // substitute for the dynamic lookup once the repo goes public.
           card.dataset.state = 'error';
-          versionEl.textContent = 'Latest release';
-          metaEl.textContent = 'Requires Java 25+ · see GitHub for the current version';
-          downloadBtn.textContent = 'Go to releases';
-          downloadBtn.href = 'https://github.com/acltabontabon/vortex/releases';
+          versionEl.textContent = 'v0.1.0-alpha.1';
+          metaEl.textContent = 'Requires Java 25+ · Early alpha build';
+          downloadBtn.href = 'https://github.com/acltabontabon/vortex/releases/download/v0.1.0-alpha.1/vortex.jar';
           downloadBtn.removeAttribute('aria-disabled');
+          notesLink.href = 'https://github.com/acltabontabon/vortex/releases/tag/v0.1.0-alpha.1';
         });
     })();
   </script>
