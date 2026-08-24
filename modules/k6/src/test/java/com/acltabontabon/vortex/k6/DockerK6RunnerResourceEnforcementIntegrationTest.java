@@ -85,7 +85,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
         args.add("run");
         args.add("--quiet");
         args.add("--no-color");
-        args.add("script.js");
+        args.add("./script.js");
         return args;
     }
 
