@@ -8,6 +8,13 @@ Vortex has not made a release yet, so everything to date is recorded under
 
 ## Unreleased
 
+### Changed
+
+- Run answers no longer force a redundant Yes/No/Undetermined prefix — the pass/fail badge already
+  states the verdict, and the one-line answer now reads as a direct statement of what happened, which
+  also fixes the mismatch for test types (Spike, Stress, Breakpoint) whose guiding question isn't
+  phrased as yes/no.
+
 ## [0.1.0-alpha.1] - 2026-08-25
 
 ### Added

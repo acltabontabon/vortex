@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Button, Grid, Skeleton, Stack, Text, Title } from '@mantine/core';
-import { useElementSize, useMediaQuery } from '@mantine/hooks';
+import { useMediaQuery } from '@mantine/hooks';
 import { IconAlertTriangle, IconPlus } from '@tabler/icons-react';
 import { useOverviewQuery } from '../../api/workspace';
 import type { Overview } from '../../api/workspace';
@@ -98,12 +98,9 @@ export function OverviewPage() {
   const { data, isError } = useOverviewQuery(id);
   const [params, setParams] = useSearchParams();
 
-  // How tall the Tests column actually renders to, so Recent Runs can grow to use the space beside
-  // it rather than always stopping at its own minimum — see the doc comment on RecentRunsRail's
-  // `fitHeight` prop for how that height becomes a row count. Only meaningful once Tests and Recent
-  // Runs are genuinely side by side (the `md` breakpoint below, matching Grid.Col's own breakpoint) —
-  // stacked at narrower widths, "beside it" has no meaning, so the rail just shows its minimum there.
-  const { ref: testsColumnRef, height: testsColumnHeight } = useElementSize<HTMLDivElement>();
+  // Whether Tests and Recent Runs are genuinely side by side (the `md` breakpoint below, matching
+  // Grid.Col's own breakpoint) — stacked at narrower widths, the inline chart and workload preview
+  // panel both fall back to a different layout of their own.
   const isSideBySide = useMediaQuery('(min-width: 62em)');
 
   const requestedName = params.get('test');
@@ -218,7 +215,7 @@ export function OverviewPage() {
       <Attention overview={data} serviceId={id} />
 
       <Grid columnGap={48} rowGap="xl" align="start">
-        <Grid.Col span={{ base: 12, md: 9 }} ref={testsColumnRef}>
+        <Grid.Col span={{ base: 12, md: 9 }}>
           <TestsSection
             overview={data}
             serviceId={id}
@@ -236,11 +233,7 @@ export function OverviewPage() {
           {composerState.mode !== 'closed' ? (
             <WorkloadPreviewPanel snapshot={composerPreview} showChart={isSideBySide} />
           ) : (
-            <RecentRunsRail
-              overview={data}
-              serviceId={id}
-              fitHeight={isSideBySide ? testsColumnHeight : null}
-            />
+            <RecentRunsRail overview={data} serviceId={id} />
           )}
         </Grid.Col>
       </Grid>

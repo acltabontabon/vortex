@@ -148,6 +148,18 @@
   flex-shrink: 0;
 }
 
+/* The run's own one-sentence outcome — prose, not a figure, so no monospace/tabular-nums here
+   unlike `.runWhen` above. Clipped to one line: this rail is read at a glance, and the full
+   sentence is one hover away via the row's own `title`. */
+.runGist {
+  margin-top: 3px;
+  font-size: 0.76rem;
+  color: var(--mantine-color-dimmed);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* A small affordance, not a phrase — "View full result" as text was cramped and prone to wrapping
    at this column's width. Revealed on hover/focus rather than permanent, same reasoning as before:
    the row's headline is the test name and the verdict, and which exact run this was is one glance

@@ -1,36 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import type { Overview, RunSummary } from '../../api/workspace';
 import { RecentRunsRail } from './RecentRunsRail';
-
-// `useElementSize` reports real pixel heights only in a real browser (the test environment's own
-// ResizeObserver stub never fires — see src/test/setup.ts) — mocked here so the fit-to-height logic
-// itself is actually exercised. The component calls it exactly twice per render, in a fixed order
-// (head block, then the first row), so alternating by call count reliably tells the two apart; the
-// count is reset before every test since it otherwise keeps accumulating across a whole file's runs.
-// Because the component measures one row rather than the whole list divided by count, this mock can
-// use fixed heights and still exercise real convergence — nothing here depends on how many rows are
-// currently showing, same as the production code it stands in for.
-const elementHeights = { head: 0, row: 0 };
-const callState = { count: 0 };
-vi.mock('@mantine/hooks', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@mantine/hooks')>();
-  return {
-    ...actual,
-    useElementSize: () => {
-      const isHead = callState.count % 2 === 0;
-      callState.count += 1;
-      return { ref: () => {}, width: 0, height: isHead ? elementHeights.head : elementHeights.row };
-    },
-  };
-});
-
-beforeEach(() => {
-  callState.count = 0;
-  elementHeights.head = 0;
-  elementHeights.row = 0;
-});
 
 function aRun(overrides: Partial<RunSummary> = {}): RunSummary {
   return {
@@ -164,49 +136,30 @@ describe('the recent runs rail', () => {
     return Array.from({ length: count }, (_, i) => aRun({ id: `run-${i}`, testName: 'burst-check' }));
   }
 
-  it('shows only the minimum when the columns are not genuinely side by side', () => {
+  it('shows at most 5 runs, however many the service has', () => {
     renderWithProviders(
-      <RecentRunsRail
-        overview={anOverview({ recentRuns: manyRuns(15) })}
-        serviceId="checkout"
-        fitHeight={null}
-      />,
+      <RecentRunsRail overview={anOverview({ recentRuns: manyRuns(15) })} serviceId="checkout" />,
     );
 
     expect(screen.getAllByRole('link', { name: /Pass/ })).toHaveLength(5);
   });
 
-  it('grows past the minimum to use the space beside a taller Tests column', () => {
-    // One row measures to 50px; with the 4px gap between rows, that's 54px per row. A 500px Tests
-    // column minus a 40px head block leaves room for 8 rows (floor(460 / 54)). Because the estimate
-    // comes from a single row rather than the whole list divided by count, this converges to an
-    // exact, stable number instead of drifting — that stability is the point of this test.
-    elementHeights.head = 40;
-    elementHeights.row = 50;
-
+  it('shows fewer than 5 when the service has less history than that', () => {
     renderWithProviders(
-      <RecentRunsRail
-        overview={anOverview({ recentRuns: manyRuns(15) })}
-        serviceId="checkout"
-        fitHeight={500}
-      />,
+      <RecentRunsRail overview={anOverview({ recentRuns: manyRuns(3) })} serviceId="checkout" />,
     );
 
-    expect(screen.getAllByRole('link', { name: /Pass/ })).toHaveLength(8);
+    expect(screen.getAllByRole('link', { name: /Pass/ })).toHaveLength(3);
   });
 
-  it('never shows more rows than the service actually has, however tall Tests is', () => {
-    elementHeights.head = 40;
-    elementHeights.row = 50;
-
+  it("shows each run's own one-line outcome, not just its pass/fail label", () => {
     renderWithProviders(
       <RecentRunsRail
-        overview={anOverview({ recentRuns: manyRuns(6) })}
+        overview={anOverview({ recentRuns: [aRun({ answer: 'Objectives held at 50 requests/sec.' })] })}
         serviceId="checkout"
-        fitHeight={5000}
       />,
     );
 
-    expect(screen.getAllByRole('link', { name: /Pass/ })).toHaveLength(6);
+    expect(screen.getByText('Objectives held at 50 requests/sec.')).toBeInTheDocument();
   });
 });

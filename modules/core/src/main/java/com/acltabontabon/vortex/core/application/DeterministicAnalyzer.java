@@ -163,11 +163,11 @@ public final class DeterministicAnalyzer {
                 String achieved = results.achievedRateIfPresent()
                         .map(RequestsPerSecond::displayWithUnit)
                         .orElse("its offered load");
-                yield "Yes. The service sustained " + achieved + " and met every objective.";
+                yield "The service sustained " + achieved + " and met every objective.";
             }
             case FAIL -> {
                 if (breakpoint != null) {
-                    yield "No. Objectives were first violated at "
+                    yield "Objectives were first violated at "
                             + breakpoint.level().displayWithUnit()
                             + breakpoint.highestCompliantLevelIfPresent()
                             .map(level -> ", with the highest compliant level at "
@@ -177,12 +177,11 @@ public final class DeterministicAnalyzer {
                 List<String> failed = evaluation.failures().stream()
                         .map(r -> r.threshold().describe() + " (observed " + r.observed() + ")")
                         .toList();
-                yield "No. " + String.join("; ", failed) + ".";
+                yield "Objectives violated: " + String.join("; ", failed) + ".";
             }
-            case NOT_EVALUATED -> "Undetermined. "
-                    + evaluation.unevaluated().size() + " of " + evaluation.results().size()
-                    + " objectives could not be checked because the measurements they need were "
-                    + "not collected.";
+            case NOT_EVALUATED -> evaluation.unevaluated().size() + " of "
+                    + evaluation.results().size() + " objectives could not be checked because the "
+                    + "measurements they need were not collected.";
         };
     }
 
