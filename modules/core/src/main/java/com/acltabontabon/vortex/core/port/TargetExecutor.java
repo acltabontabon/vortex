@@ -49,4 +49,30 @@ public interface TargetExecutor {
     default List<PreflightCheck> checkAvailability(ExecutionTarget target, String workspacePath) {
         return List.of();
     }
+
+    /**
+     * Releases anything this executor left behind for a run that is no longer in flight.
+     *
+     * <p>{@link #prepare} hands back a lease that {@code ExecutionService} always releases, on every
+     * exit path — but only while its own process lives. Kill Vortex mid-run and that {@code finally}
+     * never executes: the run is reconciled as interrupted on the next start, while whatever was
+     * started to serve it keeps running, holding its port and its share of the machine, invisible
+     * until somebody thinks to look. A stale container is not merely untidy — the next run measures a
+     * machine that is quietly busier than it looks.
+     *
+     * <p>Scoped by the caller rather than by wall-clock age: {@code liveExecutionIds} names the runs
+     * that are genuinely still in flight, so a second Vortex working out of the same workspace never
+     * has a container pulled out from under it. Anything not on that list belongs to a run that has
+     * already ended, however recently.
+     *
+     * <p>The default releases nothing, which is exactly right for an executor that creates nothing to
+     * begin with (an external endpoint is somebody else's to run and never Vortex's to stop).
+     *
+     * @param liveExecutionIds ids of executions still in flight, whose resources must be left alone
+     * @return one description per resource actually released, for the log; empty when there was
+     *         nothing to release
+     */
+    default List<String> releaseOrphans(Set<String> liveExecutionIds) {
+        return List.of();
+    }
 }

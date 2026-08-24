@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -43,6 +44,8 @@ class DockerImageTargetExecutorTest {
     private static final ProjectId PROJECT_ID = ProjectId.of("project-1");
     private static final String IMAGE = "payment-service:1.4.2";
     private static final String CONTAINER_ID = "c1a2b3c4d5e6";
+    private static final String ENDED_RUN = "11111111111111111111111111111111";
+    private static final String LIVE_RUN = "22222222222222222222222222222222";
 
     private final ScriptedDockerProcess dockerProcess = new ScriptedDockerProcess();
 
@@ -545,9 +548,11 @@ class DockerImageTargetExecutorTest {
         PreparedTarget prepared = executor.prepare(requestFor(targetWithoutReadinessCheck()));
         prepared.cleanup();
 
-        // This class never issues a label-based or name-based lookup (no "docker ps", no "docker
-        // container ls --filter") — every command that names a container id names the one id
-        // captured from this executor's own "docker create" call, never anything else.
+        // Preparing and releasing one target never issues a label-based or name-based lookup (no
+        // "docker ps", no "docker container ls --filter") — every command that names a container id
+        // names the one id captured from this executor's own "docker create" call, never anything
+        // else. Sweeping orphans is the sole exception, and it is a separate entry point that a run
+        // never reaches; see releaseOrphans below.
         for (List<String> invocation : dockerProcess.invocations()) {
             assertThat(invocation).doesNotContain("ps");
             for (String argument : invocation) {
@@ -561,6 +566,104 @@ class DockerImageTargetExecutorTest {
 
     private boolean looksLikeAContainerId(String argument) {
         return argument.equals(CONTAINER_ID) || argument.matches("[0-9a-f]{6,64}");
+    }
+
+    // ---- releasing containers a previous process left behind ---------------------------------------
+
+    @Test
+    @DisplayName("orphan release removes containers of ended runs and leaves in-flight runs alone")
+    void releaseOrphansSpareContainersOfRunsStillInFlight() {
+        dockerProcess.script("ps", new DockerProcess.DockerCommandResult(0, List.of(
+                "aaaaaaaaaaaa " + ENDED_RUN,
+                "bbbbbbbbbbbb " + LIVE_RUN,
+                "cccccccccccc "), List.of()));
+        dockerProcess.script("rm", success());
+        DockerImageTargetExecutor executor = executorAssumingDockerAvailable();
+
+        List<String> released = executor.releaseOrphans(Set.of(LIVE_RUN));
+
+        assertThat(dockerProcess.invocationFor("ps"))
+                .as("only Vortex's own containers may ever be considered for removal")
+                .contains("--filter", "label=vortex.managed=true");
+        List<String> removed = dockerProcess.invocations().stream()
+                .filter(invocation -> invocation.size() > 1 && invocation.get(1).equals("rm"))
+                .map(List::getLast)
+                .toList();
+        assertThat(removed)
+                .as("a container belonging to a run that is still in flight — a second Vortex "
+                        + "sharing this workspace — must never be pulled out from under it, and one "
+                        + "Vortex created but cannot attribute to any run is orphaned by definition")
+                .containsExactlyInAnyOrder("aaaaaaaaaaaa", "cccccccccccc");
+        assertThat(released).hasSize(2);
+        assertThat(released).anySatisfy(description ->
+                assertThat(description).contains(ENDED_RUN));
+    }
+
+    @Test
+    @DisplayName("orphan release reports nothing and removes nothing when Docker cannot be listed")
+    void releaseOrphansIsSilentWhenDockerIsUnavailable() {
+        dockerProcess.script("ps", failure("Cannot connect to the Docker daemon"));
+        DockerImageTargetExecutor executor = executorAssumingDockerAvailable();
+
+        assertThat(executor.releaseOrphans(Set.of()))
+                .as("a machine whose runs all target an external endpoint has no Docker and nothing "
+                        + "to sweep — start-up must not be disrupted by saying so")
+                .isEmpty();
+        assertThat(verbsInvoked()).doesNotContain("rm");
+    }
+
+    // ---- a readiness attempt gets a real budget, not the pause between attempts ---------------------
+
+    @Test
+    @DisplayName("each readiness attempt is given far longer than the interval between attempts")
+    void readinessProbesAreNotCappedAtThePollInterval() {
+        dockerProcess.script("image", success());
+        dockerProcess.script("create", successWithStdout(CONTAINER_ID));
+        dockerProcess.script("start", success());
+        dockerProcess.script("inspect", successWithStdout(portMappingJson(8080, "49172")));
+
+        var budgets = new BudgetRecordingReadinessProbe();
+        DockerImageTargetExecutor executor =
+                executorWith(new AlwaysAvailableCapabilityProbe(), budgets);
+        DockerImageTarget target = new DockerImageTarget(new ImageReference(IMAGE),
+                new ContainerPort(8080), ResourceEnvelopeRequest.none(),
+                new ReadinessCheck("/health", 200, Duration.ofSeconds(30)));
+
+        executor.prepare(requestFor(target));
+
+        // The property that matters is not the exact number: it is that one attempt's own timeout is
+        // decoupled from the pause between attempts. They were the same value, which silently capped
+        // every probe at 250ms — so a service whose health endpoint answered any slower could never
+        // be observed ready, no matter how long its configured timeout was.
+        assertThat(budgets.httpBudgets).isNotEmpty();
+        assertThat(budgets.httpBudgets)
+                .as("a health endpoint must be given time to answer, not 250ms")
+                .allSatisfy(budget -> assertThat(budget).isGreaterThan(Duration.ofSeconds(1)));
+        assertThat(budgets.tcpBudgets)
+                .allSatisfy(budget -> assertThat(budget).isGreaterThan(Duration.ofSeconds(1)));
+    }
+
+    @Test
+    @DisplayName("no readiness attempt is given longer than what remains of the overall timeout")
+    void aReadinessAttemptNeverOutlivesTheDeadlineItIsRacing() {
+        dockerProcess.script("image", success());
+        dockerProcess.script("create", successWithStdout(CONTAINER_ID));
+        dockerProcess.script("start", success());
+        dockerProcess.script("inspect", successWithStdout(portMappingJson(8080, "49172")));
+
+        var budgets = new BudgetRecordingReadinessProbe();
+        DockerImageTargetExecutor executor =
+                executorWith(new AlwaysAvailableCapabilityProbe(), budgets);
+        DockerImageTarget target = new DockerImageTarget(new ImageReference(IMAGE),
+                new ContainerPort(8080), ResourceEnvelopeRequest.none(),
+                new ReadinessCheck("/health", 200, Duration.ofMillis(600)));
+
+        executor.prepare(requestFor(target));
+
+        assertThat(budgets.httpBudgets)
+                .as("a single slow probe must not be able to overrun the budget it is measured "
+                        + "against — a 600ms readiness window must never hand out a 5s attempt")
+                .allSatisfy(budget -> assertThat(budget).isLessThanOrEqualTo(Duration.ofMillis(600)));
     }
 
     // ---- helpers --------------------------------------------------------------------------------------
@@ -665,6 +768,27 @@ class DockerImageTargetExecutorTest {
 
         @Override
         public boolean isAvailable() {
+            return true;
+        }
+    }
+
+    /** Reports ready immediately, recording the per-attempt timeout it was handed — the value the
+     *  executor used to conflate with its own poll interval. */
+    private static final class BudgetRecordingReadinessProbe implements TargetReadinessProbe {
+
+        final List<Duration> tcpBudgets = new ArrayList<>();
+        final List<Duration> httpBudgets = new ArrayList<>();
+
+        @Override
+        public boolean tcpPortIsReachable(String host, int port, Duration connectTimeout) {
+            tcpBudgets.add(connectTimeout);
+            return true;
+        }
+
+        @Override
+        public boolean httpCheckSucceeds(String host, int port, String path, int expectedStatus,
+                Duration requestTimeout) {
+            httpBudgets.add(requestTimeout);
             return true;
         }
     }

@@ -1,0 +1,70 @@
+= ADR-048: Vortex releases targets a dead process left running
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+`ExecutionService.run()` releases a prepared target in a `finally`, on every exit path — success,
+cancellation, engine failure, unexpected exception. That guarantee holds for exactly as long as the
+process does. Kill Vortex mid-run and the `finally` never executes: the run is reconciled as
+interrupted on the next start (`ExecutionService.reconcileUnfinished()`), while the container that
+was serving it keeps running, indefinitely.
+
+Found by inspection during an unrelated investigation, not by a report: two
+`vortex-demo-service:latest` containers had been running for five hours, each holding a mapped host
+port and a 0.5-core / 512 MiB reservation, each attributable to a run recorded as `Failed`. Nobody
+had noticed, which is the point — nothing surfaces them and nothing sweeps them.
+
+This is not merely untidy. Vortex exists to measure how a service behaves under a stated load on a
+stated machine. Abandoned containers make that machine quietly busier than the report says it was,
+and the distortion grows with every interrupted run. A tool whose own leaked state corrupts its
+later measurements is worse than one that leaks nothing but measures less.
+
+`docker create` has always applied `vortex.managed=true`, `vortex.execution=<id>` and
+`vortex.service=<id>` labels. Until now nothing ever read them back.
+
+== Decision
+
+`TargetExecutor` gains `releaseOrphans(Set<String> liveExecutionIds)`, defaulting to releasing
+nothing — correct for any executor that creates nothing to begin with, an external endpoint being
+somebody else's to run and never Vortex's to stop.
+
+`DockerImageTargetExecutor` implements it by asking Docker — not by remembering across restarts,
+since the process that could have remembered is the one that died. It lists containers labelled
+`vortex.managed=true`, reads each one's `vortex.execution` label, and removes every container whose
+run is not in `liveExecutionIds`. A container carrying Vortex's own label but no readable execution
+label is removed too: Vortex created it and cannot attribute it to any run, which is what orphaned
+means.
+
+`ExecutionService.releaseOrphanedTargets()` computes the live set from `findUnfinished()` and fans
+out across the registered executors. `WorkspaceReconciler` calls it at start-up, **after**
+`reconcileUnfinished()` — that ordering is load-bearing, not incidental: `reconcileUnfinished()` is
+what moves the runs it has just interrupted out of "in flight", and therefore out from behind the
+protection the live set gives them.
+
+Scoping by the live set rather than by container age is what makes this safe to run unconditionally.
+A second Vortex working out of the same workspace has its in-flight runs in the shared database, so
+its containers are never pulled out from under it. Age would have needed a threshold, and any
+threshold is wrong for somebody.
+
+== Consequences
+
+A container belonging to an ended run does not survive the next start-up. Anyone who wanted to
+`docker exec` into a failed run's container to investigate must now do so before restarting Vortex —
+previously such a container survived until the machine rebooted. This is a real loss, accepted
+because the container was surviving by accident rather than by design, and because a stale container
+silently degrading later runs is the worse failure of the two.
+
+Removal is best-effort and never blocks start-up: a machine whose runs all target an external
+endpoint has no Docker daemon to list, and saying so must not stop the workbench from opening.
+Failures are logged, including the warning that a container Vortex could not remove may still be
+holding a port and a share of the machine.
+
+Compose targets are unaffected. `DockerComposeTargetExecutor` attaches to a stack somebody else
+declared rather than creating one, so it has nothing of its own to release and keeps the default.
+
+The port is now wider by one method that only one implementation meaningfully uses. That is the cost
+of keeping the knowledge of *what* was created in the adapter that created it, rather than teaching
+the application layer about containers.

@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,7 +65,20 @@ public final class DockerImageTargetExecutor implements TargetExecutor {
      *  TCP layer applies then, and an opened port typically follows moments after process start. */
     private static final Duration DEFAULT_READINESS_TIMEOUT = Duration.ofSeconds(10);
 
+    /** How long to wait between readiness attempts. */
     private static final Duration READINESS_POLL_INTERVAL = Duration.ofMillis(250);
+
+    /**
+     * How long a single readiness attempt may take before it is abandoned and retried.
+     *
+     * <p>Deliberately not {@link #READINESS_POLL_INTERVAL}, which it used to be: passing the pause
+     * between attempts as each attempt's own timeout capped every probe at 250ms, so a service whose
+     * health endpoint took longer than that to answer could never be observed ready however generous
+     * its configured timeout was. A starting JVM answering its first request on a fraction of a core
+     * is precisely that service, which made the readiness check strictest exactly when the target was
+     * slowest — the opposite of what it is for.
+     */
+    private static final Duration READINESS_PROBE_TIMEOUT = Duration.ofSeconds(5);
 
     /** {@code docker image inspect} by tag is observed to intermittently answer "no such image" for
      *  an image that {@code docker images} and an id-based inspect both confirm is present — a
@@ -166,6 +179,55 @@ public final class DockerImageTargetExecutor implements TargetExecutor {
                     e.getMessage(), e.reason().guidance()));
         }
         return checks;
+    }
+
+    /**
+     * Removes the containers this executor created for runs that have already ended.
+     *
+     * <p>Found by the {@code vortex.managed} label every {@link #createContainer} applies, and
+     * attributed by the {@code vortex.execution} label beside it — the labels exist for exactly this,
+     * and until now nothing ever read them back. Asking Docker rather than remembering across
+     * restarts is the point: the process that could have remembered is the one that died.
+     *
+     * <p>Anything Docker reports without a readable execution label is removed too. It carries
+     * {@code vortex.managed=true}, so Vortex created it; a container Vortex created and cannot
+     * attribute to any run is orphaned by definition.
+     */
+    @Override
+    public List<String> releaseOrphans(Set<String> liveExecutionIds) {
+        DockerProcess.DockerCommandResult listed = dockerProcess.run(List.of(dockerExecutable, "ps",
+                        "--all", "--filter", "label=vortex.managed=true",
+                        "--format", "{{.ID}} {{.Label \"vortex.execution\"}}"),
+                DOCKER_COMMAND_TIMEOUT);
+        if (!listed.succeeded()) {
+            // Not an error worth failing start-up over: Docker may simply not be running on a machine
+            // whose runs all target an external endpoint, in which case there is nothing to sweep.
+            log.debug("Could not list Vortex-managed containers: {}",
+                    String.join(" ", listed.stderr()));
+            return List.of();
+        }
+
+        List<String> released = new ArrayList<>();
+        for (String line : listed.stdout()) {
+            String[] fields = line.trim().split("\\s+", 2);
+            String containerId = fields[0];
+            if (containerId.isEmpty()) {
+                continue;
+            }
+            String executionId = fields.length > 1 ? fields[1].trim() : "";
+            if (liveExecutionIds.contains(executionId)) {
+                continue;
+            }
+            CleanupOutcome outcome = removeContainerForCleanup(containerId);
+            if (outcome.succeeded()) {
+                released.add("container " + containerId + (executionId.isEmpty()
+                        ? " (no run recorded)" : " from run " + executionId));
+            } else {
+                log.warn("Could not remove orphaned Docker container {}: {}",
+                        containerId, outcome.detail());
+            }
+        }
+        return List.copyOf(released);
     }
 
     private void requireImageAvailable(ImageReference image) {
@@ -350,34 +412,46 @@ public final class DockerImageTargetExecutor implements TargetExecutor {
         Duration timeout =
                 readinessCheck.map(ReadinessCheck::timeout).orElse(DEFAULT_READINESS_TIMEOUT);
 
-        boolean tcpReady = pollUntil(timeout, () -> readinessProbe.tcpPortIsReachable(
-                endpoint.host(), endpoint.port(), READINESS_POLL_INTERVAL));
+        boolean tcpReady = pollUntil(timeout, attempt -> readinessProbe.tcpPortIsReachable(
+                endpoint.host(), endpoint.port(), attempt));
         if (!tcpReady) {
             throw new TargetPreparationException(FailureReason.TARGET_READINESS_TIMEOUT,
-                    "The target at " + endpoint.value() + " did not accept a TCP connection within "
-                            + timeout.toSeconds() + "s.");
+                    "The container for this target started, but nothing was listening on "
+                            + endpoint.value() + " within " + timeout.toSeconds() + "s. Either the "
+                            + "service inside the container failed to start — check its own logs "
+                            + "with `docker logs` — or it listens on a different port than the one "
+                            + "this environment declares.");
         }
 
         if (readinessCheck.isPresent()) {
             ReadinessCheck check = readinessCheck.get();
-            boolean httpReady = pollUntil(timeout, () -> readinessProbe.httpCheckSucceeds(
-                    endpoint.host(), endpoint.port(), check.path(), check.expectedStatus(),
-                    READINESS_POLL_INTERVAL));
+            boolean httpReady = pollUntil(timeout, attempt -> readinessProbe.httpCheckSucceeds(
+                    endpoint.host(), endpoint.port(), check.path(), check.expectedStatus(), attempt));
             if (!httpReady) {
+                // Separated from the TCP message on purpose: reaching here means the container is up
+                // and holding its port, so the service is starting and simply was not finished. That
+                // is a timeout to raise, not a target to debug — and the two failures were previously
+                // worded closely enough to be read as the same problem.
                 throw new TargetPreparationException(FailureReason.TARGET_READINESS_TIMEOUT,
-                        "The target at " + endpoint.value() + check.path()
-                                + " did not return status " + check.expectedStatus() + " within "
-                                + timeout.toSeconds() + "s.");
+                        "The container for this target is running and accepting connections, but "
+                                + endpoint.value() + check.path() + " had not returned status "
+                                + check.expectedStatus() + " after " + timeout.toSeconds() + "s — it "
+                                + "was still starting up. Raise this environment's readiness timeout: "
+                                + "a JVM service on a fraction of a CPU core routinely needs 30s or "
+                                + "more before it serves its first request.");
             }
         }
     }
 
-    /** Polls {@code check} every {@link #READINESS_POLL_INTERVAL} until it succeeds or {@code
-     *  timeout} elapses. */
-    private boolean pollUntil(Duration timeout, BooleanSupplier check) {
+    /**
+     * Polls {@code attempt} every {@link #READINESS_POLL_INTERVAL} until it succeeds or {@code
+     * timeout} elapses, handing each attempt its own timeout rather than letting it run unbounded
+     * past the deadline it is racing.
+     */
+    private boolean pollUntil(Duration timeout, Predicate<Duration> attempt) {
         Instant deadline = Instant.now().plus(timeout);
         while (true) {
-            if (check.getAsBoolean()) {
+            if (attempt.test(probeBudget(deadline))) {
                 return true;
             }
             if (!Instant.now().isBefore(deadline)) {
@@ -390,6 +464,18 @@ public final class DockerImageTargetExecutor implements TargetExecutor {
                 return false;
             }
         }
+    }
+
+    /** One attempt's own timeout: {@link #READINESS_PROBE_TIMEOUT}, shortened to whatever is left of
+     *  the overall budget when that is less, so a single slow probe cannot overrun the deadline it is
+     *  being measured against. Floored at the poll interval, so the last attempt before a deadline is
+     *  still a real attempt rather than one guaranteed to time out instantly. */
+    private static Duration probeBudget(Instant deadline) {
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        if (remaining.compareTo(READINESS_POLL_INTERVAL) < 0) {
+            return READINESS_POLL_INTERVAL;
+        }
+        return remaining.compareTo(READINESS_PROBE_TIMEOUT) < 0 ? remaining : READINESS_PROBE_TIMEOUT;
     }
 
     private PreparedTarget preparedTarget(String containerId, TargetUrl endpoint,

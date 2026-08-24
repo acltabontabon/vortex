@@ -150,6 +150,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-047-stage-shortfall-is-measured-against-the-ramp-not-the-arrival.adoc[047]
 | A ramping stage's shortfall is measured against its own ramp average, not the level it arrives at
+
+| xref:adr-048-vortex-releases-targets-a-dead-process-left-running.adoc[048]
+| Containers outliving the run that created them are released at start-up
 |===
 
 == Format

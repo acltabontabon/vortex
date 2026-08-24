@@ -1,6 +1,7 @@
 package com.acltabontabon.vortex.app.service;
 
 import com.acltabontabon.vortex.core.application.ExecutionService;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -10,13 +11,19 @@ import org.springframework.stereotype.Component;
 /**
  * Brings the workspace back into a truthful state on start-up.
  *
- * <p>Two things can be stale after a process ends, and both are silent failures rather than loud
- * ones — which is exactly why they need doing before anyone looks at the interface.
+ * <p>Three things can be stale after a process ends, and all of them are silent failures rather than
+ * loud ones — which is exactly why they need doing before anyone looks at the interface.
  *
  * <p><strong>Runs left in flight.</strong> Vortex does not adopt orphaned engine processes: it
  * cannot know whether the k6 that was running still is, and resuming would risk a second load
  * generator against the same target. Those runs are marked interrupted, because history that shows
  * a test apparently still going is worse than history that admits it was cut off.
+ *
+ * <p><strong>Targets left running.</strong> The lease a run holds over its container is released in
+ * a {@code finally} that a killed process never reaches, so the container outlives the run by however
+ * long it takes somebody to notice. This is the one stale thing here that does not merely mislead:
+ * an abandoned container holds its port and its share of the machine, and the next run measures a
+ * host that is quietly busier than it looks.
  *
  * <p><strong>Experiment identity.</strong> When the identity contract changes, every stored
  * fingerprint indexes its run under a hash nothing will look up again, and a team's comparison
@@ -48,6 +55,20 @@ public class WorkspaceReconciler {
             }
         } catch (RuntimeException e) {
             log.warn("Could not reconcile unfinished runs: {}", e.getMessage());
+        }
+
+        // After reconcileUnfinished(), never before: that call is what moves the runs it just
+        // interrupted out of "in flight", which is the set this one refuses to touch.
+        try {
+            List<String> released = executions.releaseOrphanedTargets();
+            if (!released.isEmpty()) {
+                log.info("Released {} target(s) left running by a previous process: {}",
+                        released.size(), String.join(", ", released));
+            }
+        } catch (RuntimeException e) {
+            log.warn("Could not release targets left running by a previous process: {}. They may "
+                    + "still be holding a port and a share of this machine, which would make the "
+                    + "next run's measurements look worse than the service deserves.", e.getMessage());
         }
 
         try {

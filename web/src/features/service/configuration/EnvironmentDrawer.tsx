@@ -366,6 +366,13 @@ function EnvironmentForm({
                 <Text size="sm" fw={600}>
                   Readiness (optional)
                 </Text>
+                <Text size="xs" c="dimmed">
+                  How Vortex decides the container is ready to receive load. The timeout covers the
+                  service&rsquo;s whole cold start, on whatever CPU you allotted it above — a JVM
+                  service on a fraction of a core routinely needs 30&nbsp;seconds or more before it
+                  answers its first request, and a run that starts too early fails before it
+                  measures anything.
+                </Text>
                 <Group grow align="flex-start">
                   <TextInput
                     label="Path"
@@ -381,7 +388,7 @@ function EnvironmentForm({
                   />
                   <NumberInput
                     label="Timeout (sec)"
-                    placeholder="10"
+                    placeholder="60"
                     min={1}
                     {...form.getInputProps('readinessTimeoutSeconds')}
                   />

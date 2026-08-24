@@ -29,7 +29,9 @@ import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * Runs a test from request through to verdict.
@@ -288,6 +290,32 @@ public final class ExecutionService {
                 .toList();
         executions.saveAll(failed);
         return failed.size();
+    }
+
+    /**
+     * Releases targets a previous process started and never got to stop.
+     *
+     * <p>{@link #reconcileUnfinished} makes the <em>history</em> truthful about a run that was cut
+     * off. It does nothing about what that run left running: the cleanup that would have released it
+     * lives in a {@code finally} inside {@code run()}, which a killed process never reaches. The two
+     * belong together — a run recorded as interrupted whose container is still holding a port and a
+     * half-core is only half-reconciled, and the half that is missing is the half that quietly
+     * distorts the next run's measurements.
+     *
+     * <p>Ordered after {@code reconcileUnfinished()} by its caller, not by accident: that call is
+     * what moves the just-interrupted runs out of "in flight", so their containers are no longer
+     * protected by the live set below. Runs still genuinely in flight — a second Vortex sharing this
+     * workspace, most plausibly — keep theirs.
+     *
+     * @return one description per resource released, for the log
+     */
+    public List<String> releaseOrphanedTargets() {
+        Set<String> live = executions.findUnfinished().stream()
+                .map(execution -> execution.id().value())
+                .collect(Collectors.toSet());
+        return targetExecutors.stream()
+                .flatMap(executor -> executor.releaseOrphans(live).stream())
+                .toList();
     }
 
     /**
