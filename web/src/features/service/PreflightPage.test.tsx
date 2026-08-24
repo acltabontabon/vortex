@@ -102,7 +102,7 @@ describe('the preflight page', () => {
     expect(screen.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument();
   });
 
-  it('disables the run button when a check failed', () => {
+  it('offers no way to start a run when a check failed, and says what failed', () => {
     queryResult = {
       data: aPreflight({
         canRun: false,
@@ -114,7 +114,13 @@ describe('the preflight page', () => {
     };
     renderWithProviders(<PreflightPage />);
 
-    expect(screen.getByRole('button', { name: 'Run' })).toBeDisabled();
+    // The property is that a failed check cannot be run past — not that a particular control exists
+    // in a particular state. A disabled Run button would satisfy the first as well, but this page
+    // deliberately offers Recheck in its place: the check failed against the world, and the useful
+    // next action is to fix the world and ask again, not to stare at a button that will not move.
+    expect(screen.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Recheck' })).toBeEnabled();
+    expect(screen.getByText('Cannot run yet')).toBeInTheDocument();
     expect(screen.getAllByText(/Could not reach the target/).length).toBeGreaterThan(0);
   });
 

@@ -74,11 +74,13 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -344,8 +346,12 @@ public class ConfigurationApiController {
         ProjectConfiguration configuration = projects.configuration(projectId);
 
         try {
-            EnvironmentType type = EnvironmentType.valueOf(request.type());
-            DependencyMode dependencies = DependencyMode.valueOf(request.dependencies());
+            EnvironmentType type = parse(EnvironmentType.class, request.type(), "type",
+                    "what kind of place this environment is, which is what decides whether a run "
+                            + "against it may claim production capacity");
+            DependencyMode dependencies = parse(DependencyMode.class, request.dependencies(),
+                    "dependencies", "whether this environment's dependencies are real, simulated or "
+                            + "a mixture, which a run's classification depends on");
             String slug = slug(request.name());
 
             EnvironmentCapabilities capabilities = new EnvironmentCapabilities(
@@ -506,6 +512,33 @@ public class ConfigurationApiController {
         }
         return new DockerComposeTarget(request.composeFile(), request.composeService(),
                 new ContainerPort(request.containerPort()));
+    }
+
+    /**
+     * One request field parsed into the enum it names, or an {@link IllegalArgumentException} the
+     * caller can act on — which this endpoint turns into a 400.
+     *
+     * <p>{@code Enum.valueOf} answers a missing value with a {@link NullPointerException} that
+     * escapes this endpoint's {@code catch} entirely and surfaces as a bare 500, and an unrecognised
+     * one with {@code "No enum constant com.acltabontabon.vortex.core.…"} — a sentence that names a
+     * Java class rather than the field the caller got wrong, and never says what the accepted values
+     * are. Both are answered here by naming the field, saying what it decides, and listing what it
+     * accepts.
+     */
+    private <E extends Enum<E>> E parse(Class<E> type, String value, String field, String decides) {
+        String accepted = Arrays.stream(type.getEnumConstants()).map(Enum::name)
+                .collect(Collectors.joining(", "));
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("'" + field + "' is required: it states " + decides
+                    + ". Send one of: " + accepted + ".");
+        }
+        try {
+            return Enum.valueOf(type, value.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("'" + value + "' is not a value Vortex understands "
+                    + "for '" + field + "', which states " + decides + ". Use one of: " + accepted
+                    + ".", e);
+        }
     }
 
     private String slug(String raw) {

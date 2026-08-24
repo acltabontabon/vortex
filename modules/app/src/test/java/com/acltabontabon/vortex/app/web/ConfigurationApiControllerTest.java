@@ -232,6 +232,62 @@ class ConfigurationApiControllerTest {
         }
 
         @Test
+        @DisplayName("a missing enum field is a 400 naming the field and its values, not a bare 500")
+        void aMissingEnumFieldIsRejectedWithAMessageTheCallerCanActOn() throws Exception {
+            // Enum.valueOf answers a missing value with a NullPointerException, which is not an
+            // IllegalArgumentException and so escaped this endpoint's translation entirely — the
+            // caller got a bare 500 with no indication of which field was wrong.
+            mvc.perform(post("/api/services/" + SERVICE + "/environments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"local","baseUrl":"http://localhost:8080",
+                                     "type":"LOCAL_ISOLATED"}
+                                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.detail").value(
+                            org.hamcrest.Matchers.allOf(
+                                    org.hamcrest.Matchers.containsString("dependencies"),
+                                    org.hamcrest.Matchers.containsString("MOCKED"))));
+        }
+
+        @Test
+        @DisplayName("an unrecognised enum value lists what is accepted rather than naming a Java class")
+        void anUnrecognisedEnumValueListsWhatIsAccepted() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/environments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"local","baseUrl":"http://localhost:8080",
+                                     "type":"SOMEWHERE_ELSE","dependencies":"MOCKED"}
+                                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.detail").value(
+                            org.hamcrest.Matchers.allOf(
+                                    org.hamcrest.Matchers.containsString("SOMEWHERE_ELSE"),
+                                    org.hamcrest.Matchers.containsString("LOCAL_ISOLATED"),
+                                    org.hamcrest.Matchers.not(
+                                            org.hamcrest.Matchers.containsString("No enum constant")))));
+        }
+
+        @Test
+        @DisplayName("a readiness timeout no service could meet is rejected at configuration time")
+        void aReadinessTimeoutOfZeroIsRejected() throws Exception {
+            // Left to stand, this configures an environment every run against which fails during
+            // preparation — reported as a target that never became ready, which sends the reader to
+            // debug a service that was fine.
+            mvc.perform(post("/api/services/" + SERVICE + "/environments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"docker-managed","type":"LOCAL_ISOLATED","dependencies":"MOCKED",
+                                     "targetKind":"DOCKER_IMAGE","image":"payment-service:1.4.2",
+                                     "containerPort":8080,"readinessPath":"/actuator/health",
+                                     "readinessExpectedStatus":200,"readinessTimeoutSeconds":0}
+                                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.detail").value(
+                            org.hamcrest.Matchers.containsString("leaves no time")));
+        }
+
+        @Test
         @DisplayName("omitting targetKind still produces an ExternalEndpointTarget, exactly as before")
         void omittingTargetKindStillProducesAnExternalEndpointTarget() throws Exception {
             // The single most important regression guard in this step: the existing endpoint-only
