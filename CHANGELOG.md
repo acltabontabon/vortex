@@ -8,6 +8,8 @@ Vortex has not made a release yet, so everything to date is recorded under
 
 ## Unreleased
 
+## [0.1.0-alpha.2] - 2026-08-25
+
 ### Added
 
 - Add Service now discovers a repository's existing `.vortex/vortex.yaml` (or `.yml`) as soon as a
