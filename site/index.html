@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div class="vortex-bg" aria-hidden="true"></div>
   <div class="wrap">
     <section class="hero">
       <div class="eyebrow">Vortex</div>
@@ -86,6 +87,26 @@
         GitHub repository tracks exactly where things stand.</p>
     </section>
 
+    <section id="download">
+      <h2>Download</h2>
+      <p>Vortex ships as a single runnable jar. No installer, no account — download it, run it locally.</p>
+      <div class="download-card" data-state="loading">
+        <div class="download-info">
+          <div class="download-version">Checking the latest release&hellip;</div>
+          <div class="download-meta">Requires Java 25+</div>
+        </div>
+        <div class="cta-row">
+          <a class="btn btn-primary" data-role="download-btn" href="https://github.com/acltabontabon/vortex/releases" aria-disabled="true">
+            Download vortex.jar
+          </a>
+          <a class="btn btn-secondary" data-role="notes-link" href="https://github.com/acltabontabon/vortex/releases">
+            Release notes
+          </a>
+        </div>
+      </div>
+      <pre class="run-cmd"><code>java -jar vortex.jar</code></pre>
+    </section>
+
     <footer>
       <p>
         <a href="https://github.com/acltabontabon/vortex/blob/main/LICENSE">MIT License</a>
@@ -95,5 +116,44 @@
       <p>© 2026 Alvin Cris Tabontabon.</p>
     </footer>
   </div>
+  <script>
+    (function () {
+      var card = document.querySelector('.download-card');
+      var versionEl = card.querySelector('.download-version');
+      var metaEl = card.querySelector('.download-meta');
+      var downloadBtn = card.querySelector('[data-role="download-btn"]');
+      var notesLink = card.querySelector('[data-role="notes-link"]');
+
+      fetch('https://api.github.com/repos/acltabontabon/vortex/releases')
+        .then(function (res) {
+          if (!res.ok) throw new Error('GitHub API error ' + res.status);
+          return res.json();
+        })
+        .then(function (releases) {
+          var release = releases && releases[0];
+          if (!release) throw new Error('No releases found');
+
+          var jarAsset = (release.assets || []).find(function (a) {
+            return a.name === 'vortex.jar';
+          });
+          if (!jarAsset) throw new Error('No vortex.jar asset on latest release');
+
+          card.dataset.state = 'ready';
+          versionEl.textContent = release.name || release.tag_name;
+          metaEl.textContent = 'Requires Java 25+' + (release.prerelease ? ' · Early alpha build' : '');
+          downloadBtn.href = jarAsset.browser_download_url;
+          downloadBtn.removeAttribute('aria-disabled');
+          notesLink.href = release.html_url;
+        })
+        .catch(function () {
+          card.dataset.state = 'error';
+          versionEl.textContent = 'Latest release';
+          metaEl.textContent = 'Requires Java 25+ · see GitHub for the current version';
+          downloadBtn.textContent = 'Go to releases';
+          downloadBtn.href = 'https://github.com/acltabontabon/vortex/releases';
+          downloadBtn.removeAttribute('aria-disabled');
+        });
+    })();
+  </script>
 </body>
 </html>
