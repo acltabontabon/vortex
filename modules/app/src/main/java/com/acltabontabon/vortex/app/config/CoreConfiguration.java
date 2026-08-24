@@ -21,6 +21,7 @@ import com.acltabontabon.vortex.core.application.ProjectService;
 import com.acltabontabon.vortex.core.application.RequestDataResolver;
 import com.acltabontabon.vortex.core.application.CalibrationService;
 import com.acltabontabon.vortex.core.calibration.CalibrationPolicy;
+import com.acltabontabon.vortex.core.recommendation.WorkloadRecommender;
 import com.acltabontabon.vortex.core.calibration.WorkloadDrift;
 import com.acltabontabon.vortex.core.port.ProductionObservationSource;
 import com.acltabontabon.vortex.core.capacity.HeadroomCalculator;
@@ -97,6 +98,16 @@ public class CoreConfiguration {
     @Bean
     CalibrationPolicy calibrationPolicy() {
         return new CalibrationPolicy();
+    }
+
+    /**
+     * Recommends a workload for a test type, for the composer's "Recommended workload" card. Given
+     * the calibration policy rather than constructing its own so the two never disagree about a
+     * number both happen to compute.
+     */
+    @Bean
+    WorkloadRecommender workloadRecommender(CalibrationPolicy calibrationPolicy) {
+        return new WorkloadRecommender(calibrationPolicy);
     }
 
     /**

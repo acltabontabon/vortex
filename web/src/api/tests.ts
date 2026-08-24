@@ -18,6 +18,14 @@ export function useCatalogOperationsQuery(serviceId: string) {
   });
 }
 
+/** A stage's real quantities — a level and how long it holds — used both for a recommendation's
+ *  ramp and for carrying an already-saved, possibly non-uniform ramp back through the editor.
+ *  Mirrors `TestsApiController.StageInputDto`. */
+export interface StageInputDto {
+  level: number;
+  durationSeconds: number;
+}
+
 export interface TestEdit {
   name: string;
   description: string;
@@ -32,6 +40,8 @@ export interface TestEdit {
   stages: number | null;
   singleOperation: string | null;
   weights: Record<string, number>;
+  shapeKind: string;
+  explicitStages: StageInputDto[];
 }
 
 export function useTestEditQuery(serviceId: string, name: string | undefined) {
@@ -40,6 +50,16 @@ export function useTestEditQuery(serviceId: string, name: string | undefined) {
     queryFn: () => apiClient.get<TestEdit>(`/api/services/${serviceId}/tests/${name}`),
     enabled: name !== undefined,
   });
+}
+
+/** The four numbers a spike test needs — the pattern itself (a jump held briefly, then a recovery)
+ *  is backend policy (`SpikeShapes`), never assembled here. Mirrors
+ *  `TestsApiController.SpikeParamsDto`. */
+export interface SpikeParamsDto {
+  baseline: number;
+  peak: number;
+  holdBeforeMinutes: number;
+  holdAtPeakMinutes: number;
 }
 
 export interface TestSaveRequest {
@@ -56,6 +76,9 @@ export interface TestSaveRequest {
   stages?: number;
   singleOperation?: string;
   weights?: Record<string, number>;
+  shapeKind?: string;
+  spikeParams?: SpikeParamsDto;
+  explicitStages?: StageInputDto[];
 }
 
 export interface TestSaveResponse {
@@ -103,6 +126,10 @@ export interface PreviewRequest {
   stages?: number;
   singleOperation?: string;
   weights?: Record<string, number>;
+  type?: string;
+  shapeKind?: string;
+  spikeParams?: SpikeParamsDto;
+  explicitStages?: StageInputDto[];
 }
 
 export interface StageDto {
@@ -129,6 +156,7 @@ export interface ShapeDto {
 export interface PreviewResponse {
   composition: import('./workspace').MixRow[] | null;
   shape: ShapeDto | null;
+  headline: string | null;
   problem: string | null;
 }
 
@@ -136,6 +164,41 @@ export function usePreviewMutation(serviceId: string) {
   return useMutation({
     mutationFn: (request: PreviewRequest) =>
       apiClient.post<PreviewResponse>(`/api/services/${serviceId}/tests/preview`, request),
+  });
+}
+
+/** What Vortex recommends for a test type — the sole source of "what should this workload look
+ *  like." Mirrors `TestsApiController.RecommendationDto`; the composer renders this, it never
+ *  invents a rate, duration or stage count itself. */
+export interface RecommendationDto {
+  type: string;
+  model: 'OPEN' | 'CLOSED';
+  shapeKind: string;
+  purpose: string;
+  headline: string;
+  startLevel: number;
+  durationMinutes: number;
+  explicitStages: StageInputDto[];
+  productionInformed: boolean;
+  safetyCeilingApplied: boolean;
+  sourceDescription: string;
+  derivation: string | null;
+  availableShapeKinds: string[];
+}
+
+export function useRecommendationQuery(
+  serviceId: string,
+  type: string,
+  model: 'OPEN' | 'CLOSED',
+  enabled = true
+) {
+  return useQuery({
+    queryKey: ['service', serviceId, 'tests', 'recommendation', type, model],
+    queryFn: () =>
+      apiClient.get<RecommendationDto>(
+        `/api/services/${serviceId}/tests/recommendation?type=${type}&model=${model}`
+      ),
+    enabled,
   });
 }
 

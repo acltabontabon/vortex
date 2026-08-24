@@ -8,7 +8,6 @@ import {
   Group,
   NumberInput,
   Radio,
-  SegmentedControl,
   Select,
   Skeleton,
   Text,
@@ -20,31 +19,54 @@ import { useTestsQuery, type Target } from '../../api/workspace';
 import {
   useCatalogOperationsQuery,
   usePreviewMutation,
+  useRecommendationQuery,
   useSaveTestMutation,
   useTestEditQuery,
   type CatalogOperation,
+  type RecommendationDto,
+  type StageInputDto,
 } from '../../api/tests';
 import { Unknown } from '../../components/Unknown';
 import { InfoPopover } from '../../components/InfoPopover';
 import { TrafficDistribution } from '../../components/TrafficDistribution';
 import { errorFallback, extractErrorMessage } from '../../lib/queryFallback';
 import { LoadShapeChart } from '../../components/charts/LoadShapeChart';
+import { RecommendedWorkloadCard } from './RecommendedWorkloadCard';
+import { SpikeParamsEditor, type SpikeParams } from './SpikeParamsEditor';
 import type { ComposerPreviewSnapshot } from './WorkloadPreviewPanel';
 import classes from './TestComposer.module.css';
 
 const WORKLOAD_MODELS = [
   {
     value: 'OPEN',
-    label: 'Arrival rate',
+    label: 'Requests per second',
+    technicalLabel: 'Arrival rate',
     question: 'How does the service behave when this much traffic arrives, whatever it does about it?',
   },
   {
     value: 'CLOSED',
-    label: 'Concurrency',
+    label: 'Concurrent users',
+    technicalLabel: 'Concurrency',
     question:
       'How does the service behave with this many clients working through it as fast as it lets them?',
   },
 ] as const;
+
+type ShapeKind = 'STEADY' | 'PROGRESSIVE_RAMP' | 'SPIKE' | 'STAGED';
+
+const ALL_SHAPE_KINDS: { value: ShapeKind; label: string }[] = [
+  { value: 'STEADY', label: 'Steady' },
+  { value: 'PROGRESSIVE_RAMP', label: 'Progressive ramp' },
+  { value: 'SPIKE', label: 'Spike' },
+  { value: 'STAGED', label: 'Staged' },
+];
+
+const DEFAULT_SPIKE_PARAMS: SpikeParams = {
+  baseline: 10,
+  peak: 50,
+  holdBeforeMinutes: 0.5,
+  holdAtPeakMinutes: 1,
+};
 
 /** A fixed lookup, not a re-derivation of `TestDefinitions.slug()` — it can never drift from the
  *  backend's own name normalization because it never tries to reproduce it. */
@@ -61,19 +83,43 @@ function suggestName(type: string): string {
   return NAME_SUGGESTIONS[type] ?? 'new-test';
 }
 
+/** Reconstructs a spike's four editable numbers from its saved/recommended
+ *  [baseline, peak, peak, baseline] stage list — the inverse of what `TestDefinitions.spikeShape()`
+ *  builds server-side. Falls back to the defaults when the stages don't look like a spike (e.g. an
+ *  older save, or the list is empty), rather than guessing at four numbers that would misrepresent
+ *  what's actually saved. */
+function spikeParamsFromStages(stages: StageInputDto[]): SpikeParams {
+  if (stages.length !== 4) return DEFAULT_SPIKE_PARAMS;
+  return {
+    baseline: stages[0].level,
+    peak: stages[1].level,
+    holdBeforeMinutes: stages[0].durationSeconds / 60,
+    holdAtPeakMinutes: stages[2].durationSeconds / 60,
+  };
+}
+
 interface FormValues {
   name: string;
   description: string;
   type: string;
   model: 'OPEN' | 'CLOSED';
+  shapeKind: ShapeKind;
   rate: number;
   vus: number;
   durationMinutes: number;
-  ramping: boolean;
   peakRate: number | '';
   stages: number;
+  /** The exact stage list from the last-applied recommendation, for Progressive-Ramp/Staged only —
+   *  carried through save so a non-uniform (e.g. safety-capped) ramp isn't silently replaced by the
+   *  equal-ramp reconstruction. Cleared the moment Rate/Stages/Duration is hand-edited, at which
+   *  point the ordinary equal-ramp behavior is exactly what should happen again. */
+  explicitStages: StageInputDto[] | null;
+  spikeParams: SpikeParams;
   singleOperation: string;
   weights: Record<string, number>;
+  /** "Customize workload" — reveals every load shape regardless of what's relevant to the selected
+   *  Intent. */
+  advanced: boolean;
 }
 
 /** One line describing what Load currently says, for the collapsed region's summary. */
@@ -82,7 +128,10 @@ function loadSummary(values: FormValues): string {
   if (values.model === 'CLOSED') {
     return `Concurrency · ${values.vus} VUs · ${duration}`;
   }
-  if (values.ramping && values.peakRate !== '') {
+  if (values.shapeKind === 'SPIKE') {
+    return `Spike · ${values.spikeParams.baseline} → ${values.spikeParams.peak} req/s · ${duration}`;
+  }
+  if (values.shapeKind !== 'STEADY' && values.peakRate !== '') {
     return `Arrival rate · ramp to ${values.peakRate} req/s over ${values.stages} stages · ${duration}`;
   }
   return `Arrival rate · ${values.rate} req/s · ${duration}`;
@@ -203,14 +252,17 @@ export function TestComposer({
       description: '',
       type: 'AVERAGE_LOAD',
       model: 'OPEN',
+      shapeKind: 'STEADY',
       rate: 50,
       vus: 50,
       durationMinutes: 10,
-      ramping: false,
       peakRate: '',
       stages: 4,
+      explicitStages: null,
+      spikeParams: DEFAULT_SPIKE_PARAMS,
       singleOperation: '',
       weights: {},
+      advanced: false,
     },
     validate: {
       name: (value) => (value.trim().length > 0 ? null : 'A test needs a name.'),
@@ -222,19 +274,25 @@ export function TestComposer({
   useEffect(() => {
     if (editing && editQuery.data && !prefilled) {
       const data = editQuery.data;
+      const shapeKind = (data.shapeKind as ShapeKind | undefined) ?? 'STEADY';
       form.setValues({
         name: data.name,
         description: data.description,
         type: data.type,
         model: data.model,
+        shapeKind,
         rate: data.rate ?? 50,
         vus: data.vus ?? 50,
         durationMinutes: data.durationMinutes,
-        ramping: data.ramping,
         peakRate: data.peakRate ?? '',
         stages: data.stages ?? 4,
+        explicitStages:
+          shapeKind === 'PROGRESSIVE_RAMP' || shapeKind === 'STAGED' ? data.explicitStages : null,
+        spikeParams:
+          shapeKind === 'SPIKE' ? spikeParamsFromStages(data.explicitStages) : DEFAULT_SPIKE_PARAMS,
         singleOperation: data.singleOperation ?? '',
         weights: data.weights,
+        advanced: false,
       });
       setPrefilled(true);
     }
@@ -262,15 +320,20 @@ export function TestComposer({
 
   useEffect(() => {
     if (!prefilled) return;
+    const ramping = debounced.shapeKind !== 'STEADY';
     previewMutation.mutate({
       model: debounced.model,
       rate: debounced.model === 'OPEN' ? debounced.rate : undefined,
       vus: debounced.model === 'CLOSED' ? debounced.vus : undefined,
       durationMinutes: debounced.durationMinutes,
-      peakRate: debounced.ramping && debounced.peakRate !== '' ? debounced.peakRate : undefined,
-      stages: debounced.ramping ? debounced.stages : undefined,
+      peakRate: ramping && debounced.peakRate !== '' ? debounced.peakRate : undefined,
+      stages: ramping ? debounced.stages : undefined,
       singleOperation: debounced.model === 'CLOSED' ? debounced.singleOperation : undefined,
       weights: debounced.model === 'OPEN' ? debounced.weights : undefined,
+      type: debounced.type,
+      shapeKind: debounced.shapeKind,
+      spikeParams: debounced.shapeKind === 'SPIKE' ? debounced.spikeParams : undefined,
+      explicitStages: debounced.explicitStages ?? undefined,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced, prefilled]);
@@ -287,13 +350,8 @@ export function TestComposer({
       testsQuery.data?.testTypes.find((t) => t.name === form.values.type)?.label ?? form.values.type;
     onPreviewChange({
       testTypeLabel,
-      model: form.values.model,
-      ramping: form.values.ramping,
-      rate: form.values.rate,
-      vus: form.values.vus,
+      headline: previewMutation.data?.headline ?? null,
       durationMinutes: form.values.durationMinutes,
-      peakRate: form.values.peakRate,
-      stages: form.values.stages,
       composition: previewMutation.data?.composition ?? null,
       shape: previewMutation.data?.shape ?? null,
       problem: previewMutation.data?.problem ?? null,
@@ -306,19 +364,7 @@ export function TestComposer({
       resourceSummary: null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    form.values.type,
-    form.values.model,
-    form.values.ramping,
-    form.values.rate,
-    form.values.vus,
-    form.values.durationMinutes,
-    form.values.peakRate,
-    form.values.stages,
-    previewMutation.data,
-    testsQuery.data,
-    target,
-  ]);
+  }, [form.values.type, form.values.durationMinutes, previewMutation.data, testsQuery.data, target]);
 
   // Never leaves a stale workload behind for the rail once this composer session ends.
   useEffect(() => {
@@ -327,6 +373,7 @@ export function TestComposer({
   }, []);
 
   function submit(values: FormValues) {
+    const ramping = values.shapeKind !== 'STEADY';
     saveMutation.mutate(
       {
         name: values.name.trim(),
@@ -337,10 +384,13 @@ export function TestComposer({
         rate: values.model === 'OPEN' ? values.rate : undefined,
         vus: values.model === 'CLOSED' ? values.vus : undefined,
         durationMinutes: values.durationMinutes,
-        peakRate: values.ramping && values.peakRate !== '' ? values.peakRate : undefined,
-        stages: values.ramping ? values.stages : undefined,
+        peakRate: ramping && values.peakRate !== '' ? values.peakRate : undefined,
+        stages: ramping ? values.stages : undefined,
         singleOperation: values.model === 'CLOSED' ? values.singleOperation : undefined,
         weights: values.model === 'OPEN' ? values.weights : undefined,
+        shapeKind: values.shapeKind,
+        spikeParams: values.shapeKind === 'SPIKE' ? values.spikeParams : undefined,
+        explicitStages: values.explicitStages ?? undefined,
       },
       {
         onSuccess: (response) => {
@@ -349,6 +399,50 @@ export function TestComposer({
         },
       }
     );
+  }
+
+  // Also drives the Load-shape selector's default set of options — a second read of the same
+  // query `RecommendedWorkloadCard` makes, deduplicated by TanStack Query's cache, so this never
+  // costs a second request. Disabled while editing: an existing test's shape selector always shows
+  // every option (see `availableShapeKinds` below), since narrowing it by intent-relevance could
+  // hide the very shape a saved test already uses.
+  const recommendationQuery = useRecommendationQuery(
+    serviceId,
+    form.values.type,
+    form.values.model,
+    !editing
+  );
+
+  /** Copies a fetched recommendation's numbers into the form — the only place Load fields are set
+   *  from anything other than what the user typed. Every number here came from the backend. */
+  function applyRecommendation(rec: RecommendationDto) {
+    const shapeKind = rec.shapeKind as ShapeKind;
+    form.setValues({
+      model: rec.model,
+      shapeKind,
+      rate: rec.model === 'OPEN' ? rec.startLevel : form.values.rate,
+      vus: rec.model === 'CLOSED' ? rec.startLevel : form.values.vus,
+      durationMinutes: rec.durationMinutes,
+      peakRate: rec.explicitStages.length > 0 ? rec.explicitStages.at(-1)!.level : '',
+      stages: rec.explicitStages.length,
+      // Carried through verbatim for Progressive-Ramp/Staged so save reproduces exactly this ramp,
+      // even when it isn't evenly spaced (e.g. a safety-capped Breakpoint ramp). Spike never uses
+      // this — its four parameters are the state of record.
+      explicitStages:
+        shapeKind === 'PROGRESSIVE_RAMP' || shapeKind === 'STAGED' ? rec.explicitStages : null,
+      spikeParams:
+        shapeKind === 'SPIKE' ? spikeParamsFromStages(rec.explicitStages) : form.values.spikeParams,
+    });
+  }
+
+  /** Rate/Stages/Duration diverging from the last-applied recommendation means the ramp is no
+   *  longer that recommendation's — reverts to the ordinary equal-ramp reconstruction rather than
+   *  silently keeping a stage list that no longer matches what's on screen. */
+  function editRampField(field: 'peakRate' | 'stages' | 'durationMinutes', value: number | string) {
+    form.setFieldValue(field, value as never);
+    if (form.values.explicitStages !== null) {
+      form.setFieldValue('explicitStages', null);
+    }
   }
 
   const serverError = extractErrorMessage(saveMutation, 'Something went wrong saving this test.');
@@ -376,6 +470,12 @@ export function TestComposer({
 
   const selectedType = testsQuery.data.testTypes.find((t) => t.name === form.values.type);
   const showDescription = descriptionOpen || form.values.description.trim().length > 0;
+  // Editing always shows every shape — narrowing by intent-relevance could hide the very shape a
+  // saved test already uses. Creating shows only what's relevant until "Customize workload".
+  const availableShapeKinds: ShapeKind[] =
+    form.values.advanced || editing
+      ? ALL_SHAPE_KINDS.map((sk) => sk.value)
+      : ((recommendationQuery.data?.availableShapeKinds as ShapeKind[] | undefined) ?? ['STEADY']);
 
   return (
     <div className={classes.main}>
@@ -446,12 +546,26 @@ export function TestComposer({
             summary={loadSummary(form.values)}
             defaultExpanded={editing}
           >
+            {!editing && (
+              <RecommendedWorkloadCard
+                serviceId={serviceId}
+                type={form.values.type}
+                model={form.values.model}
+                typeLabel={selectedType?.label ?? form.values.type}
+                onApply={applyRecommendation}
+              />
+            )}
+
+            <Text size="xs" fw={650} tt="uppercase" c="dimmed" mb={6}>
+              How should load be controlled?
+            </Text>
             <Group gap={6} align="center" mb="md" wrap="nowrap">
               <Radio.Group {...form.getInputProps('model')}>
                 <div className={classes.modelGrid}>
                   {WORKLOAD_MODELS.map((wm) => (
                     <Radio.Card key={wm.value} value={wm.value} className={classes.modelTile}>
-                      {wm.label}
+                      <span className={classes.modelPrimary}>{wm.label}</span>
+                      <span className={classes.modelSecondary}>{wm.technicalLabel}</span>
                     </Radio.Card>
                   ))}
                 </div>
@@ -459,73 +573,47 @@ export function TestComposer({
               <InfoPopover icon ariaLabel="About traffic models" width={300}>
                 {WORKLOAD_MODELS.map((wm) => (
                   <Text key={wm.value} size="xs" mb={4}>
-                    <strong>{wm.label}</strong> — {wm.question}
+                    <strong>
+                      {wm.label} ({wm.technicalLabel})
+                    </strong>{' '}
+                    — {wm.question}
                   </Text>
                 ))}
               </InfoPopover>
             </Group>
 
-            {form.values.model === 'OPEN' && (
-              <SegmentedControl
-                mb="md"
-                data={[
-                  { value: 'steady', label: 'Steady' },
-                  { value: 'ramping', label: 'Ramping' },
-                ]}
-                value={form.values.ramping ? 'ramping' : 'steady'}
-                onChange={(value) => form.setFieldValue('ramping', value === 'ramping')}
-              />
+            {availableShapeKinds.length > 1 && (
+              <>
+                <Text size="xs" fw={650} tt="uppercase" c="dimmed" mb={6}>
+                  How should the load behave?
+                </Text>
+                <div className={classes.shapeGrid}>
+                  {ALL_SHAPE_KINDS.filter((sk) => availableShapeKinds.includes(sk.value)).map((sk) => (
+                    <button
+                      key={sk.value}
+                      type="button"
+                      className={classes.shapeTile}
+                      data-checked={form.values.shapeKind === sk.value || undefined}
+                      onClick={() => form.setFieldValue('shapeKind', sk.value)}
+                    >
+                      {sk.label}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
 
-            {form.values.model === 'OPEN' ? (
-              form.values.ramping ? (
-                <Group gap="md" align="flex-end" wrap="wrap">
-                  <NumberInput
-                    label="Ramp to"
-                    description="requests/sec"
-                    min={0}
-                    step={0.1}
-                    w={150}
-                    {...form.getInputProps('peakRate')}
-                  />
-                  <Text size="sm" c="dimmed" pb={6}>
-                    over
-                  </Text>
-                  <NumberInput label="Stages" min={2} max={20} w={100} {...form.getInputProps('stages')} />
-                  <Text size="sm" c="dimmed" pb={6}>
-                    during
-                  </Text>
-                  <NumberInput
-                    label="Total duration"
-                    description="minutes"
-                    min={1}
-                    w={120}
-                    {...form.getInputProps('durationMinutes')}
-                  />
-                </Group>
-              ) : (
-                <Group gap="md" align="flex-end" wrap="wrap">
-                  <NumberInput
-                    label="Hold"
-                    description="requests/sec"
-                    min={0}
-                    step={0.1}
-                    w={150}
-                    {...form.getInputProps('rate')}
-                  />
-                  <Text size="sm" c="dimmed" pb={6}>
-                    for
-                  </Text>
-                  <NumberInput
-                    label="Duration"
-                    description="minutes"
-                    min={1}
-                    w={120}
-                    {...form.getInputProps('durationMinutes')}
-                  />
-                </Group>
-              )
-            ) : (
+            {!editing && !form.values.advanced && availableShapeKinds.length <= 1 && (
+              <button
+                type="button"
+                className={classes.customizeToggle}
+                onClick={() => form.setFieldValue('advanced', true)}
+              >
+                Customize workload
+              </button>
+            )}
+
+            {form.values.model === 'CLOSED' && form.values.shapeKind === 'STEADY' && (
               <Group gap="md" align="flex-end" wrap="wrap">
                 <NumberInput
                   label="Clients"
@@ -547,22 +635,107 @@ export function TestComposer({
               </Group>
             )}
 
-            {form.values.ramping && form.values.stages > 0 && (
-              <Text size="xs" c="dimmed" mt={8}>
-                Split evenly across {form.values.stages} stages —{' '}
-                {(form.values.durationMinutes / form.values.stages).toLocaleString(undefined, {
-                  maximumFractionDigits: 1,
-                })}{' '}
-                min each
-              </Text>
+            {form.values.model === 'OPEN' && form.values.shapeKind === 'STEADY' && (
+              <Group gap="md" align="flex-end" wrap="wrap">
+                <NumberInput
+                  label="Rate"
+                  description="requests/sec"
+                  min={0}
+                  step={0.1}
+                  w={150}
+                  {...form.getInputProps('rate')}
+                />
+                <Text size="sm" c="dimmed" pb={6}>
+                  for
+                </Text>
+                <NumberInput
+                  label="Duration"
+                  description="minutes"
+                  min={1}
+                  w={120}
+                  {...form.getInputProps('durationMinutes')}
+                />
+              </Group>
             )}
-            {form.values.ramping && form.values.peakRate !== '' && form.values.stages > 0 && (
-              <Text size="xs" c="dimmed" mt={4}>
-                Stages are evenly spaced from{' '}
-                {(form.values.peakRate / form.values.stages).toLocaleString(undefined, {
-                  maximumFractionDigits: 1,
-                })}{' '}
-                to {form.values.peakRate} requests/sec — there is no separate starting rate to set.
+
+            {(form.values.shapeKind === 'PROGRESSIVE_RAMP' || form.values.shapeKind === 'STAGED') && (
+              <Group gap="md" align="flex-end" wrap="wrap">
+                <NumberInput
+                  label="Target"
+                  description={form.values.model === 'OPEN' ? 'requests/sec' : 'concurrent users'}
+                  min={0}
+                  step={form.values.model === 'OPEN' ? 0.1 : 1}
+                  w={150}
+                  value={form.values.peakRate}
+                  onChange={(v) => editRampField('peakRate', v)}
+                />
+                <Text size="sm" c="dimmed" pb={6}>
+                  over
+                </Text>
+                <NumberInput
+                  label="Stages"
+                  min={2}
+                  max={20}
+                  w={100}
+                  value={form.values.stages}
+                  onChange={(v) => editRampField('stages', v)}
+                />
+                <Text size="sm" c="dimmed" pb={6}>
+                  during
+                </Text>
+                <NumberInput
+                  label="Total duration"
+                  description="minutes"
+                  min={1}
+                  w={120}
+                  value={form.values.durationMinutes}
+                  onChange={(v) => editRampField('durationMinutes', v)}
+                />
+              </Group>
+            )}
+
+            {form.values.shapeKind === 'SPIKE' && (
+              <SpikeParamsEditor
+                value={form.values.spikeParams}
+                onChange={(next) => form.setFieldValue('spikeParams', next)}
+              />
+            )}
+
+            {form.values.explicitStages === null &&
+              (form.values.shapeKind === 'PROGRESSIVE_RAMP' || form.values.shapeKind === 'STAGED') &&
+              form.values.stages > 0 && (
+                <Text size="xs" c="dimmed" mt={8}>
+                  Split evenly across {form.values.stages} stages —{' '}
+                  {(form.values.durationMinutes / form.values.stages).toLocaleString(undefined, {
+                    maximumFractionDigits: 1,
+                  })}{' '}
+                  min each
+                </Text>
+              )}
+            {form.values.explicitStages === null &&
+              (form.values.shapeKind === 'PROGRESSIVE_RAMP' || form.values.shapeKind === 'STAGED') &&
+              form.values.peakRate !== '' &&
+              form.values.stages > 0 && (
+                <Text size="xs" c="dimmed" mt={4}>
+                  Stages are evenly spaced from{' '}
+                  {(form.values.peakRate / form.values.stages).toLocaleString(undefined, {
+                    maximumFractionDigits: 1,
+                  })}{' '}
+                  to {form.values.peakRate} — there is no separate starting level to set.
+                </Text>
+              )}
+
+            {!editing && form.values.advanced === false && availableShapeKinds.length > 1 && (
+              <Text size="xs" c="dimmed" mt={8}>
+                Showing the shapes that make sense for {selectedType?.label ?? 'this intent'}.{' '}
+                <button
+                  type="button"
+                  className={classes.customizeToggle}
+                  style={{ display: 'inline', marginBottom: 0 }}
+                  onClick={() => form.setFieldValue('advanced', true)}
+                >
+                  Customize workload
+                </button>
               </Text>
             )}
 

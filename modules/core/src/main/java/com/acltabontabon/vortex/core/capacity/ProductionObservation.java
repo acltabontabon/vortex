@@ -110,6 +110,16 @@ public record ProductionObservation(
         return Optional.ofNullable(averageRate);
     }
 
+    /**
+     * The rate to treat as "typical" traffic: the observed p95 when known, otherwise the average.
+     *
+     * <p>Shared by {@code CalibrationPolicy} and {@code WorkloadRecommender} so the two can never
+     * pick a different number for the same observation.
+     */
+    public RequestsPerSecond representativeRate() {
+        return p95ObservedRateIfPresent().orElseGet(() -> averageRateIfPresent().orElse(peakRate));
+    }
+
     public Optional<RequestsPerSecond> p95ObservedRateIfPresent() {
         return Optional.ofNullable(p95ObservedRate);
     }

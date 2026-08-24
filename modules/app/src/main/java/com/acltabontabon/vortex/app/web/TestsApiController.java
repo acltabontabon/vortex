@@ -4,9 +4,18 @@ import com.acltabontabon.vortex.app.web.WorkspaceDtos.MixRowDto;
 import com.acltabontabon.vortex.app.web.WorkspaceDtos.TestRowDto;
 import com.acltabontabon.vortex.core.application.ProjectService;
 import com.acltabontabon.vortex.core.calibration.CalibrationPolicy;
+import com.acltabontabon.vortex.core.calibration.WorkloadSuggestion;
 import com.acltabontabon.vortex.core.calibration.WorkloadSuggestions;
+import com.acltabontabon.vortex.core.capacity.ProductionObservation;
+import com.acltabontabon.vortex.core.environment.Environment;
+import com.acltabontabon.vortex.core.environment.EnvironmentType;
 import com.acltabontabon.vortex.core.port.Repositories.ExecutionRepository;
 import com.acltabontabon.vortex.core.project.ProjectConfiguration;
+import com.acltabontabon.vortex.core.recommendation.ShapeKind;
+import com.acltabontabon.vortex.core.recommendation.ShapeKindClassifier;
+import com.acltabontabon.vortex.core.recommendation.WorkloadRecommendation;
+import com.acltabontabon.vortex.core.recommendation.WorkloadRecommender;
+import com.acltabontabon.vortex.core.safety.ExecutionPolicy;
 import com.acltabontabon.vortex.core.shared.ProjectId;
 import com.acltabontabon.vortex.core.shared.WorkloadId;
 import com.acltabontabon.vortex.core.threshold.Durations;
@@ -26,6 +35,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -49,16 +59,21 @@ public class TestsApiController {
     private final TestDefinitions definitions;
     private final WorkspaceAssembler assembler;
     private final CalibrationPolicy calibration;
+    private final WorkloadRecommender recommender;
+    private final ExecutionPolicy executionPolicy;
 
     public TestsApiController(ProjectService projects, ExecutionRepository executions,
             WorkloadView workloadView, TestDefinitions definitions,
-            WorkspaceAssembler assembler, CalibrationPolicy calibration) {
+            WorkspaceAssembler assembler, CalibrationPolicy calibration,
+            WorkloadRecommender recommender, ExecutionPolicy executionPolicy) {
         this.projects = Objects.requireNonNull(projects, "projects");
         this.executions = Objects.requireNonNull(executions, "executions");
         this.workloadView = Objects.requireNonNull(workloadView, "workloadView");
         this.definitions = Objects.requireNonNull(definitions, "definitions");
         this.assembler = Objects.requireNonNull(assembler, "assembler");
         this.calibration = Objects.requireNonNull(calibration, "calibration");
+        this.recommender = Objects.requireNonNull(recommender, "recommender");
+        this.executionPolicy = Objects.requireNonNull(executionPolicy, "executionPolicy");
     }
 
     // ---------------------------------------------------------------- the operations catalog
@@ -83,7 +98,8 @@ public class TestsApiController {
 
     public record TestEditDto(String name, String description, String objective, String type,
             String model, Double rate, Integer vus, long durationMinutes, boolean ramping,
-            Double peakRate, Integer stages, String singleOperation, Map<String, Integer> weights) {}
+            Double peakRate, Integer stages, String singleOperation, Map<String, Integer> weights,
+            String shapeKind, List<StageInputDto> explicitStages) {}
 
     /**
      * What the editor needs to prefill a form — the raw, editable numbers behind a test, distinct
@@ -106,6 +122,11 @@ public class TestsApiController {
         boolean ramping = workload.shape().isRamping();
         String singleOperation = workload.operations().isSingleOperation()
                 ? workload.operations().operationIds().getFirst().value() : null;
+        List<StageInputDto> explicitStages = ramping
+                ? workload.shape().stages().stream()
+                        .map(s -> new StageInputDto(s.target().asDouble(), s.duration().toSeconds()))
+                        .toList()
+                : List.of();
 
         return new TestEditDto(workload.name(), workload.description(), workload.objective(),
                 workload.type().name(), workload.model().name(),
@@ -114,14 +135,16 @@ public class TestsApiController {
                 workload.totalDuration().toMinutes(), ramping,
                 ramping ? workload.peakLevel().asDouble() : null,
                 ramping ? workload.shape().stages().size() : null,
-                singleOperation, definitions.weightsOf(workload));
+                singleOperation, definitions.weightsOf(workload),
+                ShapeKindClassifier.classify(workload.shape()).name(), explicitStages);
     }
 
     // ---------------------------------------------------------------- save / duplicate / delete
 
     public record TestSaveRequest(String name, String originalName, String type, String description,
             String objective, String model, Double rate, Integer vus, Integer durationMinutes,
-            Double peakRate, Integer stages, String singleOperation, Map<String, Integer> weights) {}
+            Double peakRate, Integer stages, String singleOperation, Map<String, Integer> weights,
+            String shapeKind, SpikeParamsDto spikeParams, List<StageInputDto> explicitStages) {}
 
     public record TestSaveResponse(String name) {}
 
@@ -144,9 +167,9 @@ public class TestsApiController {
             String slug = definitions.slug(request.name());
             OperationMix mix = definitions.mix(model, request.singleOperation(),
                     request.weights() == null ? Map.of() : request.weights());
-            LoadShape shape = definitions.shape(model, request.rate(), request.vus(),
-                    orDefault(request.durationMinutes(), 10), request.peakRate(),
-                    orDefault(request.stages(), 4));
+            LoadShape shape = resolveShape(model, request.shapeKind(), request.spikeParams(),
+                    request.explicitStages(), request.rate(), request.vus(),
+                    request.durationMinutes(), request.peakRate(), request.stages());
 
             String existingKey = originalName == null || originalName.isBlank() ? slug : originalName;
             ThresholdSet existing = configuration.workloadByName(existingKey)
@@ -209,10 +232,82 @@ public class TestsApiController {
         projects.saveConfiguration(projectId, configuration.withoutWorkload(name));
     }
 
+    // ---------------------------------------------------------------- workload recommendation
+
+    public record StageInputDto(double level, long durationSeconds) {}
+
+    public record SpikeParamsDto(double baseline, double peak, double holdBeforeMinutes,
+            double holdAtPeakMinutes) {}
+
+    public record RecommendationDto(
+            String type, String model, String shapeKind, String purpose, String headline,
+            Double startLevel, Integer durationMinutes, List<StageInputDto> explicitStages,
+            boolean productionInformed, boolean safetyCeilingApplied,
+            String sourceDescription, String derivation, List<String> availableShapeKinds) {}
+
+    /**
+     * What Vortex recommends for a test type, given whatever production observation and safety
+     * envelope the service already has — the sole source of "what should this workload look like."
+     * The composer renders this; it never invents a rate, duration or stage count itself.
+     */
+    @GetMapping("/tests/recommendation")
+    public RecommendationDto recommendation(@PathVariable String id,
+            @RequestParam String type, @RequestParam(required = false) String model) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+        TestType testType = TestType.valueOf(type);
+        WorkloadModel workloadModel = model == null || model.isBlank()
+                ? WorkloadModel.OPEN : WorkloadModel.valueOf(model);
+
+        EnvironmentType environmentType = configuration.environments().stream().findFirst()
+                .map(Environment::type).orElse(EnvironmentType.LOCAL_ISOLATED);
+        ProductionObservation observation = configuration.productionObservationIfPresent().orElse(null);
+
+        WorkloadRecommendation recommendation = recommender.recommend(testType, workloadModel,
+                observation, executionPolicy.limits(), environmentType);
+
+        LoadShape shape = recommendation.shape();
+        List<StageInputDto> explicitStages = shape.isRamping()
+                ? shape.stages().stream()
+                        .map(s -> new StageInputDto(s.target().asDouble(), s.duration().toSeconds()))
+                        .toList()
+                : List.of();
+
+        return new RecommendationDto(testType.name(), workloadModel.name(),
+                recommendation.shapeKind().name(), recommendation.purpose(), recommendation.headline(),
+                shape.startLevel().asDouble(), (int) shape.totalDuration().toMinutes(), explicitStages,
+                recommendation.isProductionInformed(), recommendation.safetyCeilingApplied(),
+                recommendation.source().describe(),
+                recommendation.source().derivationIfPresent().orElse(null),
+                ShapeKind.relevantFor(testType).stream().map(Enum::name).toList());
+    }
+
+    /**
+     * The single shape-resolution rule shared by save and preview, in priority order: an explicit
+     * stage list (a recommendation's own ramp, untouched since it was applied — may be non-uniform,
+     * e.g. capped by a safety ceiling) beats a spike's four parameters, which beats the ordinary
+     * equal-spacing ramp/steady builder. Keeping this in one place means save and preview can never
+     * describe the same request differently.
+     */
+    private LoadShape resolveShape(WorkloadModel model, String shapeKind, SpikeParamsDto spikeParams,
+            List<StageInputDto> explicitStages, Double rate, Integer vus, Integer durationMinutes,
+            Double peakRate, Integer stages) {
+        if (explicitStages != null && !explicitStages.isEmpty()) {
+            return definitions.explicitShape(model, explicitStages);
+        }
+        if ("SPIKE".equals(shapeKind) && spikeParams != null) {
+            return definitions.spikeShape(model, spikeParams);
+        }
+        return definitions.shape(model, rate, vus, orDefault(durationMinutes, 10), peakRate,
+                orDefault(stages, 4));
+    }
+
     // ---------------------------------------------------------------- live preview
 
     public record PreviewRequest(String model, Double rate, Integer vus, Integer durationMinutes,
-            Double peakRate, Integer stages, String singleOperation, Map<String, Integer> weights) {}
+            Double peakRate, Integer stages, String singleOperation, Map<String, Integer> weights,
+            String type, String shapeKind, SpikeParamsDto spikeParams,
+            List<StageInputDto> explicitStages) {}
 
     public record StageDto(double levelValue, String levelDisplay, long durationMillis,
             String durationDisplay) {}
@@ -228,15 +323,18 @@ public class TestsApiController {
     public record ShapeDto(String unit, boolean ramping, double peakLevelValue,
             String peakLevelDisplay, long totalDurationMillis, List<StageDto> stages) {}
 
-    public record PreviewResponse(List<MixRowDto> composition, ShapeDto shape, String problem) {}
+    public record PreviewResponse(List<MixRowDto> composition, ShapeDto shape, String headline,
+            String problem) {}
 
     /**
-     * The per-operation split, and the load shape, for whatever is currently in the composer. A
-     * server round trip rather than arithmetic in the browser, because the numbers have to be the
-     * ones the run will use — {@code RateAllocator} apportions by largest remainder with a floor of
-     * one unit per operation and reports the drift it could not avoid, and {@code LoadShape} is the
-     * one place stage levels/durations are actually decided; a client reimplementation of either
-     * would be close, and close is how a preview starts disagreeing with a result.
+     * The per-operation split, the load shape, and its plain-language headline, for whatever is
+     * currently in the composer. A server round trip rather than arithmetic in the browser, because
+     * the numbers have to be the ones the run will use — {@code RateAllocator} apportions by largest
+     * remainder with a floor of one unit per operation and reports the drift it could not avoid, and
+     * {@code LoadShape} is the one place stage levels/durations are actually decided; a client
+     * reimplementation of either would be close, and close is how a preview starts disagreeing with a
+     * result. The headline reuses {@link WorkloadRecommendation#headlineFor} — the recommendation
+     * card and the live preview must never disagree about how the same numbers read in English.
      */
     @PostMapping("/tests/preview")
     public PreviewResponse preview(@PathVariable String id, @RequestBody PreviewRequest request) {
@@ -244,9 +342,9 @@ public class TestsApiController {
         try {
             WorkloadModel model = request.model() == null || request.model().isBlank()
                     ? WorkloadModel.OPEN : WorkloadModel.valueOf(request.model());
-            LoadShape shape = definitions.shape(model, request.rate(), request.vus(),
-                    orDefault(request.durationMinutes(), 10), request.peakRate(),
-                    orDefault(request.stages(), 4));
+            LoadShape shape = resolveShape(model, request.shapeKind(), request.spikeParams(),
+                    request.explicitStages(), request.rate(), request.vus(),
+                    request.durationMinutes(), request.peakRate(), request.stages());
             Workload provisional = new Workload(WorkloadId.of("preview"), "preview", "", "",
                     TestType.SMOKE,
                     definitions.mix(model, request.singleOperation(),
@@ -261,11 +359,18 @@ public class TestsApiController {
             ShapeDto shapeDto = new ShapeDto(model.controlledUnit(), shape.isRamping(),
                     shape.peakLevel().asDouble(), shape.peakLevel().displayWithUnit(),
                     shape.totalDuration().toMillis(), stages);
-            return new PreviewResponse(assembler.mix(composition), shapeDto, null);
+
+            TestType type = request.type() == null || request.type().isBlank()
+                    ? TestType.SMOKE : TestType.valueOf(request.type());
+            ShapeKind shapeKind = request.shapeKind() == null || request.shapeKind().isBlank()
+                    ? ShapeKind.STEADY : ShapeKind.valueOf(request.shapeKind());
+            String headline = WorkloadRecommendation.headlineFor(type, shapeKind, shape, false);
+
+            return new PreviewResponse(assembler.mix(composition), shapeDto, headline, null);
         } catch (IllegalArgumentException e) {
             // An incomplete form is the normal state while somebody is typing, not an error worth
             // shouting about. The preview says what is missing and waits.
-            return new PreviewResponse(null, null, e.getMessage());
+            return new PreviewResponse(null, null, null, e.getMessage());
         }
     }
 
@@ -322,7 +427,7 @@ public class TestsApiController {
         ProjectConfiguration updated = configuration;
         List<String> created = new java.util.ArrayList<>();
         for (var proposal : calibration.propose(observation)) {
-            Workload workload = WorkloadSuggestions.toWorkload(proposal, observedMix);
+            Workload workload = workloadForProposal(proposal, observedMix, configuration, observation);
             updated = updated.withWorkload(workload);
             created.add(workload.name());
         }
@@ -332,5 +437,33 @@ public class TestsApiController {
                 "Workloads created from your observed production traffic. Each one records how its "
                         + "number was derived and that it came from an observation.",
                 List.copyOf(created));
+    }
+
+    /**
+     * A breakpoint proposal is capped at this environment's configured safety limit — same rule the
+     * Composer's own recommendation applies — so bulk-applying never silently saves a ramp above
+     * what a fresh recommendation would ever offer. Every other proposal is adopted as
+     * {@code CalibrationPolicy} proposed it, unchanged.
+     */
+    private Workload workloadForProposal(WorkloadSuggestion proposal, OperationMix observedMix,
+            ProjectConfiguration configuration, ProductionObservation observation) {
+        if (proposal.type() != TestType.BREAKPOINT) {
+            return WorkloadSuggestions.toWorkload(proposal, observedMix);
+        }
+
+        EnvironmentType environmentType = configuration.environments().stream().findFirst()
+                .map(Environment::type).orElse(EnvironmentType.LOCAL_ISOLATED);
+        WorkloadRecommendation capped = recommender.recommend(TestType.BREAKPOINT, WorkloadModel.OPEN,
+                observation, executionPolicy.limits(), environmentType);
+
+        WorkloadSource source = capped.safetyCeilingApplied()
+                ? proposal.source().withDerivation(proposal.derivation()
+                        + " Capped at this environment's configured safety limit of "
+                        + capped.shape().peakLevel().displayWithUnit() + ".")
+                : proposal.source();
+
+        return new Workload(WorkloadId.of(proposal.name()), proposal.name(), proposal.description(),
+                "", TestType.BREAKPOINT, observedMix, capped.shape(), ThresholdSet.empty(), source,
+                Map.of());
     }
 }

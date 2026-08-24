@@ -50,17 +50,16 @@ public final class CalibrationPolicy {
     public static final BigDecimal FORECAST_MULTIPLIER = BigDecimal.valueOf(1.5);
     public static final BigDecimal STRESS_MULTIPLIER = BigDecimal.valueOf(3);
 
-    private static final Duration AVERAGE_LOAD_DURATION = Duration.ofMinutes(10);
-    private static final Duration PEAK_DURATION = Duration.ofMinutes(15);
-    private static final Duration BREAKPOINT_STAGE_DURATION = Duration.ofMinutes(5);
-    private static final int BREAKPOINT_STAGE_COUNT = 4;
+    public static final Duration AVERAGE_LOAD_DURATION = Duration.ofMinutes(10);
+    public static final Duration PEAK_DURATION = Duration.ofMinutes(15);
+    public static final Duration BREAKPOINT_STAGE_DURATION = Duration.ofMinutes(5);
+    public static final int BREAKPOINT_STAGE_COUNT = 4;
 
     public List<WorkloadSuggestion> propose(ProductionObservation observation) {
         Objects.requireNonNull(observation, "observation");
 
         RequestsPerSecond peak = observation.peakRate();
-        RequestsPerSecond representativeSource = observation.p95ObservedRateIfPresent()
-                .orElseGet(() -> observation.averageRateIfPresent().orElse(peak));
+        RequestsPerSecond representativeSource = observation.representativeRate();
 
         RequestsPerSecond averageLoad = round(representativeSource.value());
         RequestsPerSecond peakSuggestion = round(peak.value());
@@ -97,14 +96,15 @@ public final class CalibrationPolicy {
                                 + "asks." + caveat)));
 
         suggestions.add(new WorkloadSuggestion(TestType.STRESS, "forecast",
-                "Headroom above today's peak, for growth you have not seen yet.",
+                "Headroom above today's peak, held steady, for growth you have not seen yet.",
                 forecast, List.of(), PEAK_DURATION,
                 WorkloadSource.derived(where, when,
                         "Your observed peak of " + peak.display() + " × "
                                 + FORECAST_MULTIPLIER.toPlainString() + " = "
                                 + peak.value().multiply(FORECAST_MULTIPLIER)
                                 .setScale(1, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
-                                + ", rounded to " + forecast.display() + ", giving room for growth."
+                                + ", rounded to " + forecast.display() + ", held steady rather than "
+                                + "ramped, giving room for growth."
                                 + caveat)));
 
         List<RequestsPerSecond> stages = new ArrayList<>();

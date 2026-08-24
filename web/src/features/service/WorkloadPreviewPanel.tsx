@@ -6,20 +6,20 @@ import { LoadShapeChart } from '../../components/charts/LoadShapeChart';
 import classes from './WorkloadPreviewPanel.module.css';
 
 /**
- * Everything {@link WorkloadPreviewPanel} needs, published by the composer as the form changes —
- * raw values already known client-side (what the user typed) plus the one thing the domain
- * computed (`composition`, from the same `/tests/preview` call the Operations region's mixer
- * already uses). Nothing here is arithmetic this file performs itself.
+ * Everything {@link WorkloadPreviewPanel} needs, published by the composer as the form changes.
+ * `headline` is the one piece of English in here, and it comes straight from `/tests/preview` — no
+ * "ramp vs. hold" branch lives in this file, because once Spike and safety-ceiling-aware Breakpoint
+ * framing exist, a client-side branch on `ramping` describes both of those wrong. Everything else
+ * (`shape`, `composition`) is the same domain-computed data the Operations region's mixer already
+ * reads.
  */
 export interface ComposerPreviewSnapshot {
   testTypeLabel: string;
-  model: 'OPEN' | 'CLOSED';
-  ramping: boolean;
-  rate: number;
-  vus: number;
+  /** The workload in plain English, e.g. "10 req/s for 1 min" or "Jump from 10 req/s to 100 req/s
+   *  and back over 2m" — built once, in the domain, by `WorkloadRecommendation.headlineFor`, and
+   *  reused verbatim here so the recommendation card and this rail never disagree. */
+  headline: string | null;
   durationMinutes: number;
-  peakRate: number | '';
-  stages: number;
   composition: MixRow[] | null;
   shape: ShapeDto | null;
   problem: string | null;
@@ -32,36 +32,19 @@ export interface ComposerPreviewSnapshot {
   resourceSummary: string | null;
 }
 
-function headline(snapshot: ComposerPreviewSnapshot): string {
-  if (snapshot.model === 'CLOSED') {
-    return `Drive ${snapshot.vus} concurrent users`;
-  }
-  if (snapshot.ramping && snapshot.peakRate !== '') {
-    return `Ramp to ${snapshot.peakRate} req/s`;
-  }
-  return `Hold ${snapshot.rate} req/s`;
-}
-
 function subline(snapshot: ComposerPreviewSnapshot): string {
   const duration = `${snapshot.durationMinutes} min`;
-  return snapshot.ramping ? `${duration} · ${snapshot.stages} stages` : duration;
+  const stageCount = snapshot.shape?.stages.length ?? 0;
+  return stageCount > 1 ? `${duration} · ${stageCount} stages` : duration;
 }
 
-/** A caption, not a paragraph — deterministic narration of numbers already on screen above it, so
- *  it reads as the instrument's own caption rather than a second, competing explanation. */
-function sentence(serviceName: string, snapshot: ComposerPreviewSnapshot): string | null {
+/** A caption, not a paragraph — narrates `composition`, already domain-computed, rather than
+ *  restating the headline's own shape/level clause. */
+function sentence(snapshot: ComposerPreviewSnapshot): string | null {
   if (!snapshot.composition || snapshot.composition.length === 0) return null;
   const top = [...snapshot.composition].sort((a, b) => b.shareFraction - a.shareFraction)[0];
-  const verb = snapshot.model === 'CLOSED' ? 'Drive' : snapshot.ramping ? 'Ramp' : 'Hold';
-  const level =
-    snapshot.model === 'CLOSED'
-      ? `${snapshot.vus} concurrent users`
-      : snapshot.ramping && snapshot.peakRate !== ''
-        ? `to ${snapshot.peakRate} req/s`
-        : `${snapshot.rate} req/s`;
-  const shape = snapshot.ramping ? ` across ${snapshot.stages} stages` : '';
   const traffic = top.path || top.label;
-  return `${verb} ${serviceName} ${level}${shape} for ${snapshot.durationMinutes} min, distributing most traffic to ${traffic}.`;
+  return `Distributing most traffic to ${traffic}.`;
 }
 
 /**
@@ -76,11 +59,9 @@ function sentence(serviceName: string, snapshot: ComposerPreviewSnapshot): strin
  * single labelled value is genuinely the strongest shape, which this isn't.
  */
 export function WorkloadPreviewPanel({
-  serviceName,
   snapshot,
   showChart,
 }: {
-  serviceName: string;
   snapshot: ComposerPreviewSnapshot | null;
   /** False on narrow screens, where the composer's Load region already shows this same chart
    *  inline (there's no rail slot to borrow there — this panel still renders, stacked below Tests,
@@ -98,7 +79,7 @@ export function WorkloadPreviewPanel({
       ) : (
         <>
           <div className={classes.type}>{snapshot.testTypeLabel}</div>
-          <div className={classes.headline}>{headline(snapshot)}</div>
+          <div className={classes.headline}>{snapshot.headline ?? '—'}</div>
           <div className={classes.subline}>{subline(snapshot)}</div>
 
           {showChart && snapshot.shape && (
@@ -115,16 +96,17 @@ export function WorkloadPreviewPanel({
               {snapshot.problem}
             </Text>
           ) : snapshot.composition && snapshot.composition.length > 0 ? (
-            <TrafficDistribution rows={snapshot.composition} concurrency={snapshot.model === 'CLOSED'} />
+            <TrafficDistribution
+              rows={snapshot.composition}
+              concurrency={snapshot.shape?.unit === 'VUs'}
+            />
           ) : (
             <Text size="sm" c="dimmed">
               Give at least one operation a share of the traffic.
             </Text>
           )}
 
-          {sentence(serviceName, snapshot) && (
-            <p className={classes.caption}>{sentence(serviceName, snapshot)}</p>
-          )}
+          {sentence(snapshot) && <p className={classes.caption}>{sentence(snapshot)}</p>}
 
           {(snapshot.targetSummary || snapshot.resourceSummary) && (
             <p className={classes.caption}>

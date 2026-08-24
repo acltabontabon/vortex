@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import type { Tests } from '../../api/workspace';
-import type { CatalogOperation, TestEdit } from '../../api/tests';
+import type { CatalogOperation, RecommendationDto, TestEdit } from '../../api/tests';
 import { TestComposer } from './TestComposer';
 
 let testsResult: { data: Tests | undefined; isError: boolean } = { data: undefined, isError: false };
@@ -12,12 +12,17 @@ let catalogResult: { data: CatalogOperation[] | undefined; isError: boolean } = 
   isError: false,
 };
 let editResult: { data: TestEdit | undefined; isError: boolean } = { data: undefined, isError: false };
+let recommendationResult: { data: RecommendationDto | undefined; isError: boolean } = {
+  data: undefined,
+  isError: false,
+};
 const saveMutate = vi.fn();
 const previewMutate = vi.fn();
 
 beforeEach(() => {
   saveMutate.mockClear();
   previewMutate.mockClear();
+  recommendationResult = { data: undefined, isError: false };
 });
 
 vi.mock('../../api/workspace', async (importOriginal) => {
@@ -33,6 +38,7 @@ vi.mock('../../api/tests', async (importOriginal) => {
     useTestEditQuery: () => editResult,
     useSaveTestMutation: () => ({ mutate: saveMutate, isPending: false, isError: false, error: null }),
     usePreviewMutation: () => ({ mutate: previewMutate, data: undefined }),
+    useRecommendationQuery: () => recommendationResult,
   };
 });
 
@@ -57,6 +63,29 @@ function aTestsResult(): Tests {
     tests: [],
     testTypes: TEST_TYPES,
     environmentNames: ['local'],
+  };
+}
+
+function aRecommendation(overrides: Partial<RecommendationDto> = {}): RecommendationDto {
+  return {
+    type: 'STRESS',
+    model: 'OPEN',
+    shapeKind: 'PROGRESSIVE_RAMP',
+    purpose: 'Traffic heavier than normal, ramped up in view.',
+    headline: 'Increase traffic across 3 stages from 40 → 120 requests/sec over 15m',
+    startLevel: 40,
+    durationMinutes: 15,
+    explicitStages: [
+      { level: 40, durationSeconds: 300 },
+      { level: 80, durationSeconds: 300 },
+      { level: 120, durationSeconds: 300 },
+    ],
+    productionInformed: true,
+    safetyCeilingApplied: false,
+    sourceDescription: 'Derived from observed production traffic',
+    derivation: 'Your observed peak × 1.5 = 120, rounded.',
+    availableShapeKinds: ['PROGRESSIVE_RAMP', 'STEADY'],
+    ...overrides,
   };
 }
 
@@ -126,6 +155,8 @@ describe('the inline test composer', () => {
         stages: null,
         singleOperation: null,
         weights: { getAccount: 100 },
+        shapeKind: 'STEADY',
+        explicitStages: [],
       },
       isError: false,
     };
@@ -155,6 +186,8 @@ describe('the inline test composer', () => {
         stages: null,
         singleOperation: null,
         weights: { getAccount: 70, getOrder: 30 },
+        shapeKind: 'STEADY',
+        explicitStages: [],
       },
       isError: false,
     };
@@ -186,6 +219,14 @@ describe('the inline test composer', () => {
         stages: 5,
         singleOperation: null,
         weights: { getAccount: 70, getOrder: 30 },
+        shapeKind: 'PROGRESSIVE_RAMP',
+        explicitStages: [
+          { level: 60, durationSeconds: 120 },
+          { level: 120, durationSeconds: 120 },
+          { level: 180, durationSeconds: 120 },
+          { level: 240, durationSeconds: 120 },
+          { level: 300, durationSeconds: 120 },
+        ],
       },
       isError: false,
     };
@@ -199,14 +240,54 @@ describe('the inline test composer', () => {
     expect(screen.getByText('Total duration')).toBeInTheDocument();
     expect(screen.getByDisplayValue('300')).toBeInTheDocument();
     expect(screen.getByDisplayValue('5')).toBeInTheDocument();
-    expect(screen.getByText('Split evenly across 5 stages — 2 min each')).toBeInTheDocument();
-    // "Hold" (the steady-state rate field) is hidden while ramping — the domain never reads it in
-    // that mode, and a live-looking field that does nothing is exactly what caused a misconfigured
+    // The saved test's stages came in as `explicitStages`, carried through untouched — the
+    // "split evenly" caption would misdescribe a ramp that isn't guaranteed to be evenly spaced,
+    // so it stays hidden until the user actually edits Target/Stages/Duration (see the next test).
+    expect(screen.queryByText(/Split evenly across/)).not.toBeInTheDocument();
+    // "Rate" (the steady-state field) is hidden while ramping — the domain never reads it in that
+    // mode, and a live-looking field that does nothing is exactly what caused a misconfigured
     // breakpoint test.
-    expect(screen.queryByLabelText('Hold')).not.toBeInTheDocument();
-    expect(
-      screen.getByText('Stages are evenly spaced from 60 to 300 requests/sec — there is no separate starting rate to set.'),
-    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Rate')).not.toBeInTheDocument();
+  });
+
+  it('editing: hand-editing Stages after reopening a ramp reverts to the equal-spacing preview', async () => {
+    testsResult = { data: aTestsResult(), isError: false };
+    catalogResult = { data: CATALOG, isError: false };
+    editResult = {
+      data: {
+        name: 'breakpoint-check',
+        description: '',
+        objective: '',
+        type: 'STRESS',
+        model: 'OPEN',
+        rate: 50,
+        vus: null,
+        durationMinutes: 10,
+        ramping: true,
+        peakRate: 300,
+        stages: 5,
+        singleOperation: null,
+        weights: { getAccount: 70, getOrder: 30 },
+        shapeKind: 'PROGRESSIVE_RAMP',
+        explicitStages: [
+          { level: 60, durationSeconds: 120 },
+          { level: 120, durationSeconds: 120 },
+          { level: 180, durationSeconds: 120 },
+          { level: 240, durationSeconds: 120 },
+          { level: 300, durationSeconds: 120 },
+        ],
+      },
+      isError: false,
+    };
+
+    renderWithProviders(
+      <TestComposer serviceId="checkout" mode="edit" editingName="breakpoint-check" onClose={() => {}} />,
+    );
+
+    await userEvent.clear(screen.getByLabelText('Stages'));
+    await userEvent.type(screen.getByLabelText('Stages'), '4');
+
+    expect(screen.getByText('Split evenly across 4 stages — 2.5 min each')).toBeInTheDocument();
   });
 
   it('offers to import an API description when there are no operations to build a test from', () => {
@@ -219,21 +300,76 @@ describe('the inline test composer', () => {
     expect(screen.getByText('No operations yet.')).toBeInTheDocument();
   });
 
-  it('relabels Duration as total and shows the per-stage split once staging is on', async () => {
+  it('hides the shape selector until Customize workload is opened, for an intent with one relevant shape', async () => {
     testsResult = { data: aTestsResult(), isError: false };
     catalogResult = { data: CATALOG, isError: false };
     editResult = { data: undefined, isError: false };
 
     renderWithProviders(<TestComposer serviceId="checkout" mode="create" onClose={() => {}} />);
 
+    // Average load (the default Intent) only recommends Steady — no shape selector, no ramp
+    // controls, until the user explicitly asks for more.
     expect(screen.getByText('Duration')).toBeInTheDocument();
+    expect(screen.queryByText('Progressive ramp')).not.toBeInTheDocument();
     expect(screen.queryByText(/Split evenly across/)).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByText('Ramping'));
+    await userEvent.click(screen.getByText('Customize workload'));
+    await userEvent.click(screen.getByText('Progressive ramp'));
 
     // Default form values: durationMinutes 10, stages 4 — 2.5 min per stage.
     expect(screen.getByText('Total duration')).toBeInTheDocument();
     expect(screen.getByText('Split evenly across 4 stages — 2.5 min each')).toBeInTheDocument();
+  });
+
+  it('offers "Use recommended" and applies the domain\'s own numbers into the form', async () => {
+    testsResult = { data: aTestsResult(), isError: false };
+    catalogResult = { data: CATALOG, isError: false };
+    editResult = { data: undefined, isError: false };
+    recommendationResult = { data: aRecommendation(), isError: false };
+
+    renderWithProviders(<TestComposer serviceId="checkout" mode="create" onClose={() => {}} />);
+    // Load starts collapsed in create mode (see the Intent-vs-Load `defaultExpanded` split) — its
+    // content is still in the DOM (findable by text) but excluded from the accessibility tree
+    // (Mantine's Collapse marks a collapsed body `aria-hidden`) until it's opened, same as a real
+    // browser would only let a sighted user interact with it once visible.
+    await userEvent.click(screen.getByText('Load'));
+
+    expect(screen.getByText(/Recommended for/)).toBeInTheDocument();
+    expect(
+      screen.getByText('Increase traffic across 3 stages from 40 → 120 requests/sec over 15m'),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('Use recommended'));
+
+    // The recommendation's own peak (last stage) and stage count land in the form — not a
+    // client-invented default.
+    expect(screen.getByDisplayValue('120')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('3')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('15')).toBeInTheDocument();
+  });
+
+  it('shows the spike parameter editor, not generic ramp controls, once Spike is selected', async () => {
+    testsResult = { data: aTestsResult(), isError: false };
+    catalogResult = { data: CATALOG, isError: false };
+    editResult = { data: undefined, isError: false };
+    recommendationResult = {
+      data: aRecommendation({
+        type: 'SPIKE',
+        shapeKind: 'SPIKE',
+        availableShapeKinds: ['SPIKE'],
+      }),
+      isError: false,
+    };
+
+    renderWithProviders(<TestComposer serviceId="checkout" mode="create" onClose={() => {}} />);
+    await userEvent.click(screen.getByText('Load'));
+    await userEvent.click(screen.getByText('Customize workload'));
+    await userEvent.click(screen.getByText('Spike'));
+
+    expect(screen.getByText('Baseline')).toBeInTheDocument();
+    expect(screen.getByText('Peak')).toBeInTheDocument();
+    expect(screen.queryByText('Stages')).not.toBeInTheDocument();
+    expect(screen.queryByText('Target')).not.toBeInTheDocument();
   });
 
   it('switches from the weight grid to a single-operation choice under concurrency', async () => {

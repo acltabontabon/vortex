@@ -234,11 +234,7 @@ export function OverviewPage() {
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }} className={classes.railCol}>
           {composerState.mode !== 'closed' ? (
-            <WorkloadPreviewPanel
-              serviceName={data.header.name}
-              snapshot={composerPreview}
-              showChart={isSideBySide}
-            />
+            <WorkloadPreviewPanel snapshot={composerPreview} showChart={isSideBySide} />
           ) : (
             <RecentRunsRail
               overview={data}

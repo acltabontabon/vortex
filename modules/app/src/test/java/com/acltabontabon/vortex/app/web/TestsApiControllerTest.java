@@ -3,6 +3,7 @@ package com.acltabontabon.vortex.app.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -13,12 +14,37 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.acltabontabon.vortex.core.application.ProjectService;
 import com.acltabontabon.vortex.core.calibration.CalibrationPolicy;
 import com.acltabontabon.vortex.core.calibration.WorkloadDrift;
+import com.acltabontabon.vortex.core.calibration.WorkloadSuggestion;
+import com.acltabontabon.vortex.core.capacity.ProductionObservation;
+import com.acltabontabon.vortex.core.environment.DependencyMode;
+import com.acltabontabon.vortex.core.environment.Environment;
+import com.acltabontabon.vortex.core.environment.EnvironmentCapabilities;
+import com.acltabontabon.vortex.core.environment.EnvironmentType;
+import com.acltabontabon.vortex.core.environment.TargetUrl;
 import com.acltabontabon.vortex.core.fixtures.Fixtures;
 import com.acltabontabon.vortex.core.port.Repositories.ExecutionRepository;
 import com.acltabontabon.vortex.core.project.ProjectConfiguration;
+import com.acltabontabon.vortex.core.recommendation.ShapeKind;
+import com.acltabontabon.vortex.core.recommendation.WorkloadRecommendation;
+import com.acltabontabon.vortex.core.recommendation.WorkloadRecommender;
+import com.acltabontabon.vortex.core.safety.ExecutionPolicy;
+import com.acltabontabon.vortex.core.safety.SafetyLimits;
+import com.acltabontabon.vortex.core.shared.EnvironmentId;
+import com.acltabontabon.vortex.core.shared.OperationId;
+import com.acltabontabon.vortex.core.target.ExternalEndpointTarget;
+import com.acltabontabon.vortex.core.workload.ConstantArrivalRateShape;
+import com.acltabontabon.vortex.core.workload.Observation;
+import com.acltabontabon.vortex.core.workload.OperationMix;
+import com.acltabontabon.vortex.core.workload.RampingArrivalRateShape;
 import com.acltabontabon.vortex.core.workload.RateAllocator;
+import com.acltabontabon.vortex.core.workload.Stage;
+import com.acltabontabon.vortex.core.workload.TestType;
 import com.acltabontabon.vortex.core.workload.Workload;
 import com.acltabontabon.vortex.core.workload.WorkloadModel;
+import com.acltabontabon.vortex.core.workload.WorkloadSource;
+import com.acltabontabon.vortex.core.shared.RequestsPerSecond;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -62,6 +88,10 @@ class TestsApiControllerTest {
     private com.acltabontabon.vortex.core.application.CapacityService capacityService;
     @MockitoBean
     private com.acltabontabon.vortex.app.service.TestRunner testRunner;
+    @MockitoBean
+    private WorkloadRecommender recommender;
+    @MockitoBean
+    private ExecutionPolicy executionPolicy;
 
     @BeforeEach
     void aConfiguredService() {
@@ -71,6 +101,7 @@ class TestsApiControllerTest {
         when(projects.readiness(any())).thenReturn(Fixtures.configuration().readiness(true, true));
         when(executions.findByProject(any(), anyInt())).thenReturn(List.of());
         when(executions.countByProject(any())).thenReturn(0L);
+        when(executionPolicy.limits()).thenReturn(SafetyLimits.defaults());
     }
 
     private ProjectConfiguration saved() {
@@ -158,6 +189,57 @@ class TestsApiControllerTest {
             ProjectConfiguration after = saved();
             assertThat(after.workloadByName("weekday-traffic")).isPresent();
             assertThat(after.workloadByName("average-load")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a spike's parameters round-trip through save and back, not flattened to an equal ramp")
+        void aSavedSpikeRoundTripsItsShape() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/tests")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "name": "traffic-spike",
+                                      "type": "SPIKE",
+                                      "model": "OPEN",
+                                      "shapeKind": "SPIKE",
+                                      "spikeParams": {"baseline": 10, "peak": 100, "holdBeforeMinutes": 0.5, "holdAtPeakMinutes": 1},
+                                      "weights": {"getAccount": 100}
+                                    }
+                                    """))
+                    .andExpect(status().isOk());
+
+            Workload created = saved().workloadByName("traffic-spike").orElseThrow();
+            assertThat(created.shape().stages()).hasSize(4);
+            assertThat(created.shape().stages().get(1).target().asDouble()).isEqualTo(100.0);
+            assertThat(created.shape().stages().get(3).target().asDouble()).isEqualTo(10.0);
+        }
+
+        @Test
+        @DisplayName("an explicit, non-uniform stage list round-trips exactly, not re-derived as an even ramp")
+        void anExplicitStageListRoundTripsUnchanged() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/tests")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "name": "capped-breakpoint",
+                                      "type": "BREAKPOINT",
+                                      "model": "OPEN",
+                                      "shapeKind": "STAGED",
+                                      "explicitStages": [
+                                        {"level": 30, "durationSeconds": 300},
+                                        {"level": 100, "durationSeconds": 900}
+                                      ],
+                                      "weights": {"getAccount": 100}
+                                    }
+                                    """))
+                    .andExpect(status().isOk());
+
+            Workload created = saved().workloadByName("capped-breakpoint").orElseThrow();
+            assertThat(created.shape().stages()).hasSize(2);
+            assertThat(created.shape().stages().get(0).target().asDouble()).isEqualTo(30.0);
+            assertThat(created.shape().stages().get(0).duration()).isEqualTo(Duration.ofSeconds(300));
+            assertThat(created.shape().stages().get(1).target().asDouble()).isEqualTo(100.0);
+            assertThat(created.shape().stages().get(1).duration()).isEqualTo(Duration.ofSeconds(900));
         }
 
         @Test
@@ -309,6 +391,53 @@ class TestsApiControllerTest {
         }
 
         @Test
+        @DisplayName("a spike's four parameters build a baseline-jump-hold-recovery shape")
+        void spikeParamsBuildTheSpikePattern() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/tests/preview")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "model": "OPEN",
+                                      "type": "SPIKE",
+                                      "shapeKind": "SPIKE",
+                                      "spikeParams": {"baseline": 10, "peak": 100, "holdBeforeMinutes": 0.5, "holdAtPeakMinutes": 1},
+                                      "weights": {"getAccount": 100}
+                                    }
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.shape.stages.length()").value(4))
+                    .andExpect(jsonPath("$.shape.stages[0].levelValue").value(10.0))
+                    .andExpect(jsonPath("$.shape.stages[1].levelValue").value(100.0))
+                    .andExpect(jsonPath("$.shape.stages[2].levelValue").value(100.0))
+                    .andExpect(jsonPath("$.shape.stages[3].levelValue").value(10.0))
+                    .andExpect(jsonPath("$.headline")
+                            .value("Jump from 10 requests/sec to 100 requests/sec and back over 2m"));
+        }
+
+        @Test
+        @DisplayName("a concurrency ramp is built from Target/Stages too, not silently flattened to constant-vus")
+        void concurrencyRampBuildsARampingVusShape() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/tests/preview")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "model": "CLOSED",
+                                      "shapeKind": "PROGRESSIVE_RAMP",
+                                      "peakRate": 100,
+                                      "stages": 4,
+                                      "durationMinutes": 8,
+                                      "singleOperation": "getAccount"
+                                    }
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.shape.unit").value("VUs"))
+                    .andExpect(jsonPath("$.shape.ramping").value(true))
+                    .andExpect(jsonPath("$.shape.stages.length()").value(4))
+                    .andExpect(jsonPath("$.shape.stages[0].levelValue").value(25.0))
+                    .andExpect(jsonPath("$.shape.stages[3].levelValue").value(100.0));
+        }
+
+        @Test
         @DisplayName("a concurrency shape reports its levels in VUs, never compared to a rate")
         void concurrencyShapeReportsVus() throws Exception {
             mvc.perform(post("/api/services/" + SERVICE + "/tests/preview")
@@ -329,6 +458,31 @@ class TestsApiControllerTest {
     }
 
     @Nested
+    @DisplayName("recommending a workload")
+    class Recommending {
+
+        @Test
+        @DisplayName("renders the domain's recommendation, never inventing its own numbers")
+        void rendersTheRecommendationVerbatim() throws Exception {
+            var shape = new ConstantArrivalRateShape(RequestsPerSecond.of(10), Duration.ofSeconds(30));
+            var recommendation = new WorkloadRecommendation(
+                    com.acltabontabon.vortex.core.workload.TestType.SMOKE, ShapeKind.STEADY, shape,
+                    "A very small, steady check.", WorkloadSource.manual(), false);
+            when(recommender.recommend(any(), any(), any(), any(), any())).thenReturn(recommendation);
+
+            mvc.perform(get("/api/services/" + SERVICE + "/tests/recommendation")
+                            .param("type", "SMOKE").param("model", "OPEN"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.type").value("SMOKE"))
+                    .andExpect(jsonPath("$.shapeKind").value("STEADY"))
+                    .andExpect(jsonPath("$.purpose").value("A very small, steady check."))
+                    .andExpect(jsonPath("$.headline").value("10 requests/sec for 30 s"))
+                    .andExpect(jsonPath("$.productionInformed").value(false))
+                    .andExpect(jsonPath("$.availableShapeKinds[0]").value("STEADY"));
+        }
+    }
+
+    @Nested
     @DisplayName("applying proposed workloads")
     class ApplyingProduction {
 
@@ -342,6 +496,54 @@ class TestsApiControllerTest {
                             "Record your observed production traffic first."));
 
             verify(projects, org.mockito.Mockito.never()).saveConfiguration(any(), any());
+        }
+
+        @Test
+        @DisplayName("caps a breakpoint proposal at the environment's safety limit, same as a fresh recommendation would")
+        void cappedBreakpointProposalMatchesTheRecommendersOwnCeiling() throws Exception {
+            OperationMix mix = OperationMix.single(OperationId.of("getAccount"));
+            ProductionObservation observation = new ProductionObservation(
+                    RequestsPerSecond.of(80), RequestsPerSecond.of(100), RequestsPerSecond.of(100),
+                    mix, "Grafana", Observation.over(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600)), "");
+
+            Environment sharedTest = new Environment(EnvironmentId.of("shared"), "shared",
+                    EnvironmentType.SHARED_TEST, new ExternalEndpointTarget(TargetUrl.of("http://shared:8080")),
+                    EnvironmentCapabilities.none(), DependencyMode.MOCKED, Map.of());
+            ProjectConfiguration withObservation = Fixtures.configuration()
+                    .withEnvironments(List.of(sharedTest))
+                    .withProductionObservation(observation);
+            when(projects.configuration(any())).thenReturn(withObservation);
+
+            // CalibrationPolicy's own uncapped 3x-peak proposal — 300 requests/sec, well above
+            // SHARED_TEST's default 100 requests/sec ceiling.
+            WorkloadSuggestion uncapped = new WorkloadSuggestion(TestType.BREAKPOINT, "capacity",
+                    "Where the service stops meeting its objectives.",
+                    RequestsPerSecond.of(300),
+                    List.of(RequestsPerSecond.of(75), RequestsPerSecond.of(150),
+                            RequestsPerSecond.of(225), RequestsPerSecond.of(300)),
+                    Duration.ofMinutes(20),
+                    WorkloadSource.derived("Grafana", observation.observation(),
+                            "Ramps to 3x your observed peak (300 requests/sec) in 4 stages."));
+            when(calibration.propose(any())).thenReturn(List.of(uncapped));
+
+            RampingArrivalRateShape cappedShape = new RampingArrivalRateShape(RequestsPerSecond.of(75),
+                    List.of(Stage.ofRate(75, Duration.ofMinutes(5)), Stage.ofRate(100, Duration.ofMinutes(15))));
+            WorkloadRecommendation cappedRecommendation = new WorkloadRecommendation(TestType.BREAKPOINT,
+                    ShapeKind.STAGED, cappedShape,
+                    "Load increases in stages until an objective is violated or the configured safety "
+                            + "limit is reached.",
+                    uncapped.source(), true);
+            when(recommender.recommend(eq(TestType.BREAKPOINT), eq(WorkloadModel.OPEN), any(), any(), any()))
+                    .thenReturn(cappedRecommendation);
+
+            mvc.perform(post("/api/services/" + SERVICE + "/production/apply"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.applied").value(true));
+
+            Workload created = saved().workloadByName("capacity").orElseThrow();
+            assertThat(created.shape().peakLevel().asDouble()).isEqualTo(100.0);
+            assertThat(created.source().derivationIfPresent().orElseThrow())
+                    .contains("Capped at this environment's configured safety limit of 100 requests/sec.");
         }
     }
 }

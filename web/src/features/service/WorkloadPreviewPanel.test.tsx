@@ -17,6 +17,22 @@ function aShape(overrides: Partial<ShapeDto> = {}): ShapeDto {
   };
 }
 
+/** A spike's non-monotonic [baseline, peak, peak, baseline] stage list — used to confirm the panel
+ *  never assumes a ramp only ever climbs. */
+function aSpikeShape(): ShapeDto {
+  return aShape({
+    ramping: true,
+    peakLevelValue: 100,
+    peakLevelDisplay: '100 requests/sec',
+    stages: [
+      { levelValue: 10, levelDisplay: '10 requests/sec', durationMillis: 30_000, durationDisplay: '30s' },
+      { levelValue: 100, levelDisplay: '100 requests/sec', durationMillis: 15_000, durationDisplay: '15s' },
+      { levelValue: 100, levelDisplay: '100 requests/sec', durationMillis: 60_000, durationDisplay: '1m' },
+      { levelValue: 10, levelDisplay: '10 requests/sec', durationMillis: 15_000, durationDisplay: '15s' },
+    ],
+  });
+}
+
 function aRow(overrides: Partial<MixRow> = {}): MixRow {
   return {
     operationId: 'getAccount',
@@ -34,13 +50,8 @@ function aRow(overrides: Partial<MixRow> = {}): MixRow {
 function aSnapshot(overrides: Partial<ComposerPreviewSnapshot> = {}): ComposerPreviewSnapshot {
   return {
     testTypeLabel: 'Soak',
-    model: 'OPEN',
-    ramping: false,
-    rate: 50,
-    vus: 50,
+    headline: 'Hold 50 requests/sec for 10 min',
     durationMinutes: 10,
-    peakRate: '',
-    stages: 4,
     composition: [aRow()],
     shape: null,
     problem: null,
@@ -52,46 +63,58 @@ function aSnapshot(overrides: Partial<ComposerPreviewSnapshot> = {}): ComposerPr
 
 describe('the workload preview panel', () => {
   it('shows a graceful placeholder before there is a workload to preview', () => {
-    renderWithProviders(<WorkloadPreviewPanel serviceName="checkout-service" showChart snapshot={null} />);
+    renderWithProviders(<WorkloadPreviewPanel showChart snapshot={null} />);
 
     expect(screen.getByText('Workload')).toBeInTheDocument();
     expect(screen.getByText('Fill in Intent and Load to see the shape.')).toBeInTheDocument();
   });
 
-  it('states a steady arrival-rate headline in requests/sec', () => {
+  it('renders the backend-built headline verbatim, never re-deriving it', () => {
     renderWithProviders(
-      <WorkloadPreviewPanel serviceName="checkout-service" showChart snapshot={aSnapshot({ rate: 200 })} />,
+      <WorkloadPreviewPanel showChart snapshot={aSnapshot({ headline: 'Hold 200 requests/sec for 10 min' })} />,
     );
 
     expect(screen.getByText('Soak')).toBeInTheDocument();
-    expect(screen.getByText('Hold 200 req/s')).toBeInTheDocument();
+    expect(screen.getByText('Hold 200 requests/sec for 10 min')).toBeInTheDocument();
     expect(screen.getByText('10 min')).toBeInTheDocument();
   });
 
-  it('states a ramping headline with the stage count, in the workload language', () => {
+  it('describes a spike headline exactly as the backend phrased it', () => {
     renderWithProviders(
       <WorkloadPreviewPanel
-        serviceName="checkout-service" showChart
-        snapshot={aSnapshot({ ramping: true, peakRate: 300, stages: 5 })}
+        showChart
+        snapshot={aSnapshot({
+          headline: 'Jump from 10 requests/sec to 100 requests/sec and back over 2m',
+          shape: aSpikeShape(),
+        })}
       />,
     );
 
-    expect(screen.getByText('Ramp to 300 req/s')).toBeInTheDocument();
-    expect(screen.getByText('10 min · 5 stages')).toBeInTheDocument();
+    expect(
+      screen.getByText('Jump from 10 requests/sec to 100 requests/sec and back over 2m'),
+    ).toBeInTheDocument();
+    // Stage count comes from the shape, not from a raw "ramping" flag that no longer exists.
+    expect(screen.getByText('10 min · 4 stages')).toBeInTheDocument();
   });
 
-  it('speaks concurrency in its own units, never comparing them to a rate', () => {
+  it('reads concurrency from the shape unit, never comparing VUs to a rate', () => {
     renderWithProviders(
-      <WorkloadPreviewPanel serviceName="checkout-service" showChart snapshot={aSnapshot({ model: 'CLOSED', vus: 75 })} />,
+      <WorkloadPreviewPanel
+        showChart
+        snapshot={aSnapshot({
+          headline: 'Drive 75 concurrent users for 10 min',
+          shape: aShape({ unit: 'VUs' }),
+        })}
+      />,
     );
 
-    expect(screen.getByText('Drive 75 concurrent users')).toBeInTheDocument();
+    expect(screen.getByText('Drive 75 concurrent users for 10 min')).toBeInTheDocument();
   });
 
   it('shows the traffic mix once the domain has computed a composition', () => {
     renderWithProviders(
       <WorkloadPreviewPanel
-        serviceName="checkout-service" showChart
+        showChart
         snapshot={aSnapshot({ composition: [aRow(), aRow({ operationId: 'getOrder', path: '/orders/{id}', sharePercent: '40%', shareFraction: 0.4 })] })}
       />,
     );
@@ -101,18 +124,16 @@ describe('the workload preview panel', () => {
   });
 
   it('never fabricates a mix or a sentence while the workload is incomplete', () => {
-    renderWithProviders(
-      <WorkloadPreviewPanel serviceName="checkout-service" showChart snapshot={aSnapshot({ composition: [] })} />,
-    );
+    renderWithProviders(<WorkloadPreviewPanel showChart snapshot={aSnapshot({ composition: [] })} />);
 
     expect(screen.getByText('Give at least one operation a share of the traffic.')).toBeInTheDocument();
     expect(screen.queryByText(/distributing most traffic/)).not.toBeInTheDocument();
   });
 
-  it('surfaces the domain\'s own refusal instead of the mix when the preview reports one', () => {
+  it("surfaces the domain's own refusal instead of the mix when the preview reports one", () => {
     renderWithProviders(
       <WorkloadPreviewPanel
-        serviceName="checkout-service" showChart
+        showChart
         snapshot={aSnapshot({ composition: null, problem: 'Choose the operation these virtual users will call.' })}
       />,
     );
@@ -120,15 +141,11 @@ describe('the workload preview panel', () => {
     expect(screen.getByText('Choose the operation these virtual users will call.')).toBeInTheDocument();
   });
 
-  it('narrates the workload as a muted caption naming the top operation', () => {
+  it('narrates the top operation as its own caption, separate from the headline', () => {
     renderWithProviders(
       <WorkloadPreviewPanel
-        serviceName="checkout-service" showChart
+        showChart
         snapshot={aSnapshot({
-          ramping: true,
-          peakRate: 200,
-          stages: 5,
-          durationMinutes: 1,
           composition: [
             aRow({ shareFraction: 0.2, path: '/orders/{id}' }),
             aRow({ operationId: 'getAccount', shareFraction: 0.6, path: '/accounts/{id}' }),
@@ -137,17 +154,13 @@ describe('the workload preview panel', () => {
       />,
     );
 
-    expect(
-      screen.getByText(
-        'Ramp checkout-service to 200 req/s across 5 stages for 1 min, distributing most traffic to /accounts/{id}.',
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Distributing most traffic to /accounts/{id}.')).toBeInTheDocument();
   });
 
   it('shows the target/resource caption when the snapshot provides it', () => {
     renderWithProviders(
       <WorkloadPreviewPanel
-        serviceName="checkout-service" showChart
+        showChart
         snapshot={aSnapshot({
           targetSummary: 'Docker: payment-service:1.4.2',
           resourceSummary: '0.5 CPU · 512 MiB',
@@ -162,10 +175,7 @@ describe('the workload preview panel', () => {
 
   it('omits the target/resource caption entirely for an external-endpoint target', () => {
     renderWithProviders(
-      <WorkloadPreviewPanel
-        serviceName="checkout-service" showChart
-        snapshot={aSnapshot({ targetSummary: null, resourceSummary: null })}
-      />,
+      <WorkloadPreviewPanel showChart snapshot={aSnapshot({ targetSummary: null, resourceSummary: null })} />,
     );
 
     expect(screen.queryByText(/^Target ·/)).not.toBeInTheDocument();
@@ -173,17 +183,11 @@ describe('the workload preview panel', () => {
 
   it('hides its own chart on narrow screens, where the composer already shows it inline', () => {
     const { container, rerender } = renderWithProviders(
-      <WorkloadPreviewPanel serviceName="checkout-service" showChart snapshot={aSnapshot({ shape: aShape() })} />,
+      <WorkloadPreviewPanel showChart snapshot={aSnapshot({ shape: aShape() })} />,
     );
     expect(container.querySelector('svg[role="img"]')).not.toBeNull();
 
-    rerender(
-      <WorkloadPreviewPanel
-        serviceName="checkout-service"
-        showChart={false}
-        snapshot={aSnapshot({ shape: aShape() })}
-      />,
-    );
+    rerender(<WorkloadPreviewPanel showChart={false} snapshot={aSnapshot({ shape: aShape() })} />);
     expect(container.querySelector('svg[role="img"]')).toBeNull();
   });
 });

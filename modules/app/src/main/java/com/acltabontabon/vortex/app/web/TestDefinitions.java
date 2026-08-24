@@ -9,11 +9,15 @@ import com.acltabontabon.vortex.core.workload.ConstantConcurrencyShape;
 import com.acltabontabon.vortex.core.workload.LoadShape;
 import com.acltabontabon.vortex.core.workload.OperationMix;
 import com.acltabontabon.vortex.core.workload.RampingArrivalRateShape;
+import com.acltabontabon.vortex.core.workload.RampingConcurrencyShape;
+import com.acltabontabon.vortex.core.workload.SpikeShapes;
 import com.acltabontabon.vortex.core.workload.Stage;
 import com.acltabontabon.vortex.core.shared.Weight;
 import com.acltabontabon.vortex.core.workload.WeightedOperation;
 import com.acltabontabon.vortex.core.workload.Workload;
 import com.acltabontabon.vortex.core.workload.WorkloadModel;
+import com.acltabontabon.vortex.app.web.TestsApiController.SpikeParamsDto;
+import com.acltabontabon.vortex.app.web.TestsApiController.StageInputDto;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -100,7 +104,12 @@ public class TestDefinitions {
      *
      * <p>A ramp is apportioned into equal stages ending at the peak, because stages are the unit of
      * evidence for a breakpoint and evenly spaced ones bracket the limit predictably. Anything more
-     * particular than that is expressed in {@code vortex.yaml}, which carries arbitrary stages.
+     * particular than that is expressed in {@code vortex.yaml}, which carries arbitrary stages, or
+     * passed as an explicit stage list (see {@link #explicitShape}).
+     *
+     * <p>{@code peakRate}/{@code stages} drive a ramp for either model — the field is reused for a
+     * concurrency workload's peak VU count too, interpreted by {@code model} rather than by name, the
+     * same way the composer's own "Ramp to" control is shared between both.
      */
     public LoadShape shape(WorkloadModel model, Double rate, Integer vus, int durationMinutes,
             Double peakRate, int stages) {
@@ -108,6 +117,19 @@ public class TestDefinitions {
         Duration duration = Duration.ofMinutes(Math.max(1, durationMinutes));
 
         if (model == WorkloadModel.CLOSED) {
+            if (peakRate != null && peakRate > 0 && stages > 1) {
+                List<Stage> ramp = new ArrayList<>();
+                Duration each = duration.dividedBy(stages);
+                Concurrency first = null;
+                for (int stage = 1; stage <= stages; stage++) {
+                    Concurrency target = Concurrency.of((int) Math.round(peakRate * stage / stages));
+                    if (first == null) {
+                        first = target;
+                    }
+                    ramp.add(new Stage(target, each));
+                }
+                return new RampingConcurrencyShape(first, ramp);
+            }
             return new ConstantConcurrencyShape(Concurrency.of(vus == null ? 0 : vus), duration);
         }
         if (peakRate != null && peakRate > 0 && stages > 1) {
@@ -124,6 +146,37 @@ public class TestDefinitions {
             return new RampingArrivalRateShape(first, ramp);
         }
         return new ConstantArrivalRateShape(RequestsPerSecond.of(rate == null ? 0 : rate), duration);
+    }
+
+    /**
+     * A ramp with each stage's level and duration exactly as given — the passthrough path for a
+     * recommendation's own stage list (possibly non-uniform, e.g. capped by a safety ceiling), so
+     * "Use recommended" reproduces exactly what was recommended rather than the equal-spacing {@link
+     * #shape} would reconstruct from a peak and a stage count alone.
+     */
+    public LoadShape explicitShape(WorkloadModel model, List<StageInputDto> stages) {
+        List<Stage> built = stages.stream()
+                .map(s -> model == WorkloadModel.CLOSED
+                        ? new Stage(Concurrency.of((int) Math.round(s.level())), Duration.ofSeconds(s.durationSeconds()))
+                        : new Stage(RequestsPerSecond.of(s.level()), Duration.ofSeconds(s.durationSeconds())))
+                .toList();
+        return model == WorkloadModel.CLOSED
+                ? new RampingConcurrencyShape((Concurrency) built.getFirst().target(), built)
+                : new RampingArrivalRateShape((RequestsPerSecond) built.getFirst().target(), built);
+    }
+
+    /**
+     * The baseline/jump/hold/recovery pattern a spike test needs — the one shape the simple
+     * Rate/Stages/Duration controls could never express, so it is always built from its own four
+     * parameters via {@link SpikeShapes} rather than a raw stage list, keeping the exact pattern
+     * (transition duration, stage order) backend-owned.
+     */
+    public LoadShape spikeShape(WorkloadModel model, SpikeParamsDto params) {
+        Duration before = Duration.ofSeconds(Math.round(params.holdBeforeMinutes() * 60));
+        Duration atPeak = Duration.ofSeconds(Math.round(params.holdAtPeakMinutes() * 60));
+        return model == WorkloadModel.CLOSED
+                ? SpikeShapes.concurrency((int) params.baseline(), (int) params.peak(), before, atPeak)
+                : SpikeShapes.arrivalRate(params.baseline(), params.peak(), before, atPeak);
     }
 
     /** The weights of an existing test, for an editor to open with. */

@@ -170,6 +170,39 @@
   overflow: hidden;
 }
 
+/* ---------------------------------------------------------------- recommended workload */
+
+/* A quiet card, not a bordered box — a tint and a left accent, the same "this is the selected/
+   featured thing" treatment .typeTileButton[data-checked] already uses, so the recommendation reads
+   as part of the same instrument rather than a separate widget bolted on top of it. */
+.recommendedCard {
+  background: var(--surface-card);
+  border-left: 2px solid var(--mantine-color-brand-6);
+  border-radius: var(--mantine-radius-sm);
+  padding: 0.65rem 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.recommendedLabel {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.recommendedPurpose {
+  font-size: 0.82rem;
+  color: var(--mantine-color-dimmed);
+  margin: 0.3rem 0 0.15rem;
+}
+
+.recommendedHeadline {
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
 /* ---------------------------------------------------------------- traffic model */
 
 .modelGrid {
@@ -183,8 +216,6 @@
   background: transparent;
   border-radius: var(--mantine-radius-sm);
   padding: 0.4rem 0.75rem;
-  font-size: 0.86rem;
-  font-weight: 600;
   cursor: pointer;
   transition: background-color 120ms ease-out, border-color 120ms ease-out;
 }
@@ -196,6 +227,65 @@
 .modelTile[data-checked] {
   background: var(--surface-card);
   border-left-color: var(--mantine-color-brand-6);
+}
+
+.modelPrimary {
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.modelSecondary {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--mantine-color-dimmed);
+}
+
+/* ---------------------------------------------------------------- load shape */
+
+.shapeGrid {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.shapeTile {
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  border-radius: var(--mantine-radius-sm);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.shapeTile:hover {
+  background: var(--border-subtle);
+}
+
+.shapeTile[data-checked] {
+  background: var(--surface-card);
+  border-left-color: var(--mantine-color-brand-6);
+}
+
+.customizeToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 0.75rem;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+}
+
+.customizeToggle:hover {
+  color: var(--mantine-color-text);
 }
 
 /* Narrow screens only — see `showInlineChart` on TestComposer. Wide screens show this same chart

@@ -48,4 +48,33 @@ describe('the load shape chart', () => {
     const { container } = renderWithProviders(<LoadShapeChart shape={aShape({ stages: [] })} />);
     expect(container.querySelector('svg')).toBeNull();
   });
+
+  it('draws a spike\'s non-monotonic [baseline, peak, peak, baseline] pattern correctly, with no assumption that a ramp only ever climbs', () => {
+    const shape = aShape({
+      ramping: true,
+      peakLevelValue: 100,
+      peakLevelDisplay: '100 requests/sec',
+      stages: [
+        { levelValue: 10, levelDisplay: '10 requests/sec', durationMillis: 30_000, durationDisplay: '30s' },
+        { levelValue: 100, levelDisplay: '100 requests/sec', durationMillis: 15_000, durationDisplay: '15s' },
+        { levelValue: 100, levelDisplay: '100 requests/sec', durationMillis: 60_000, durationDisplay: '1m' },
+        { levelValue: 10, levelDisplay: '10 requests/sec', durationMillis: 15_000, durationDisplay: '15s' },
+      ],
+    });
+    const { container } = renderWithProviders(<LoadShapeChart shape={shape} />);
+
+    const line = container.querySelector('polyline');
+    const points = line!.getAttribute('points')!.trim().split(/\s+/);
+    // Two points per stage, four stages — 8 points, and the shape returns to its starting height.
+    expect(points).toHaveLength(8);
+    const y = (point: string) => Number(point.split(',')[1]);
+    const [baselineStartY, , peakStartY, , , peakEndY, recoveryStartY, recoveryEndY] = points.map(y);
+    // Baseline sits lower on screen (a larger SVG y) than the peak — the staircase actually rises...
+    expect(baselineStartY).toBeGreaterThan(peakStartY);
+    // ...holds flat at the peak...
+    expect(peakStartY).toBe(peakEndY);
+    // ...and comes back down to exactly where it started, not partway or further.
+    expect(recoveryStartY).toBe(baselineStartY);
+    expect(recoveryEndY).toBe(baselineStartY);
+  });
 });
