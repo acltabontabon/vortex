@@ -401,10 +401,10 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
                         }
                         // What the provider said each signal *is*, kept once per (provider, id). The
                         // values change every five seconds; the classification does not, so
-                        // re-recording it each sample would be noise. The aggregated peak is
-                        // re-wrapped with it in finish(), which is what carries the kind, scope and
-                        // limit through to a conclusion — without it, every signal would arrive typed
-                        // and leave untyped.
+                        // re-recording it each sample would be noise. Only the kind, scope and limit
+                        // are read back out of here — finish() re-wraps them around the aggregated
+                        // peak, never around this sample's own stale value. Without the
+                        // classification, every signal would arrive typed and leave untyped.
                         for (ResourceSignal classified : collected.resourceSignals()) {
                             SignalKey key = new SignalKey(provider.id(), classified.signalId());
                             if (!classifications.containsKey(key)) {
@@ -492,7 +492,7 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
                 for (Map.Entry<SignalKey, Readings> entry : runReadings.entrySet()) {
                     MetricObservation observation = entry.getValue().toObservation(window);
                     run.add(observation);
-                    typed(entry.getKey()).ifPresent(runResources::add);
+                    typed(entry.getKey(), observation).ifPresent(runResources::add);
                 }
                 for (StageWindows.StageWindow stage : stages) {
                     Map<SignalKey, Readings> readings = stageReadings.get(stage.index());
@@ -504,7 +504,7 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
                     for (Map.Entry<SignalKey, Readings> entry : readings.entrySet()) {
                         MetricObservation observation = entry.getValue().toObservation(stage.window());
                         signals.add(observation);
-                        typed(entry.getKey()).ifPresent(resources::add);
+                        typed(entry.getKey(), observation).ifPresent(resources::add);
                     }
                     byStage.add(new StageTelemetry(stage.index(), stage.window(), stage.basis(),
                             signals, resources));
@@ -535,13 +535,20 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
         /**
          * The aggregated reading re-wrapped with what its provider said it was.
          *
+         * <p>The aggregate is passed in rather than taken from the stored classification: what was
+         * stored is the sample that first identified this signal, and its <em>value</em> is whatever
+         * the resource happened to be doing at that instant — typically before the run had generated
+         * any load at all. Only the kind, scope and limit are stable enough to keep from that sample;
+         * the number has to come from the window being summarised, or a resource tile reports the
+         * service at rest while the timeline beside it shows the peak.
+         *
          * <p>Empty when no provider classified this signal, which leaves it an ordinary observation
          * — still collected, aligned, cited, exported and rendered, and unable to become a claim
          * about a limit.
          */
-        private Optional<ResourceSignal> typed(SignalKey key) {
+        private Optional<ResourceSignal> typed(SignalKey key, MetricObservation aggregated) {
             return Optional.ofNullable(classifications.get(key))
-                    .map(classified -> new ResourceSignal(classified.observation(), classified.kind(),
+                    .map(classified -> new ResourceSignal(aggregated, classified.kind(),
                             classified.scope(), classified.limit()));
         }
     }

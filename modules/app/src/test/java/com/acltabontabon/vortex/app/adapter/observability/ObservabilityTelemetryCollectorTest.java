@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
@@ -102,6 +103,50 @@ class ObservabilityTelemetryCollectorTest {
                 .hasSize(2)
                 .extracting(ResourceSignal::value)
                 .containsExactlyInAnyOrder(40.0, 90.0);
+    }
+
+    @Test
+    void aResourceSignalReportsTheRunsPeakRatherThanWhicheverSampleFirstClassifiedIt() {
+        // The classification (kind, scope, limit) is captured once, from the sample that first
+        // identified the signal. Its *value* must not come along for the ride: that sample is taken
+        // during setup, before the generator has produced any load, so reusing it reports the service
+        // at rest — a container idling at 0.0005 of its 0.5-core limit while the timeline beside it
+        // shows the real peak. Only a signal that rises across samples can tell the two apart.
+        var plan = Fixtures.plan();
+        var provider = new RisingReadingProvider();
+        var collector = new ObservabilityTelemetryCollector(List.of(provider), null,
+                ResourceSampleSinkFactory.none(), DOCKER_PROCESS, "docker");
+
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET, null);
+        sleep(ObservabilityTelemetryCollector.SAMPLE_INTERVAL.toMillis() + 700);
+        TelemetryCollector.Telemetry telemetry =
+                session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(30)));
+
+        assertThat(provider.readings)
+                .as("the run must have produced more than one reading, or this test cannot "
+                        + "distinguish the first sample from the peak")
+                .hasSizeGreaterThan(1);
+        double peak = provider.readings.stream().mapToDouble(Double::doubleValue).max().orElseThrow();
+        double firstClassified = provider.readings.getFirst();
+
+        assertThat(telemetry.resourceSignals())
+                .singleElement()
+                .satisfies(signal -> {
+                    assertThat(signal.value())
+                            .as("a classified resource must carry the same aggregated peak its plain "
+                                    + "observation carries, not the value it happened to hold when it "
+                                    + "was first classified")
+                            .isEqualTo(peak)
+                            .isNotEqualTo(firstClassified);
+                    assertThat(signal.kind()).isEqualTo(ResourceKind.CPU);
+                    assertThat(signal.scope()).isEqualTo(ResourceScope.SYSTEM_UNDER_TEST);
+                });
+        assertThat(telemetry.run())
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.value())
+                        .as("the resource signal and the plain observation describe one measurement "
+                                + "and must never disagree about its value")
+                        .isEqualTo(peak));
     }
 
     @Test
@@ -368,6 +413,44 @@ class ObservabilityTelemetryCollectorTest {
         @Override
         public Collected collect(ObservabilityQuery query) {
             var observation = MetricObservation.of(signalId, signalId, MetricSource.PROMETHEUS,
+                    MetricUnit.PERCENT, Aggregation.MAX, value,
+                    new TimeWindow(Instant.now(), Instant.now()));
+            var signal = ResourceSignal.unbounded(observation, ResourceKind.CPU,
+                    ResourceScope.SYSTEM_UNDER_TEST);
+            return new Collected(List.of(observation), List.of(), List.of(signal));
+        }
+    }
+
+    /** Answers with a different, rising reading on every call, so a test can tell which sample of a
+     *  run a summary figure actually came from. Classified as CPU on the system under test, and
+     *  deliberately classified on every call — the collector keeps only the first classification. */
+    private static final class RisingReadingProvider implements ObservabilityProvider {
+
+        private static final String SIGNAL_ID = "metric:system.cpu.utilization";
+
+        private final List<Double> readings = new CopyOnWriteArrayList<>();
+        private final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public String id() {
+            return "prometheus";
+        }
+
+        @Override
+        public List<String> defaultMetrics() {
+            return List.of(SIGNAL_ID);
+        }
+
+        @Override
+        public boolean isAvailable(ObservabilityQuery query) {
+            return true;
+        }
+
+        @Override
+        public Collected collect(ObservabilityQuery query) {
+            double value = 10.0 * calls.incrementAndGet();
+            readings.add(value);
+            var observation = MetricObservation.of(SIGNAL_ID, SIGNAL_ID, MetricSource.PROMETHEUS,
                     MetricUnit.PERCENT, Aggregation.MAX, value,
                     new TimeWindow(Instant.now(), Instant.now()));
             var signal = ResourceSignal.unbounded(observation, ResourceKind.CPU,
