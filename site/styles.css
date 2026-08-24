@@ -433,6 +433,321 @@ a {
   color: var(--accent);
 }
 
+/* Vortex concept diagram (#concept) */
+
+.vortex-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 0 8px;
+  overflow-x: hidden;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.vortex-diagram.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.diagram-inputs,
+.diagram-outputs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 480px;
+}
+
+.diagram-inputs li,
+.diagram-outputs li {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+
+.diagram-outputs li {
+  color: var(--fg);
+}
+
+.diagram-outputs li.output-optional {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-style: dashed;
+  color: var(--fg-muted);
+}
+
+.output-optional-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--fg-muted);
+  opacity: 0.75;
+}
+
+.diagram-spiral {
+  width: min(320px, 70vw);
+  height: auto;
+  margin: 12px 0;
+}
+
+.diagram-spiral path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-dasharray: 3 2.4;
+  animation: diagram-flow 5s linear infinite;
+}
+
+.diagram-spiral path:nth-child(2) {
+  animation-duration: 6.5s;
+  animation-direction: reverse;
+}
+
+.diagram-spiral path:nth-child(3) {
+  animation-duration: 8s;
+}
+
+@keyframes diagram-flow {
+  to {
+    stroke-dashoffset: -54;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .diagram-spiral path {
+    animation: none;
+  }
+}
+
+.concept-distinction {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+  margin: 8px 0 4px;
+}
+
+.concept-distinction strong {
+  color: var(--accent);
+}
+
+/* Product showcase (#in-action) */
+
+.wide-wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.credibility-marker {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  margin: -8px 0 28px;
+}
+
+.showcase {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-items: start;
+  gap: 28px;
+}
+
+.showcase-item {
+  margin: 0;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.showcase-item.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.window-frame {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-alt);
+  box-shadow: 0 1px 0 var(--border);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.showcase-item:hover .window-frame {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 32px -20px rgba(var(--accent-rgb), 0.35);
+}
+
+.window-chrome {
+  display: flex;
+  gap: 6px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.window-chrome span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.window-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Screenshots follow the visitor's own theme, same as the rest of the page — the light source
+   shows by default, the dark source takes over under prefers-color-scheme: dark. Selectors are
+   scoped to .window-frame img to out-specificity the base `.window-frame img { display: block }`
+   rule above, which a bare `.theme-shot-dark { display: none }` would otherwise lose to. */
+.window-frame img.theme-shot-dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .window-frame img.theme-shot-light {
+    display: none;
+  }
+  .window-frame img.theme-shot-dark {
+    display: block;
+  }
+}
+
+.showcase-item figcaption {
+  margin-bottom: 14px;
+  min-height: 7.5em;
+}
+
+.showcase-item figcaption strong {
+  display: block;
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+
+.showcase-item figcaption p {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+/* Today → Tomorrow architecture (#architecture) */
+
+.arch-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 24px 0 8px;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.arch-diagram.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.arch-root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.arch-branches {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 40px;
+  margin-top: 0;
+}
+
+.arch-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.arch-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin-bottom: 4px;
+}
+
+.arch-node {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 16px;
+  background: var(--bg-alt);
+  font-size: 0.85rem;
+  color: var(--fg);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.arch-node-root {
+  font-weight: 600;
+}
+
+.arch-node-vision {
+  border-style: dashed;
+  color: var(--fg-muted);
+  opacity: 0.85;
+}
+
+.arch-connector {
+  width: 2px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 auto;
+}
+
+.arch-connector-dashed {
+  width: 0;
+  height: 16px;
+  border-left: 2px dashed var(--border);
+  background: none;
+  margin: 0 auto;
+}
+
+.arch-badge {
+  margin: 0 0 0 6px;
+  padding: 2px 8px;
+  font-size: 0.65rem;
+}
+
+/* Placed after every rule above that sets a transition, so this always wins the cascade
+   regardless of selector order — reduced motion must never lose to a later same-specificity rule. */
+@media (prefers-reduced-motion: reduce) {
+  .vortex-diagram,
+  .showcase-item,
+  .window-frame,
+  .arch-diagram {
+    transition: none;
+  }
+}
+
 @media (max-width: 480px) {
   section {
     padding: 44px 0;

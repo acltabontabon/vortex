@@ -42,6 +42,103 @@
       <p class="statement-reveal">It&rsquo;s knowing what the test is supposed to prove.</p>
     </div>
 
+    <section id="concept">
+      <h2>Context in, evidence out.</h2>
+      <p>Vortex pulls the pieces of a real performance question together, runs the
+        experiment, and hands back what actually happened.</p>
+
+      <div class="vortex-diagram" data-reveal>
+        <ul class="diagram-inputs">
+          <li>OpenAPI spec</li>
+          <li>Operations</li>
+          <li>Production traffic</li>
+          <li>Workload</li>
+          <li>Objectives</li>
+          <li>Execution target</li>
+          <li>Resource limits</li>
+          <li>Telemetry</li>
+        </ul>
+
+        <svg class="diagram-spiral" viewBox="0 0 130 100" aria-hidden="true">
+          <path d="M111.00,14.00 L107.35,19.48 L98.21,24.13 L85.00,27.57 L69.62,29.54 L54.24,29.97 L40.92,29.00 L31.39,26.92 L26.81,24.20 L27.64,21.33 L33.60,18.84 L43.74,17.17 L56.55,16.64 L70.26,17.41 L83.03,19.43 L93.19,22.53 L99.51,26.36 L101.32,30.50 L98.56,34.52 L91.79,38.00 L82.10,40.61 L70.91,42.16 L59.79,42.61 L50.24,42.05 L43.47,40.73 L40.28,38.96 L40.95,37.12 L45.24,35.57 L52.41,34.62 L61.40,34.49 L70.93,35.26 L79.71,36.91 L86.61,39.30 L90.81,42.17 L91.88,45.24 L89.85,48.19 L85.15,50.76 L78.54,52.74 L71.01,54.00 L63.62,54.52 L57.34,54.39 L52.95,53.77 L50.93,52.89 L51.42,51.98 L54.19,51.29 L58.74,50.99 L64.34,51.23 L70.19,52.04 L75.47,53.38 L79.51,55.17 L81.84,57.22 L82.27,59.38 L80.85,61.44 L77.90,63.24 L73.91,64.68 L69.49,65.70 L65.25,66.30 L61.73,66.55 L59.33,66.54 L58.27,66.41 L58.57,66.30 L60.05,66.32 L62.39,66.58 L65.18,67.12 L67.97,67.95 L70.38,69.05 L72.10,70.34 L72.95,71.73 L72.88,73.14 L72.00,74.48 L70.49,75.69 L68.63,76.71 L66.69,77.55 L64.94,78.23 L63.58,78.77 L62.71,79.25 L62.37,79.70 L62.51,80.19 L62.99,80.76 L63.66,81.41 L64.37,82.17 L64.97,83.01 L65.36,83.90 L65.51,84.82 L65.42,85.74 L65.13,86.64 L64.73,87.49 L64.31,88.31 L63.92,89.09 L63.62,89.85 L63.41,90.60" opacity="0.85" />
+          <path d="M42.00,24.39 L29.91,22.62 L22.91,19.83 L21.79,16.65 L26.53,13.68 L36.32,11.44 L49.70,10.36 L64.79,10.66 L79.53,12.38 L91.99,15.39 L100.60,19.35 L104.37,23.84 L102.99,28.35 L96.86,32.41 L86.98,35.62 L74.83,37.69 L62.14,38.53 L50.63,38.18 L41.82,36.86 L36.79,34.90 L36.06,32.70 L39.59,30.70 L46.74,29.25 L56.42,28.66 L67.24,29.08 L77.72,30.53 L86.50,32.88 L92.48,35.90 L95.01,39.27 L93.91,42.64 L89.51,45.67 L82.55,48.10 L74.09,49.73 L65.35,50.50 L57.50,50.48 L51.55,49.80 L48.21,48.71 L47.78,47.49 L50.18,46.41 L54.94,45.73 L61.29,45.63 L68.30,46.20 L74.99,47.44 L80.49,49.25 L84.13,51.48 L85.53,53.90 L84.64,56.30 L81.72,58.46 L77.27,60.22 L71.99,61.49 L66.62,62.23 L61.90,62.50 L58.38,62.39 L56.46,62.06 L56.26,61.68 L57.66,61.42 L60.35,61.40 L63.86,61.72 L67.63,62.42 L71.11,63.49 L73.86,64.85 L75.55,66.41 L76.03,68.05 L75.33,69.64 L73.64,71.09 L71.28,72.32 L68.61,73.30 L66.01,74.03 L63.81,74.54 L62.25,74.90 L61.45,75.19 L61.40,75.49 L62.00,75.86 L63.06,76.36 L64.34,77.00 L65.61,77.80 L66.66,78.72 L67.37,79.73 L67.65,80.78 L67.52,81.83 L67.05,82.83 L66.36,83.77 L65.57,84.63 L64.82,85.42 L64.19,86.15 L63.74,86.85 L63.47,87.55 L63.36,88.26 L63.35,88.99 L63.36,89.75 L63.35,90.54" opacity="0.55" />
+          <path d="M42.00,3.61 L58.21,3.55 L74.82,4.97 L89.63,7.83 L100.73,11.87 L106.79,16.66 L107.19,21.66 L102.09,26.34 L92.38,30.20 L79.53,32.90 L65.40,34.23 L51.93,34.20 L40.91,32.99 L33.75,30.92 L31.27,28.42 L33.66,25.96 L40.41,24.00 L50.49,22.89 L62.43,22.87 L74.58,24.02 L85.33,26.26 L93.32,29.35 L97.60,32.98 L97.78,36.75 L94.02,40.27 L86.99,43.20 L77.80,45.29 L67.76,46.41 L58.28,46.57 L50.59,45.91 L45.66,44.66 L44.01,43.15 L45.72,41.69 L50.40,40.59 L57.30,40.09 L65.38,40.34 L73.50,41.39 L80.60,43.16 L85.77,45.50 L88.44,48.17 L88.37,50.90 L85.74,53.46 L81.04,55.60 L75.01,57.19 L68.53,58.15 L62.49,58.50 L57.67,58.35 L54.64,57.85 L53.67,57.21 L54.75,56.63 L57.61,56.29 L61.72,56.33 L66.44,56.84 L71.09,57.81 L75.04,59.20 L77.80,60.89 L79.08,62.75 L78.81,64.62 L77.14,66.36 L74.39,67.85 L71.02,69.03 L67.51,69.87 L64.34,70.39 L61.88,70.68 L60.39,70.80 L59.96,70.89 L60.51,71.03 L61.86,71.31 L63.70,71.79 L65.72,72.49 L67.60,73.40 L69.07,74.47 L69.96,75.65 L70.20,76.87 L69.83,78.06 L68.96,79.18 L67.78,80.18 L66.47,81.06 L65.24,81.82 L64.22,82.49 L63.51,83.10 L63.14,83.70 L63.06,84.31 L63.19,84.96 L63.45,85.67 L63.72,86.43 L63.92,87.24 L64.00,88.07 L63.95,88.91 L63.79,89.74 L63.57,90.55" opacity="0.35" />
+        </svg>
+
+        <ul class="diagram-outputs">
+          <li>Tested throughput</li>
+          <li>Latency</li>
+          <li>Error rate</li>
+          <li>Resource saturation</li>
+          <li>Objective evaluation</li>
+          <li>Run validity</li>
+          <li>Capacity conclusion</li>
+          <li class="output-optional">Interpretation<span class="output-optional-tag">optional, local AI</span></li>
+        </ul>
+      </div>
+
+      <p class="concept-distinction"><strong>k6 executes the workload.</strong> Vortex owns the
+        experiment.</p>
+      <p>Vortex brings the context around the test together so the result can answer more than
+        whether requests succeeded.</p>
+    </section>
+
+    <section id="in-action" class="breakout">
+      <div class="wide-wrap">
+        <h2>See Vortex in action.</h2>
+        <p class="credibility-marker">Real Vortex Workbench &middot; Actual local execution</p>
+        <div class="showcase">
+          <figure class="showcase-item" data-reveal>
+            <figcaption>
+              <strong>Define what you&rsquo;re trying to learn.</strong>
+              <p>Turn traffic expectations, objectives, operations, and load into an explicit
+                experiment.</p>
+            </figcaption>
+            <div class="window-frame">
+              <div class="window-chrome"><span></span><span></span><span></span></div>
+              <img class="theme-shot theme-shot-light" src="images/showcase-define-light.webp" width="1400" height="729"
+                alt="Vortex's test composer for a flash-sale-surge test: the Spike intent selected, a recommended jump-and-return load shape, and a weighted operations mix"
+                loading="lazy" decoding="async">
+              <img class="theme-shot theme-shot-dark" src="images/showcase-define.webp" width="1400" height="729"
+                alt="Vortex's test composer for a flash-sale-surge test: the Spike intent selected, a recommended jump-and-return load shape, and a weighted operations mix"
+                loading="lazy" decoding="async">
+            </div>
+          </figure>
+          <figure class="showcase-item" data-reveal>
+            <figcaption>
+              <strong>See whether the workload was actually delivered.</strong>
+              <p>Follow throughput, latency, errors, and resources while the experiment runs.</p>
+            </figcaption>
+            <div class="window-frame">
+              <div class="window-chrome"><span></span><span></span><span></span></div>
+              <img class="theme-shot theme-shot-light" src="images/showcase-run-light.webp" width="1400" height="519"
+                alt="A live flash-sale-surge run in progress, showing target versus actual throughput, p95 latency, and error rate"
+                loading="lazy" decoding="async">
+              <img class="theme-shot theme-shot-dark" src="images/showcase-run.webp" width="1400" height="519"
+                alt="A live flash-sale-surge run in progress, showing target versus actual throughput, p95 latency, and error rate"
+                loading="lazy" decoding="async">
+            </div>
+          </figure>
+          <figure class="showcase-item" data-reveal>
+            <figcaption>
+              <strong>Get evidence, not just metrics.</strong>
+              <p>Understand capacity, objective breakpoints, resource limits, and whether the
+                result itself is trustworthy.</p>
+            </figcaption>
+            <div class="window-frame">
+              <div class="window-chrome"><span></span><span></span><span></span></div>
+              <img class="theme-shot theme-shot-light" src="images/showcase-evidence-light.webp" width="1400" height="875"
+                alt="Vortex's evidence view showing synced throughput, latency, CPU and memory timelines alongside the capacity conclusion"
+                loading="lazy" decoding="async">
+              <img class="theme-shot theme-shot-dark" src="images/showcase-evidence.webp" width="1400" height="875"
+                alt="Vortex's evidence view showing synced throughput, latency, CPU and memory timelines alongside the capacity conclusion"
+                loading="lazy" decoding="async">
+            </div>
+          </figure>
+        </div>
+      </div>
+    </section>
+
     <section>
       <h2>How it works</h2>
       <ol class="flow">
@@ -68,6 +165,36 @@
             defensible when you show it to a colleague.</p>
         </li>
       </ol>
+    </section>
+
+    <section id="architecture">
+      <h2>Today, and where it&rsquo;s going.</h2>
+      <p>One experiment model. Different places to execute it.</p>
+      <div class="arch-diagram" data-reveal>
+        <div class="arch-root">
+          <div class="arch-node arch-node-root">Vortex Workbench</div>
+          <div class="arch-connector"></div>
+          <div class="arch-node arch-node-root">Experiment Plan</div>
+        </div>
+        <div class="arch-branches">
+          <div class="arch-col">
+            <div class="arch-label">Today</div>
+            <div class="arch-connector"></div>
+            <div class="arch-node">Local Execution</div>
+            <div class="arch-connector"></div>
+            <div class="arch-node">Local / Dev Target</div>
+          </div>
+          <div class="arch-col arch-col-vision">
+            <div class="arch-label">Vision <span class="badge arch-badge">Roadmap</span></div>
+            <div class="arch-connector arch-connector-dashed"></div>
+            <div class="arch-node arch-node-vision">Vortex Coordinator</div>
+            <div class="arch-connector arch-connector-dashed"></div>
+            <div class="arch-node arch-node-vision">Remote Runners</div>
+            <div class="arch-connector arch-connector-dashed"></div>
+            <div class="arch-node arch-node-vision">Kubernetes / EKS</div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section id="download">
@@ -155,6 +282,25 @@
             });
           }, { threshold: 0.6, rootMargin: '0px 0px -10% 0px' });
           flowSteps.forEach(function (li) { flowObserver.observe(li); });
+        }
+      }
+
+      // Concept diagram, showcase cards, architecture diagram: same reveal-on-scroll idiom as
+      // the statement and flow sections above, generalized for anything marked data-reveal.
+      var revealEls = document.querySelectorAll('[data-reveal]:not(.statement)');
+      if (revealEls.length) {
+        if (reduceMotion || !('IntersectionObserver' in window)) {
+          revealEls.forEach(function (el) { el.classList.add('in-view'); });
+        } else {
+          var revealObserver = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('in-view');
+                revealObserver.unobserve(entry.target);
+              }
+            });
+          }, { threshold: 0.2 });
+          revealEls.forEach(function (el) { revealObserver.observe(el); });
         }
       }
 
