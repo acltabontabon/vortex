@@ -52,6 +52,11 @@ public record ResourceTimelineEvidence(
      * @param utilisationFraction the same fraction {@code utilisationDisplay} formats, as a number a
      *                            renderer can size a bar with — null under the same condition
      *                            {@code utilisationDisplay} is empty
+     * @param limitValue          the published limit's raw value, in this series' own {@code
+     *                            unitSymbol}; null under the same condition {@code limitDisplay} is
+     *                            empty. Carried alongside the formatted {@code limitDisplay} so a
+     *                            renderer can scale a whole series against it — a peak-only fraction
+     *                            cannot do that for every point in the timeline
      */
     public record ResourceSeriesEvidence(
             String signalId,
@@ -65,7 +70,8 @@ public record ResourceTimelineEvidence(
             String limitDisplay,
             String utilisationDisplay,
             boolean atItsLimit,
-            Double utilisationFraction) {
+            Double utilisationFraction,
+            Double limitValue) {
         public ResourceSeriesEvidence {
             points = points == null ? List.of() : List.copyOf(points);
         }

@@ -459,6 +459,9 @@ export interface ResourceSeries {
   /** The fraction `utilisationDisplay` formats, as a number — null under the same condition
    *  `utilisationDisplay` is empty. */
   utilisationFraction: number | null;
+  /** The published limit's raw value, in this series' own `unitSymbol` — null under the same
+   *  condition `limitDisplay` is empty. */
+  limitValue: number | null;
 }
 
 export interface ResourceKindPlot {

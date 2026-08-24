@@ -190,7 +190,10 @@ public final class RunEvidenceDtos {
             String utilisationDisplay, boolean atItsLimit,
             /** The same fraction {@code utilisationDisplay} formats, as a number — null under the
              *  same condition {@code utilisationDisplay} is empty. */
-            Double utilisationFraction) {
+            Double utilisationFraction,
+            /** The published limit's raw value, in this series' own {@code unitSymbol} — null under
+             *  the same condition {@code limitDisplay} is empty. */
+            Double limitValue) {
     }
 
     public record ResourceKindPlotDto(String kind, String kindLabel, List<ResourceSeriesDto> series) {

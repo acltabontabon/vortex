@@ -558,7 +558,9 @@ public final class RunEvidenceService {
                                             .orElse("")
                                     : "",
                             caption != null && caption.isAtItsLimit(),
-                            caption != null ? caption.utilisation().orElse(null) : null));
+                            caption != null ? caption.utilisation().orElse(null) : null,
+                            caption != null && caption.limitIfPresent().isPresent()
+                                    ? caption.limit().value() : null));
         }
 
         List<ResourceTimelineEvidence.ResourceKindPlot> plots = byKind.entrySet().stream()

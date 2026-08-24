@@ -14,6 +14,11 @@ beforeAll(() => {
     ({ width: 600, height: 200, top: 0, left: 0, bottom: 200, right: 600, x: 0, y: 0, toJSON() {} }) as DOMRect;
 });
 
+// A 0.5-CPU container limit, matching the real run that motivated this fix: docker's raw ratio
+// (a fraction of one whole host core) needs dividing by this before it means the same thing as
+// Actuator's already-cgroup-relative percentage.
+const CONTAINER_CPU_LIMIT = 0.5;
+
 function series(overrides: Partial<ResourceSeries> = {}): ResourceSeries {
   return {
     signalId: 'metric:docker.cpu.utilization',
@@ -27,10 +32,11 @@ function series(overrides: Partial<ResourceSeries> = {}): ResourceSeries {
       { atIso: '2026-08-22T10:00:05Z', value: 0.2 },
     ],
     display: '0.211 cores',
-    limitDisplay: '',
-    utilisationDisplay: '',
+    limitDisplay: '0.5',
+    utilisationDisplay: '42%',
     atItsLimit: false,
-    utilisationFraction: null,
+    utilisationFraction: 0.422,
+    limitValue: CONTAINER_CPU_LIMIT,
     ...overrides,
   };
 }
@@ -44,6 +50,10 @@ function actuatorSeries(overrides: Partial<ResourceSeries> = {}): ResourceSeries
       { atIso: '2026-08-22T10:00:00Z', value: 42.06 },
       { atIso: '2026-08-22T10:00:05Z', value: 40 },
     ],
+    limitDisplay: '',
+    utilisationDisplay: '',
+    utilisationFraction: null,
+    limitValue: null,
     ...overrides,
   });
 }
@@ -72,8 +82,14 @@ describe('mixesCpuRatioWithPercent', () => {
 });
 
 describe('toDisplayValue', () => {
-  it('scales a bare ratio onto a percentage when the plot is mixed', () => {
-    expect(toDisplayValue(series(), 0.211, true)).toBeCloseTo(21.1);
+  it('scales a bare ratio against its own confirmed limit when the plot is mixed', () => {
+    // 0.211 of one host core, against a 0.5-core limit: 42.2% of what this container was allotted
+    // — comparable to Actuator's own cgroup-relative percentage, not a flat ×100 (21.1%).
+    expect(toDisplayValue(series(), 0.211, true)).toBeCloseTo(42.2);
+  });
+
+  it('falls back to a flat ×100 when the ratio series has no confirmed limit', () => {
+    expect(toDisplayValue(series({ limitValue: null }), 0.211, true)).toBeCloseTo(21.1);
   });
 
   it('leaves an already-percent series untouched when the plot is mixed', () => {

@@ -629,7 +629,7 @@ public class RunApiController {
                 series.signalId(), series.providerId(), series.scope().name(), series.scopeLabel(),
                 series.seriesLabel(), series.unitSymbol(), points, series.display(),
                 series.limitDisplay(), series.utilisationDisplay(), series.atItsLimit(),
-                series.utilisationFraction());
+                series.utilisationFraction(), series.limitValue());
     }
 
     private RunEvidenceDtos.ResourceSignalDto toResourceDto(

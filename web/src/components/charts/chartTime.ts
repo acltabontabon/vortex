@@ -53,11 +53,22 @@ export function mixesCpuRatioWithPercent(plot: ResourceKindPlot): boolean {
   return unitSymbols.size > 1;
 }
 
-/** A series' raw value, converted onto the plot's one common display unit when the plot mixes
- *  units — a bare CPU ratio becomes a percentage (×100) so every line shares one scale; otherwise
- *  the value is untouched. */
+/**
+ * A series' raw value, converted onto the plot's one common display unit when the plot mixes
+ * units — otherwise the value is untouched.
+ *
+ * <p>Scaled against the series' own confirmed limit when it has one, not a flat ×100: a bare CPU
+ * ratio is a fraction of one whole host core, but Actuator's percentage is "how full is this
+ * container's own allotment" (a JVM sees only what its cgroup exposes). Dividing by the limit before
+ * scaling to 100 answers the same question the other providers are already answering, rather than a
+ * related but different one — a container capped at half a core using all of it should read "100%"
+ * next to Actuator saying the same, not "50%" next to Actuator's "100%". Falls back to a flat ×100
+ * only when this series has no confirmed limit to divide by.
+ */
 export function toDisplayValue(series: ResourceSeries, rawValue: number, normalize: boolean): number {
-  return normalize && series.unitSymbol === '' ? rawValue * 100 : rawValue;
+  if (!normalize || series.unitSymbol !== '') return rawValue;
+  if (series.limitValue) return (rawValue / series.limitValue) * 100;
+  return rawValue * 100;
 }
 
 /** Builds the `referenceLines` recharts wants from a list of instants, dropping any that fall
