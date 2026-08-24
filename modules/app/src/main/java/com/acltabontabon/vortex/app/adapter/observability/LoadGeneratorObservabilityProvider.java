@@ -343,9 +343,7 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
 
         processCpu(query).ifPresentOrElse(
                 signal -> add(observations, resources, signal),
-                () -> gaps.add(new TelemetryGap(ID, PROCESS_CPU, TelemetryAvailability.NO_DATA,
-                        "no load-generator process was visible to Vortex, or this was the first "
-                                + "sample and there is nothing yet to measure a rate against")));
+                () -> gaps.add(processCpuGap()));
 
         if (generatorRunsAsLocalProcess) {
             processMemory(query).ifPresentOrElse(
@@ -473,6 +471,35 @@ public final class LoadGeneratorObservabilityProvider implements ObservabilityPr
                         "ProcessHandle.Info#totalCpuDuration, differenced across samples"),
                 ResourceKind.CPU, ResourceScope.LOAD_GENERATOR,
                 ResourceLimit.inherentTo(MetricUnit.RATIO)));
+    }
+
+    /**
+     * Why {@link #processCpu} came back empty — distinguishing a temporary "nothing to look at yet"
+     * from a permanent "this JDK cannot answer that question here".
+     *
+     * <p>{@code ProcessHandle.Info#totalCpuDuration()} is a JDK-documented "if supported" API — on
+     * some platforms (macOS notably) it returns empty for every child process, always, no matter how
+     * many samples are taken. That is indistinguishable from "no process was there yet" by
+     * {@link #processCpu}'s own return value alone, so this re-walks the descendants once more,
+     * specifically to tell the two apart: if a descendant process exists at all but none of them
+     * exposed a CPU time, the platform does not support this measurement here — a fact about this
+     * machine, not about this run — and it is classified {@code UNSUPPORTED} rather than the
+     * {@code NO_DATA} used for "nothing found yet", which quietly degraded every run on such a
+     * platform forever, the same way an unfilterable {@code UNSUPPORTED} gap did before that was
+     * recognised as its own case.
+     */
+    private TelemetryGap processCpuGap() {
+        List<ProcessHandle> descendants = ProcessHandle.current().descendants().toList();
+        if (!descendants.isEmpty()
+                && descendants.stream().noneMatch(child -> child.info().totalCpuDuration().isPresent())) {
+            return new TelemetryGap(ID, PROCESS_CPU, TelemetryAvailability.UNSUPPORTED,
+                    "this machine's JDK does not expose per-process CPU time for the load "
+                            + "generator's process (a known platform limitation, e.g. on macOS) — "
+                            + "the generator's host-wide CPU is reported separately instead");
+        }
+        return new TelemetryGap(ID, PROCESS_CPU, TelemetryAvailability.NO_DATA,
+                "no load-generator process was visible to Vortex, or this was the first sample and "
+                        + "there is nothing yet to measure a rate against");
     }
 
     /**

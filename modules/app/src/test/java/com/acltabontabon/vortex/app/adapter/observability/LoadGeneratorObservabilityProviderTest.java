@@ -183,6 +183,38 @@ class LoadGeneratorObservabilityProviderTest {
                     .anyMatch(gap -> gap.metricName().equals("metric:generator.process.memory.used")
                             && gap.availability() == TelemetryAvailability.NO_DATA);
         }
+
+        @Test
+        @DisplayName("once a real descendant exists, a still-missing CPU reading is unsupported, never no-data")
+        void unreadableProcessCpuIsUnsupportedNotNoData() throws Exception {
+            // ProcessHandle.Info#totalCpuDuration() is a JDK-documented "if supported" API — empty
+            // for every child process on some platforms (macOS notably), always, not just on the
+            // first sample. Once a real descendant is known to exist, a still-missing reading is a
+            // platform fact, not "nothing to look at yet" — and must never be classified the same way
+            // as a genuinely empty process table.
+            spawned = new ProcessBuilder("sleep", "5").start();
+            Thread.sleep(200);
+
+            var provider = new LoadGeneratorObservabilityProvider(true);
+            provider.collect(query());
+            var second = provider.collect(query());
+
+            var cpuGap = second.gaps().stream()
+                    .filter(gap -> gap.metricName().equals("metric:generator.process.cpu.utilization"))
+                    .findFirst();
+            var cpuSignal = second.resourceSignals().stream()
+                    .filter(s -> s.signalId().equals("metric:generator.process.cpu.utilization"))
+                    .findFirst();
+
+            // Exactly one of the two: either this platform measured it, or it explains why not — and
+            // a real descendant exists by now (proven by the memory reading above), so if it is a
+            // gap, it is never NO_DATA.
+            assertThat(cpuGap.isPresent() ^ cpuSignal.isPresent())
+                    .as("expected exactly one of a gap or a signal for the process CPU reading")
+                    .isTrue();
+            cpuGap.ifPresent(gap ->
+                    assertThat(gap.availability()).isEqualTo(TelemetryAvailability.UNSUPPORTED));
+        }
     }
 
     @Nested
