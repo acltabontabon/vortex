@@ -938,6 +938,165 @@ class YamlConfigurationStoreTest {
 
             assertThat(result.problems()).isEmpty();
         }
+
+        @Test
+        @DisplayName("a repository file source round-trips")
+        void anOpenApiFileSourceRoundTrips(@TempDir Path directory) {
+            var withSource = Fixtures.configuration().withOpenApiSource(
+                    new com.acltabontabon.vortex.core.project.OpenApiSource.File("openapi/checkout.yaml"));
+
+            store.save(directory.toString(), withSource);
+
+            assertThat(store.load(directory.toString()).configuration().openApiSourceIfPresent())
+                    .contains(new com.acltabontabon.vortex.core.project.OpenApiSource.File(
+                            "openapi/checkout.yaml"));
+        }
+
+        @Test
+        @DisplayName("a URL source round-trips")
+        void anOpenApiUrlSourceRoundTrips(@TempDir Path directory) {
+            var withSource = Fixtures.configuration().withOpenApiSource(
+                    new com.acltabontabon.vortex.core.project.OpenApiSource.Url(
+                            "https://example.com/openapi.yaml"));
+
+            store.save(directory.toString(), withSource);
+
+            assertThat(store.load(directory.toString()).configuration().openApiSourceIfPresent())
+                    .contains(new com.acltabontabon.vortex.core.project.OpenApiSource.Url(
+                            "https://example.com/openapi.yaml"));
+        }
+
+        @Test
+        @DisplayName("a service with no configured OpenAPI source writes no openapi section")
+        void noSourceMeansNoSection(@TempDir Path directory) {
+            store.save(directory.toString(), Fixtures.configuration());
+
+            assertThat(store.load(directory.toString()).configuration().openApiSourceIfPresent())
+                    .isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("the service.openapi source")
+    class OpenApiSourceConfig {
+
+        @Test
+        @DisplayName("a file reference is read")
+        void aFileReferenceIsRead() {
+            var configuration = parse("""
+                    version: 1
+                    service:
+                      name: checkout-service
+                      openapi:
+                        file: openapi/checkout.yaml
+                    """);
+
+            assertThat(configuration.openApiSourceIfPresent())
+                    .contains(new com.acltabontabon.vortex.core.project.OpenApiSource.File(
+                            "openapi/checkout.yaml"));
+        }
+
+        @Test
+        @DisplayName("a URL reference is read")
+        void aUrlReferenceIsRead() {
+            var configuration = parse("""
+                    version: 1
+                    service:
+                      name: checkout-service
+                      openapi:
+                        url: https://example.com/openapi.yaml
+                    """);
+
+            assertThat(configuration.openApiSourceIfPresent())
+                    .contains(new com.acltabontabon.vortex.core.project.OpenApiSource.Url(
+                            "https://example.com/openapi.yaml"));
+        }
+
+        @Test
+        @DisplayName("naming both a file and a URL is refused")
+        void namingBothIsRefused() {
+            assertThat(problemsIn("""
+                    version: 1
+                    service:
+                      name: checkout-service
+                      openapi:
+                        file: openapi/checkout.yaml
+                        url: https://example.com/openapi.yaml
+                    """)).anyMatch(problem -> problem.contains("service.openapi"));
+        }
+
+        @Test
+        @DisplayName("naming neither is refused")
+        void namingNeitherIsRefused() {
+            assertThat(problemsIn("""
+                    version: 1
+                    service:
+                      name: checkout-service
+                      openapi: {}
+                    """)).anyMatch(problem -> problem.contains("service.openapi"));
+        }
+
+        @Test
+        @DisplayName("a file reference outside the repository is refused")
+        void anEscapingFileReferenceIsRefused() {
+            assertThat(problemsIn("""
+                    version: 1
+                    service:
+                      name: checkout-service
+                      openapi:
+                        file: ../outside.yaml
+                    """)).anyMatch(problem -> problem.contains("service.openapi"));
+        }
+    }
+
+    @Nested
+    @DisplayName("the vortex.yml fallback")
+    class AlternateExtension {
+
+        @Test
+        @DisplayName("a directory with only vortex.yml still loads")
+        void loadsTheAlternateExtension(@TempDir Path directory) throws Exception {
+            Path dotVortex = Files.createDirectories(directory.resolve(".vortex"));
+            Files.writeString(dotVortex.resolve("vortex.yml"), """
+                    version: 1
+                    service:
+                      name: checkout-service
+                    """);
+
+            var result = store.load(directory.toString());
+
+            assertThat(result.isValid()).isTrue();
+            assertThat(result.configuration().serviceName()).isEqualTo("checkout-service");
+            assertThat(result.sourcePath()).endsWith("vortex.yml");
+        }
+
+        @Test
+        @DisplayName("vortex.yaml is preferred when both exist")
+        void prefersTheCanonicalExtension(@TempDir Path directory) throws Exception {
+            Path dotVortex = Files.createDirectories(directory.resolve(".vortex"));
+            Files.writeString(dotVortex.resolve("vortex.yaml"), """
+                    version: 1
+                    service:
+                      name: canonical
+                    """);
+            Files.writeString(dotVortex.resolve("vortex.yml"), """
+                    version: 1
+                    service:
+                      name: alternate
+                    """);
+
+            assertThat(store.load(directory.toString()).configuration().serviceName())
+                    .isEqualTo("canonical");
+        }
+
+        @Test
+        @DisplayName("Vortex always writes the canonical name, never the alternate")
+        void saveAlwaysWritesTheCanonicalName(@TempDir Path directory) {
+            store.save(directory.toString(), Fixtures.configuration());
+
+            assertThat(Files.exists(directory.resolve(".vortex").resolve("vortex.yaml"))).isTrue();
+            assertThat(Files.exists(directory.resolve(".vortex").resolve("vortex.yml"))).isFalse();
+        }
     }
 
     @Nested

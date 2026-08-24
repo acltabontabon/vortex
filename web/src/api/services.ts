@@ -111,3 +111,87 @@ export function useWorkspaceCheckMutation() {
       apiClient.post<WorkspaceCheckResponse>('/api/services/workspace-check', request),
   });
 }
+
+/**
+ * A directory listing for the "Add service" folder picker. A browser cannot turn a native file
+ * dialog's pick into an absolute filesystem path, so browsing goes through Vortex's own backend,
+ * which already has full filesystem access on this machine.
+ */
+export interface BrowseDirectoryRequest {
+  path: string;
+}
+
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+}
+
+export interface BrowseDirectoryResponse {
+  path: string | null;
+  parentPath: string | null;
+  entries: DirectoryEntry[];
+  error: string | null;
+}
+
+export function useBrowseDirectoryMutation() {
+  return useMutation({
+    mutationFn: (request: BrowseDirectoryRequest) =>
+      apiClient.post<BrowseDirectoryResponse>('/api/services/browse-directory', request),
+  });
+}
+
+/**
+ * What a repository already committed to Vortex — the "Add service" form's evidence that a
+ * `vortex.yaml` was found, and what it would restore. Also always 200; branch on `alreadyOnboarded`
+ * / `found` / `valid`, not on request failure.
+ */
+export interface DetectConfigRequest {
+  path: string;
+}
+
+export interface ConfigSummary {
+  serviceName: string;
+  serviceDescription: string;
+  workloadCount: number;
+  workloadNames: string[];
+  environmentCount: number;
+  operationBindingCount: number;
+  hasProductionObservation: boolean;
+  hasLocalLab: boolean;
+  openApiSourceDescription: string | null;
+}
+
+export interface DetectConfigResponse {
+  alreadyOnboarded: boolean;
+  existingService: ServiceListItem | null;
+  found: boolean;
+  valid: boolean;
+  summary: ConfigSummary | null;
+  problems: string[];
+  rawYaml: string | null;
+  sourcePath: string | null;
+}
+
+export function useDetectConfigMutation() {
+  return useMutation({
+    mutationFn: (request: DetectConfigRequest) =>
+      apiClient.post<DetectConfigResponse>('/api/services/detect-config', request),
+  });
+}
+
+export interface AdoptServiceRequest {
+  workspacePath: string;
+  name: string;
+}
+
+export function useAdoptServiceMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: AdoptServiceRequest) =>
+      apiClient.post<CreateServiceResponse>('/api/services/adopt', request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['services'] });
+      queryClient.invalidateQueries({ queryKey: ['home'] });
+    },
+  });
+}

@@ -18,6 +18,7 @@ import com.acltabontabon.vortex.core.shared.LoadLevel;
 import com.acltabontabon.vortex.core.shared.OperationId;
 import com.acltabontabon.vortex.core.shared.Percentile;
 import com.acltabontabon.vortex.core.shared.RequestsPerSecond;
+import com.acltabontabon.vortex.core.project.OpenApiSource;
 import com.acltabontabon.vortex.core.target.DockerComposeTarget;
 import com.acltabontabon.vortex.core.target.DockerImageTarget;
 import com.acltabontabon.vortex.core.target.ExecutionTarget;
@@ -64,6 +65,7 @@ public final class VortexJacksonModule extends SimpleModule {
         setMixInAnnotation(LoadLevel.class, LoadLevelMixin.class);
         setMixInAnnotation(RequestValue.class, RequestValueMixin.class);
         setMixInAnnotation(ExecutionTarget.class, ExecutionTargetMixin.class);
+        setMixInAnnotation(OpenApiSource.class, OpenApiSourceMixin.class);
 
         addKeyDeserializer(Percentile.class, new PercentileKeyDeserializer());
         addKeyDeserializer(OperationId.class, new OperationIdKeyDeserializer());
@@ -133,6 +135,15 @@ public final class VortexJacksonModule extends SimpleModule {
             @JsonSubTypes.Type(value = DockerComposeTarget.class, name = "dockerCompose")
     })
     private abstract static class ExecutionTargetMixin {
+    }
+
+    /** A configured OpenAPI source is either a repository file or a URL — see {@link OpenApiSource}. */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = OpenApiSource.File.class, name = "file"),
+            @JsonSubTypes.Type(value = OpenApiSource.Url.class, name = "url")
+    })
+    private abstract static class OpenApiSourceMixin {
     }
 
     /** Writes a body field path as its dotted form, so a stored plan reads as somebody wrote it. */

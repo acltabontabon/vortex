@@ -145,4 +145,64 @@ class ProjectAdoptionTest {
         assertThat(result.source().problems()).isNotEmpty();
         assertThat(projects.all()).isEmpty();
     }
+
+    @Test
+    @DisplayName("onboarding restores the configuration under an explicitly chosen name")
+    void adoptsForOnboardingWithAnExplicitName(@TempDir Path repository) {
+        aRepositoryContaining(repository, Fixtures.configuration());
+
+        var outcome = projects.adoptForOnboarding(repository.toString(), "custom-name");
+
+        assertThat(outcome).isInstanceOf(ProjectService.OnboardingOutcome.Adopted.class);
+        var adopted = (ProjectService.OnboardingOutcome.Adopted) outcome;
+        assertThat(adopted.project().name()).isEqualTo("custom-name");
+        assertThat(projects.configuration(adopted.project().id()).workloads())
+                .extracting(workload -> workload.name())
+                .containsExactlyElementsOf(
+                        Fixtures.configuration().workloads().stream().map(s -> s.name()).toList());
+    }
+
+    @Test
+    @DisplayName("onboarding a directory already registered says so instead of duplicating it")
+    void refusesToDuplicateAnAlreadyOnboardedDirectory(@TempDir Path repository) {
+        aRepositoryContaining(repository, Fixtures.configuration());
+        var first = projects.adoptForOnboarding(repository.toString(), "checkout-service");
+        assertThat(first).isInstanceOf(ProjectService.OnboardingOutcome.Adopted.class);
+
+        var second = projects.adoptForOnboarding(repository.toString(), "a-different-name");
+
+        assertThat(second).isInstanceOf(ProjectService.OnboardingOutcome.AlreadyOnboarded.class);
+        assertThat(((ProjectService.OnboardingOutcome.AlreadyOnboarded) second).existing().name())
+                .isEqualTo("checkout-service");
+        assertThat(projects.all()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("onboarding under a name already taken is refused, not silently renamed")
+    void refusesANameCollisionRatherThanSuffixingIt(@TempDir Path first, @TempDir Path second) {
+        aRepositoryContaining(first, Fixtures.configuration());
+        aRepositoryContaining(second, Fixtures.configuration());
+        projects.adoptForOnboarding(first.toString(), "checkout-service");
+
+        var outcome = projects.adoptForOnboarding(second.toString(), "checkout-service");
+
+        assertThat(outcome).isInstanceOf(ProjectService.OnboardingOutcome.NameTaken.class);
+        assertThat(((ProjectService.OnboardingOutcome.NameTaken) outcome).name())
+                .isEqualTo("checkout-service");
+        assertThat(projects.all()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("onboarding an invalid configuration reports why, and creates nothing")
+    void refusesAnInvalidConfigurationDuringOnboarding(@TempDir Path repository) throws Exception {
+        Path directory = Files.createDirectories(repository.resolve(".vortex"));
+        Files.writeString(directory.resolve("vortex.yaml"), "journeys:\n  placeOrder: {}\n");
+
+        var outcome = projects.adoptForOnboarding(repository.toString(), "checkout-service");
+
+        assertThat(outcome).isInstanceOf(ProjectService.OnboardingOutcome.InvalidConfiguration.class);
+        assertThat(((ProjectService.OnboardingOutcome.InvalidConfiguration) outcome).source().problems())
+                .isNotEmpty();
+        assertThat(projects.all()).isEmpty();
+    }
 }

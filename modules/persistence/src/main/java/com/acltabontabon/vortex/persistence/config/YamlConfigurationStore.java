@@ -29,6 +29,7 @@ import com.acltabontabon.vortex.core.target.MemoryAllocation;
 import com.acltabontabon.vortex.core.target.ReadinessCheck;
 import com.acltabontabon.vortex.core.target.ResourceEnvelopeRequest;
 import com.acltabontabon.vortex.core.port.ConfigurationStore;
+import com.acltabontabon.vortex.core.project.OpenApiSource;
 import com.acltabontabon.vortex.core.project.ProjectConfiguration;
 import com.acltabontabon.vortex.core.workload.Workload;
 import com.acltabontabon.vortex.core.workload.TestType;
@@ -94,13 +95,23 @@ public final class YamlConfigurationStore implements ConfigurationStore {
     public static final String DIRECTORY = ".vortex";
     public static final String FILE_NAME = "vortex.yaml";
 
+    /**
+     * Read-tolerance for a file authored elsewhere with the alternate YAML extension. Vortex always
+     * writes {@link #FILE_NAME}; this is only ever a fallback for {@link #load(String)}.
+     */
+    public static final String FILE_NAME_ALT = "vortex.yml";
+
     private final ObjectMapper yaml = new ObjectMapper(new YAMLFactory());
 
     @Override
     public LoadResult load(String workspacePath) {
-        Path file = fileIn(workspacePath);
+        Path file = fileIn(workspacePath, FILE_NAME);
         if (!Files.isRegularFile(file)) {
-            return LoadResult.missing(file.toString());
+            Path alternate = fileIn(workspacePath, FILE_NAME_ALT);
+            if (!Files.isRegularFile(alternate)) {
+                return LoadResult.missing(file.toString());
+            }
+            file = alternate;
         }
         try {
             return parse(Files.readString(file, StandardCharsets.UTF_8), file.toString());
@@ -113,7 +124,7 @@ public final class YamlConfigurationStore implements ConfigurationStore {
 
     @Override
     public void save(String workspacePath, ProjectConfiguration configuration) {
-        Path file = fileIn(workspacePath);
+        Path file = fileIn(workspacePath, FILE_NAME);
         try {
             Files.createDirectories(file.getParent());
             writeAtomically(file, render(configuration));
@@ -188,6 +199,8 @@ public final class YamlConfigurationStore implements ConfigurationStore {
                 collect(problems, () -> observationSource(root.path("observation")), null);
         LocalLabSettings localLab =
                 collect(problems, () -> localLab(root.path("lab")), null);
+        OpenApiSource openApiSource =
+                collect(problems, () -> openApiSource(root.path("service").path("openapi")), null);
 
         if (!problems.isEmpty()) {
             return LoadResult.invalid(problems, sourceLabel);
@@ -200,9 +213,38 @@ public final class YamlConfigurationStore implements ConfigurationStore {
                     root.path("service").path("description").asText(""),
                     root.path("service").path("version").asText(""),
                     bindings, environments, workloads, thresholds, production, observationSource,
-                    localLab), sourceLabel);
+                    localLab, openApiSource), sourceLabel);
         } catch (IllegalArgumentException e) {
             return LoadResult.invalid(List.of(e.getMessage()), sourceLabel);
+        }
+    }
+
+    /**
+     * Reads where this service's API description lives.
+     *
+     * <p>A file and a URL are different claims — see {@link OpenApiSource} — so a node naming both,
+     * or naming neither while still being present, is refused rather than guessed at.
+     */
+    private OpenApiSource openApiSource(JsonNode node) {
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        boolean hasFile = node.hasNonNull("file");
+        boolean hasUrl = node.hasNonNull("url");
+        if (hasFile == hasUrl) {
+            throw new ConfigText.ConfigProblem("service.openapi",
+                    hasFile ? "must name only one of 'file' or 'url', not both"
+                            : "must name either 'file' or 'url'",
+                    "for example:\n  service:\n    openapi:\n      file: openapi/checkout.yaml\n"
+                            + "or:\n  service:\n    openapi:\n      url: https://example.com/openapi.yaml");
+        }
+        try {
+            return hasFile
+                    ? new OpenApiSource.File(node.path("file").asText(""))
+                    : new OpenApiSource.Url(node.path("url").asText(""));
+        } catch (IllegalArgumentException e) {
+            throw new ConfigText.ConfigProblem(
+                    "service.openapi." + (hasFile ? "file" : "url"), e.getMessage(), "");
         }
     }
 
@@ -929,9 +971,9 @@ public final class YamlConfigurationStore implements ConfigurationStore {
         return newline < 0 ? message : message.substring(0, newline);
     }
 
-    private Path fileIn(String workspacePath) {
+    private Path fileIn(String workspacePath, String fileName) {
         Path base = Paths.get(workspacePath == null || workspacePath.isBlank() ? "." : workspacePath);
-        return base.resolve(DIRECTORY).resolve(FILE_NAME);
+        return base.resolve(DIRECTORY).resolve(fileName);
     }
 
     // ---------------------------------------------------------------- rendering
@@ -984,7 +1026,8 @@ public final class YamlConfigurationStore implements ConfigurationStore {
 
     private void renderService(ProjectConfiguration configuration, StringBuilder out) {
         if (configuration.serviceName().isBlank() && configuration.serviceDescription().isBlank()
-                && configuration.serviceVersion().isBlank()) {
+                && configuration.serviceVersion().isBlank()
+                && configuration.openApiSourceIfPresent().isEmpty()) {
             return;
         }
         out.append("""
@@ -1013,6 +1056,20 @@ public final class YamlConfigurationStore implements ConfigurationStore {
                     """);
             out.append("  version: ").append(quote(configuration.serviceVersion())).append('\n');
         }
+        configuration.openApiSourceIfPresent().ifPresent(source -> {
+            out.append("""
+                      # Where this service's API description lives, so re-importing operations never
+                      # needs anyone to re-type an address. A file is resolved relative to this
+                      # repository at import time, so it still means the same thing after a clone.
+                    """);
+            out.append("  openapi:\n");
+            switch (source) {
+                case OpenApiSource.File file ->
+                        out.append("    file: ").append(quote(file.relativePath())).append('\n');
+                case OpenApiSource.Url url ->
+                        out.append("    url: ").append(quote(url.url())).append('\n');
+            }
+        });
         out.append('\n');
     }
 

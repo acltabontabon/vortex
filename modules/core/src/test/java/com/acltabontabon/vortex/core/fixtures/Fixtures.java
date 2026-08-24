@@ -223,6 +223,7 @@ public final class Fixtures {
                 thresholds(),
                 null,
                 null,
+                null,
                 null);
     }
 

@@ -8,6 +8,16 @@ Vortex has not made a release yet, so everything to date is recorded under
 
 ## Unreleased
 
+### Added
+
+- Add Service now discovers a repository's existing `.vortex/vortex.yaml` (or `.yml`) as soon as a
+  location is entered: it reports what it found, restores the workloads, objectives, environments and
+  operation bindings on submit, and lets the service be renamed before adopting it. A repository
+  already registered is recognised rather than duplicated, and an invalid file is explained rather
+  than silently skipped or partially imported. `vortex.yaml` can also now record where a service's
+  OpenAPI description lives (a repository-relative file or a URL), so a cloned repository is
+  self-describing end to end.
+
 ### Changed
 
 - Run answers no longer force a redundant Yes/No/Undetermined prefix — the pass/fail badge already

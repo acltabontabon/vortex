@@ -31,11 +31,29 @@ let workspaceCheckState: { isPending: boolean; isError: boolean; data: unknown }
   data: undefined,
 };
 
+const detectConfigMutate = vi.fn();
+const detectConfigReset = vi.fn();
+let detectConfigState: { isPending: boolean; isError: boolean; data: unknown } = {
+  isPending: false,
+  isError: false,
+  data: undefined,
+};
+
+const adoptMutate = vi.fn();
+let adoptState: {
+  isPending: boolean;
+  isError: boolean;
+  isSuccess: boolean;
+  error: unknown;
+  data: unknown;
+} = { isPending: false, isError: false, isSuccess: false, error: null, data: undefined };
+
 vi.mock('../api/services', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/services')>();
   return {
     ...actual,
     useCreateServiceMutation: () => ({ mutate, ...mutationState }),
+    useAdoptServiceMutation: () => ({ mutate: adoptMutate, ...adoptState }),
     useOpenApiPreviewMutation: () => ({
       mutate: openApiPreviewMutate,
       reset: openApiPreviewReset,
@@ -45,6 +63,11 @@ vi.mock('../api/services', async (importOriginal) => {
       mutate: workspaceCheckMutate,
       reset: workspaceCheckReset,
       ...workspaceCheckState,
+    }),
+    useDetectConfigMutation: () => ({
+      mutate: detectConfigMutate,
+      reset: detectConfigReset,
+      ...detectConfigState,
     }),
   };
 });
@@ -56,10 +79,14 @@ vi.mock('react-router-dom', async (importOriginal) => {
 
 function resetAll() {
   mutationState = { isPending: false, isError: false, isSuccess: false, error: null, data: undefined };
+  adoptState = { isPending: false, isError: false, isSuccess: false, error: null, data: undefined };
   openApiPreviewState = { isPending: false, isError: false, data: undefined };
   workspaceCheckState = { isPending: false, isError: false, data: undefined };
+  detectConfigState = { isPending: false, isError: false, data: undefined };
   openApiPreviewMutate.mockClear();
   workspaceCheckMutate.mockClear();
+  detectConfigMutate.mockClear();
+  adoptMutate.mockClear();
 }
 
 describe('the new-service page', () => {
@@ -208,21 +235,15 @@ describe('the new-service page', () => {
     expect(screen.queryByText(/operations discovered/)).not.toBeInTheDocument();
   });
 
-  it('keeps the repository path collapsed behind Workspace options until asked for', async () => {
+  it('shows the service location field prominently, not behind a disclosure', async () => {
     resetAll();
     renderWithProviders(<NewServicePage />);
 
-    const toggle = screen.getByRole('button', { name: /Workspace options/ });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-
-    await userEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await userEvent.type(
-      screen.getByLabelText('Repository path', { exact: false }),
+      screen.getByLabelText('Service location', { exact: false }),
       '/Users/me/code/checkout-service',
     );
-    expect(screen.getByLabelText('Repository path', { exact: false })).toHaveValue(
+    expect(screen.getByLabelText('Service location', { exact: false })).toHaveValue(
       '/Users/me/code/checkout-service',
     );
   });
@@ -236,9 +257,8 @@ describe('the new-service page', () => {
     };
     renderWithProviders(<NewServicePage />);
 
-    await userEvent.click(screen.getByRole('button', { name: /Workspace options/ }));
     await userEvent.type(
-      screen.getByLabelText('Repository path', { exact: false }),
+      screen.getByLabelText('Service location', { exact: false }),
       '/Users/me/code/checkout-service',
     );
 
@@ -249,7 +269,117 @@ describe('the new-service page', () => {
         }),
       { timeout: 2000 },
     );
+    await waitFor(() =>
+      expect(detectConfigMutate).toHaveBeenCalledWith({ path: '/Users/me/code/checkout-service' }),
+    );
     expect(screen.getByText('Git repository')).toBeInTheDocument();
     expect(screen.getByText('Writable')).toBeInTheDocument();
+  });
+
+  it('tells the user a repository is already onboarded, and offers to open it', async () => {
+    resetAll();
+    detectConfigState = {
+      isPending: false,
+      isError: false,
+      data: {
+        alreadyOnboarded: true,
+        existingService: { id: 'checkout', name: 'checkout-service', description: null, serviceVersion: null },
+        found: false,
+        valid: false,
+        summary: null,
+        problems: [],
+        rawYaml: null,
+        sourcePath: null,
+      },
+    };
+    renderWithProviders(<NewServicePage />);
+
+    await userEvent.type(
+      screen.getByLabelText('Service location', { exact: false }),
+      '/Users/me/code/checkout-service',
+    );
+
+    expect(screen.getByText('This repository is already in Vortex')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open it' })).toHaveAttribute('href', '/services/checkout');
+    expect(screen.getByRole('button', { name: 'Add service' })).toBeDisabled();
+  });
+
+  it('summarises a found, valid configuration and lets the name be changed before adopting', async () => {
+    resetAll();
+    detectConfigState = {
+      isPending: false,
+      isError: false,
+      data: {
+        alreadyOnboarded: false,
+        existingService: null,
+        found: true,
+        valid: true,
+        summary: {
+          serviceName: 'checkout-service',
+          serviceDescription: 'Places and manages customer orders.',
+          workloadCount: 2,
+          workloadNames: ['average-load', 'breakpoint'],
+          environmentCount: 1,
+          operationBindingCount: 3,
+          hasProductionObservation: true,
+          hasLocalLab: false,
+          openApiSourceDescription: 'file: openapi/checkout.yaml',
+        },
+        problems: [],
+        rawYaml: null,
+        sourcePath: '/Users/me/code/checkout-service/.vortex/vortex.yaml',
+      },
+    };
+    renderWithProviders(<NewServicePage />);
+
+    await userEvent.type(
+      screen.getByLabelText('Service location', { exact: false }),
+      '/Users/me/code/checkout-service',
+    );
+
+    expect(screen.getByText('Vortex configuration found')).toBeInTheDocument();
+    expect(screen.getByLabelText('Register as')).toHaveValue('checkout-service');
+    // Fields recreated from a fresh onboarding no longer show once a configuration is restored.
+    expect(screen.queryByLabelText('Service name', { exact: false })).not.toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText('Register as'));
+    await userEvent.type(screen.getByLabelText('Register as'), 'checkout');
+    await userEvent.click(screen.getByRole('button', { name: 'Add service' }));
+
+    expect(adoptMutate).toHaveBeenCalledWith(
+      { workspacePath: '/Users/me/code/checkout-service', name: 'checkout' },
+      expect.anything(),
+    );
+  });
+
+  it('explains an invalid configuration and falls back to normal onboarding on request', async () => {
+    resetAll();
+    detectConfigState = {
+      isPending: false,
+      isError: false,
+      data: {
+        alreadyOnboarded: false,
+        existingService: null,
+        found: true,
+        valid: false,
+        summary: null,
+        problems: ["'journeys:' is no longer understood"],
+        rawYaml: 'journeys:\n  placeOrder: {}\n',
+        sourcePath: '/Users/me/code/checkout-service/.vortex/vortex.yaml',
+      },
+    };
+    renderWithProviders(<NewServicePage />);
+
+    await userEvent.type(
+      screen.getByLabelText('Service location', { exact: false }),
+      '/Users/me/code/checkout-service',
+    );
+
+    expect(screen.getByText('Vortex configuration found, but it could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText("'journeys:' is no longer understood")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Continue without importing' }));
+
+    expect(screen.getByLabelText('Service name', { exact: false })).toBeInTheDocument();
   });
 });

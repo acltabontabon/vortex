@@ -1,0 +1,22 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--mantine-radius-sm);
+  width: 100%;
+}
+
+.row:hover {
+  background-color: light-dark(rgba(0, 0, 0, 0.035), rgba(255, 255, 255, 0.05));
+}
+
+.currentPath {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 0.78rem;
+  background: var(--mantine-color-default-hover);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--mantine-radius-sm);
+  overflow-x: auto;
+  white-space: nowrap;
+}

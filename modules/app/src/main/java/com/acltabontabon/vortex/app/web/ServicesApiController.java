@@ -2,9 +2,13 @@ package com.acltabontabon.vortex.app.web;
 
 import com.acltabontabon.vortex.core.application.CatalogImportService;
 import com.acltabontabon.vortex.core.application.ProjectService;
+import com.acltabontabon.vortex.core.application.ProjectService.OnboardingOutcome;
 import com.acltabontabon.vortex.core.catalog.ServiceCatalog;
+import com.acltabontabon.vortex.core.port.ConfigurationStore;
 import com.acltabontabon.vortex.core.port.ServiceCatalogImporter;
+import com.acltabontabon.vortex.core.project.OpenApiSource;
 import com.acltabontabon.vortex.core.project.Project;
+import com.acltabontabon.vortex.core.project.ProjectConfiguration;
 import com.acltabontabon.vortex.core.shared.ProjectId;
 import java.net.http.HttpClient;
 import java.nio.file.Files;
@@ -103,6 +107,46 @@ public class ServicesApiController {
             return new WorkspaceCheckResponse(false, false, false, false, error);
         }
     }
+
+    public record BrowseDirectoryRequest(String path) {}
+
+    public record DirectoryEntryDto(String name, String path) {}
+
+    /** A directory listing for the folder picker — the path actually listed, its parent, and entries. */
+    public record BrowseDirectoryResponse(String path, String parentPath,
+            List<DirectoryEntryDto> entries, String error) {
+
+        static BrowseDirectoryResponse failure(String error) {
+            return new BrowseDirectoryResponse(null, null, List.of(), error);
+        }
+    }
+
+    public record DetectConfigRequest(String path) {}
+
+    /** What a discovered {@code vortex.yaml} would restore, without committing to it. */
+    public record ConfigSummaryDto(String serviceName, String serviceDescription, int workloadCount,
+            List<String> workloadNames, int environmentCount, int operationBindingCount,
+            boolean hasProductionObservation, boolean hasLocalLab, String openApiSourceDescription) {}
+
+    /**
+     * What Vortex found at a candidate repository path — the "Add service" form's live evidence for
+     * the repository field. Three shapes in one response, because the form has to render three very
+     * different states from it: already onboarded, found-and-valid, and found-but-invalid.
+     */
+    public record DetectConfigResponse(boolean alreadyOnboarded, ServiceSummaryDto existingService,
+            boolean found, boolean valid, ConfigSummaryDto summary, List<String> problems,
+            String rawYaml, String sourcePath) {
+
+        static DetectConfigResponse alreadyOnboarded(ServiceSummaryDto existing) {
+            return new DetectConfigResponse(true, existing, false, false, null, List.of(), null, null);
+        }
+
+        static DetectConfigResponse notFound() {
+            return new DetectConfigResponse(false, null, false, false, null, List.of(), null, null);
+        }
+    }
+
+    public record AdoptServiceRequest(String workspacePath, String name) {}
 
     @GetMapping
     public List<ServiceSummaryDto> list() {
@@ -212,6 +256,141 @@ public class ServicesApiController {
         }
         return new WorkspaceCheckResponse(true, true, Files.isWritable(path),
                 Files.isDirectory(path.resolve(".git")), null);
+    }
+
+    /**
+     * Lists a directory's subdirectories, so the "Add service" form can offer a folder picker without
+     * relying on the browser for one — a plain web page has no way to turn a native file dialog's
+     * selection back into an absolute filesystem path, but Vortex's own backend already has full
+     * filesystem access on this machine.
+     *
+     * <p>Directories only, never files: this exists to choose a repository root, not to browse its
+     * contents. Hidden directories (starting with {@code .}) are omitted to keep the listing to what a
+     * person is actually looking for.
+     */
+    @PostMapping("/browse-directory")
+    public BrowseDirectoryResponse browseDirectory(@RequestBody BrowseDirectoryRequest request) {
+        String raw = request.path() == null ? "" : request.path().trim();
+        Path path = raw.isEmpty() ? Path.of(System.getProperty("user.home")) : Path.of(raw);
+
+        if (!Files.exists(path)) {
+            return BrowseDirectoryResponse.failure("Vortex could not find that path.");
+        }
+        if (!Files.isDirectory(path)) {
+            return BrowseDirectoryResponse.failure("That path is not a directory.");
+        }
+
+        path = path.toAbsolutePath().normalize();
+        List<DirectoryEntryDto> entries;
+        try (var listing = Files.list(path)) {
+            entries = listing
+                    .filter(Files::isDirectory)
+                    .filter(entry -> !entry.getFileName().toString().startsWith("."))
+                    .map(entry -> new DirectoryEntryDto(entry.getFileName().toString(), entry.toString()))
+                    .sorted(java.util.Comparator.comparing(
+                            DirectoryEntryDto::name, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        } catch (java.io.IOException | SecurityException e) {
+            return BrowseDirectoryResponse.failure("Vortex could not read " + path + ": "
+                    + e.getMessage());
+        }
+
+        Path parent = path.getParent();
+        return new BrowseDirectoryResponse(path.toString(), parent == null ? null : parent.toString(),
+                entries, null);
+    }
+
+    /**
+     * Detects a {@code vortex.yaml}/{@code vortex.yml} at a candidate repository path, without
+     * creating or changing anything — the "Add service" form's live evidence for the repository
+     * field, mirroring {@link #checkWorkspace} and {@link #previewOpenApi} in spirit.
+     */
+    @PostMapping("/detect-config")
+    public DetectConfigResponse detectConfig(@RequestBody DetectConfigRequest request) {
+        String path = request.path() == null ? "" : request.path().trim();
+        if (path.isEmpty()) {
+            return DetectConfigResponse.notFound();
+        }
+
+        ProjectService.ConfigDetection detection = projects.detectConfiguration(path);
+        if (detection.alreadyOnboarded() != null) {
+            return DetectConfigResponse.alreadyOnboarded(toDto(detection.alreadyOnboarded()));
+        }
+
+        ConfigurationStore.LoadResult source = detection.source();
+        boolean found = source.configuration() != null || !source.problems().isEmpty();
+        if (!found) {
+            return DetectConfigResponse.notFound();
+        }
+        return new DetectConfigResponse(false, null, true, source.isValid(),
+                source.value().map(this::summarize).orElse(null), source.problems(),
+                readRawYaml(source.sourcePath()), source.sourcePath());
+    }
+
+    private ConfigSummaryDto summarize(ProjectConfiguration configuration) {
+        List<String> workloadNames = configuration.workloads().stream()
+                .map(workload -> workload.name()).toList();
+        return new ConfigSummaryDto(configuration.serviceName(), configuration.serviceDescription(),
+                configuration.workloads().size(), workloadNames, configuration.environments().size(),
+                configuration.operationBindings().size(),
+                configuration.productionObservationIfPresent().isPresent(),
+                configuration.localLabIfPresent().isPresent(),
+                configuration.openApiSourceIfPresent().map(OpenApiSource::describe).orElse(null));
+    }
+
+    /** Backs "Inspect configuration" for a found file, valid or not — never partially shown. */
+    private String readRawYaml(String sourcePath) {
+        if (sourcePath == null || sourcePath.isBlank()) {
+            return null;
+        }
+        try {
+            return Files.readString(Path.of(sourcePath));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Restores a repository's committed configuration into a newly created service.
+     *
+     * <p>Reloads the file rather than trusting what {@link #detectConfig} previously reported, so
+     * adoption always reflects what is actually on disk at submit time.
+     */
+    @PostMapping("/adopt")
+    public CreateServiceResponse adopt(@RequestBody AdoptServiceRequest request) {
+        OnboardingOutcome outcome = projects.adoptForOnboarding(request.workspacePath(), request.name());
+        return switch (outcome) {
+            case OnboardingOutcome.AlreadyOnboarded already -> throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "This repository is already in Vortex as '"
+                            + already.existing().name() + "'.");
+            case OnboardingOutcome.InvalidConfiguration invalid -> throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, String.join(" ", invalid.source().problems()));
+            case OnboardingOutcome.NameTaken taken -> throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "A project named '" + taken.name() + "' already exists. "
+                            + "Choose a different name, or open the existing project.");
+            case OnboardingOutcome.Adopted adopted -> withOpenApiImport(adopted);
+        };
+    }
+
+    private CreateServiceResponse withOpenApiImport(OnboardingOutcome.Adopted adopted) {
+        Project project = adopted.project();
+        var openApiSource = adopted.source().configuration().openApiSourceIfPresent();
+        if (openApiSource.isEmpty()) {
+            return new CreateServiceResponse(toDto(project), ImportOutcomeDto.notAttempted());
+        }
+
+        ImportOutcomeDto outcome;
+        try {
+            String content = WorkspaceDocumentFetch.fetch(
+                    http, project.workspacePath(), openApiSource.get(), MAX_SPECIFICATION_BYTES);
+            outcome = importFrom(project.id(), openApiSource.get().describe(), content);
+        } catch (RuntimeException e) {
+            outcome = new ImportOutcomeDto(true, false, null, null,
+                    "The service was created, but Vortex could not read its API description: "
+                            + e.getMessage(),
+                    List.of());
+        }
+        return new CreateServiceResponse(toDto(project), outcome);
     }
 
     /** Shared with Understand's import form — see the Configuration migration. */

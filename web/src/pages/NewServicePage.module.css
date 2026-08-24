@@ -73,3 +73,13 @@
 .chevronOpen {
   transform: rotate(90deg);
 }
+
+.configFile {
+  font-size: 0.78rem;
+  background: var(--mantine-color-default-hover);
+  padding: 0.75rem 1rem;
+  border-radius: var(--mantine-radius-sm);
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+}

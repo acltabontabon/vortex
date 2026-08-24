@@ -14,6 +14,10 @@ web/node_modules/
 web/node/
 web/dist/
 
+# Vite's dep-cache — reappears wherever `vite`/`npm run dev` is invoked from, including by
+# accident outside web/ (e.g. a stray vortex-web/.vite/ at the repo root).
+**/.vite/
+
 # Vortex workspace — local state, never committed.
 # The checkout-service example is the exception: a committed .vortex/vortex.yaml is the
 # whole point of the portable configuration, and README tells people to run

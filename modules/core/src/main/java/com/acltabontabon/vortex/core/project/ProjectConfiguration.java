@@ -51,6 +51,9 @@ import java.util.Optional;
  * @param localLab              the repository's own Compose file, when this service has dependencies
  *                              worth starting locally. Absent for a service that needs none — a
  *                              local lab is a convenience, not a requirement
+ * @param openApiSource         where this service's API description lives, when the repository knows.
+ *                              Absent for a service onboarded from a URL typed once and not recorded,
+ *                              or one with no OpenAPI description at all
  */
 public record ProjectConfiguration(
         int version,
@@ -63,7 +66,8 @@ public record ProjectConfiguration(
         ThresholdSet thresholds,
         ProductionObservation productionObservation,
         ObservationSource observationSource,
-        LocalLabSettings localLab) {
+        LocalLabSettings localLab,
+        OpenApiSource openApiSource) {
 
     /**
      * The configuration schema version this build of Vortex writes.
@@ -104,7 +108,7 @@ public record ProjectConfiguration(
 
     public static ProjectConfiguration empty() {
         return new ProjectConfiguration(CURRENT_VERSION, "", "", "", List.of(), List.of(), List.of(),
-                ThresholdSet.empty(), null, null, null);
+                ThresholdSet.empty(), null, null, null, null);
     }
 
     public Optional<ProductionObservation> productionObservationIfPresent() {
@@ -166,12 +170,13 @@ public record ProjectConfiguration(
         }
         return new ProjectConfiguration(version, serviceName, serviceDescription, serviceVersion,
                 updated, environments,
-                workloads, thresholds, productionObservation, observationSource, localLab);
+                workloads, thresholds, productionObservation, observationSource, localLab, openApiSource);
     }
 
     public ProjectConfiguration withEnvironments(List<Environment> newEnvironments) {
         return new ProjectConfiguration(version, serviceName, serviceDescription, serviceVersion,
-                operationBindings, newEnvironments, workloads, thresholds, productionObservation, observationSource, localLab);
+                operationBindings, newEnvironments, workloads, thresholds, productionObservation,
+                observationSource, localLab, openApiSource);
     }
 
     /**
@@ -193,7 +198,8 @@ public record ProjectConfiguration(
 
     public ProjectConfiguration withWorkloads(List<Workload> newWorkloads) {
         return new ProjectConfiguration(version, serviceName, serviceDescription, serviceVersion,
-                operationBindings, environments, newWorkloads, thresholds, productionObservation, observationSource, localLab);
+                operationBindings, environments, newWorkloads, thresholds, productionObservation,
+                observationSource, localLab, openApiSource);
     }
 
     /** Adds or replaces one workload, matching by name. */
@@ -224,13 +230,14 @@ public record ProjectConfiguration(
 
     public ProjectConfiguration withThresholds(ThresholdSet newThresholds) {
         return new ProjectConfiguration(version, serviceName, serviceDescription, serviceVersion,
-                operationBindings, environments, workloads, newThresholds, productionObservation, observationSource, localLab);
+                operationBindings, environments, workloads, newThresholds, productionObservation,
+                observationSource, localLab, openApiSource);
     }
 
     public ProjectConfiguration withProductionObservation(ProductionObservation observation) {
         return new ProjectConfiguration(version, serviceName, serviceDescription, serviceVersion,
                 operationBindings, environments, workloads, thresholds, observation, observationSource,
-                localLab);
+                localLab, openApiSource);
     }
 
     /**
@@ -243,7 +250,7 @@ public record ProjectConfiguration(
     public ProjectConfiguration withObservationSource(ObservationSource newSource) {
         return new ProjectConfiguration(version, serviceName, serviceDescription, serviceVersion,
                 operationBindings, environments, workloads, thresholds, productionObservation,
-                newSource, localLab);
+                newSource, localLab, openApiSource);
     }
 
     /**
@@ -255,12 +262,29 @@ public record ProjectConfiguration(
     public ProjectConfiguration withLocalLab(LocalLabSettings newLocalLab) {
         return new ProjectConfiguration(version, serviceName, serviceDescription, serviceVersion,
                 operationBindings, environments, workloads, thresholds, productionObservation,
-                observationSource, newLocalLab);
+                observationSource, newLocalLab, openApiSource);
+    }
+
+    /**
+     * Records where this service's API description lives.
+     *
+     * <p>Recording it does not fetch or import anything — the same explicit-act rule as {@link
+     * #withObservationSource} and {@link #withLocalLab}.
+     */
+    public ProjectConfiguration withOpenApiSource(OpenApiSource newOpenApiSource) {
+        return new ProjectConfiguration(version, serviceName, serviceDescription, serviceVersion,
+                operationBindings, environments, workloads, thresholds, productionObservation,
+                observationSource, localLab, newOpenApiSource);
+    }
+
+    public Optional<OpenApiSource> openApiSourceIfPresent() {
+        return Optional.ofNullable(openApiSource);
     }
 
     public ProjectConfiguration withService(String newName, String newDescription) {
         return new ProjectConfiguration(version, newName, newDescription, serviceVersion,
-                operationBindings, environments, workloads, thresholds, productionObservation, observationSource, localLab);
+                operationBindings, environments, workloads, thresholds, productionObservation,
+                observationSource, localLab, openApiSource);
     }
 
     /**
@@ -271,7 +295,8 @@ public record ProjectConfiguration(
      */
     public ProjectConfiguration withServiceVersion(String newServiceVersion) {
         return new ProjectConfiguration(version, serviceName, serviceDescription, newServiceVersion,
-                operationBindings, environments, workloads, thresholds, productionObservation, observationSource, localLab);
+                operationBindings, environments, workloads, thresholds, productionObservation,
+                observationSource, localLab, openApiSource);
     }
 
     public Optional<String> serviceVersionIfPresent() {

@@ -85,10 +85,7 @@ public final class ProjectService {
         }
 
         String canonical = canonicalPath(workspacePath);
-        Project project = projects.findAll().stream()
-                .filter(candidate -> !candidate.workspacePath().isBlank())
-                .filter(candidate -> canonical.equals(canonicalPath(candidate.workspacePath())))
-                .findFirst()
+        Project project = findByWorkspacePath(workspacePath)
                 .orElseGet(() -> projects.save(Project.create(
                         availableName(directoryName(canonical)), "", canonical, clock.now())));
 
@@ -115,6 +112,93 @@ public final class ProjectService {
         public boolean adopted() {
             return project != null;
         }
+    }
+
+    /** The project already registered against a directory, if any project is. */
+    public Optional<Project> findByWorkspacePath(String workspacePath) {
+        String canonical = canonicalPath(workspacePath);
+        return projects.findAll().stream()
+                .filter(candidate -> !candidate.workspacePath().isBlank())
+                .filter(candidate -> canonical.equals(canonicalPath(candidate.workspacePath())))
+                .findFirst();
+    }
+
+    /**
+     * What Vortex finds when a directory is offered during onboarding, before anything is created.
+     *
+     * <p>Read-only, like {@link #renderConfiguration(ProjectId)} — it exists so the "Add service"
+     * form can show what would happen without committing to it.
+     *
+     * @param alreadyOnboarded the project already registered against this directory, if any; when
+     *                         present, {@code source} is not populated — the directory does not need
+     *                         reading again to know it is already known
+     * @param source           the load result for the directory's configuration file
+     */
+    public record ConfigDetection(Project alreadyOnboarded, ConfigurationStore.LoadResult source) {}
+
+    public ConfigDetection detectConfiguration(String workspacePath) {
+        Optional<Project> existing = findByWorkspacePath(workspacePath);
+        if (existing.isPresent()) {
+            return new ConfigDetection(existing.get(), null);
+        }
+        return new ConfigDetection(null, configurationStore.load(workspacePath));
+    }
+
+    /**
+     * How {@link #adoptForOnboarding(String, String)} resolved, distinguishing every reason it might
+     * not have produced a new project.
+     *
+     * <p>A sealed result rather than an exception, because none of these are exceptional: a directory
+     * already being onboarded, an invalid file, and a taken name are all outcomes the "Add service"
+     * form needs to render distinctly, not fail generically on.
+     */
+    public sealed interface OnboardingOutcome {
+
+        /** The directory is already a registered project; adopting it again would duplicate it. */
+        record AlreadyOnboarded(Project existing) implements OnboardingOutcome {}
+
+        /** The directory's configuration file could not be read as valid intent. */
+        record InvalidConfiguration(ConfigurationStore.LoadResult source) implements OnboardingOutcome {}
+
+        /** A project with this name already exists; the caller must choose another. */
+        record NameTaken(String name) implements OnboardingOutcome {}
+
+        /** The configuration was restored into a newly created project. */
+        record Adopted(Project project, ConfigurationStore.LoadResult source) implements OnboardingOutcome {}
+    }
+
+    /**
+     * Restores a directory's committed configuration into a new project, under a name the caller has
+     * already chosen.
+     *
+     * <p>Unlike {@link #adopt(String)}, this never invents a name to avoid a collision — the "Add
+     * service" flow this backs asks the person adopting the directory to choose a different name
+     * instead, the same rule {@link #create(String, String, String)} already applies to an ordinary
+     * duplicate name. {@link #adopt(String)} keeps its own auto-suffixing behaviour unchanged for any
+     * caller that has nobody present to react to a collision.
+     */
+    public OnboardingOutcome adoptForOnboarding(String workspacePath, String name) {
+        Optional<Project> existing = findByWorkspacePath(workspacePath);
+        if (existing.isPresent()) {
+            return new OnboardingOutcome.AlreadyOnboarded(existing.get());
+        }
+
+        ConfigurationStore.LoadResult loaded = configurationStore.load(workspacePath);
+        if (!loaded.isValid()) {
+            return new OnboardingOutcome.InvalidConfiguration(loaded);
+        }
+
+        if (projects.findByName(name).isPresent()) {
+            return new OnboardingOutcome.NameTaken(name);
+        }
+
+        ProjectConfiguration configuration = loaded.configuration();
+        Project project = projects.save(Project.create(name, configuration.serviceDescription(),
+                canonicalPath(workspacePath), clock.now()));
+        configurations.save(project.id(), configuration);
+        projects.save(mirrorServiceVersion(project, configuration).touch(clock.now()));
+
+        return new OnboardingOutcome.Adopted(project, loaded);
     }
 
     private static String canonicalPath(String path) {
