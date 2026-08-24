@@ -19,6 +19,20 @@
   <name>Vortex</name>
   <description>Local-first performance engineering workbench</description>
 
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <scm>
+    <connection>scm:git:git@github.com:acltabontabon/vortex.git</connection>
+    <developerConnection>scm:git:git@github.com:acltabontabon/vortex.git</developerConnection>
+    <url>https://github.com/acltabontabon/vortex</url>
+  </scm>
+
   <modules>
     <module>modules/core</module>
     <module>modules/openapi</module>

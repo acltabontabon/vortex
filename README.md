@@ -1,5 +1,8 @@
 # Vortex
 
+[![CI](https://github.com/acltabontabon/vortex/actions/workflows/ci.yml/badge.svg)](https://github.com/acltabontabon/vortex/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Vortex helps engineering teams turn vague performance requirements into repeatable,
 production-informed capacity evidence.**
 
