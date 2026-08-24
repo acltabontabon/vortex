@@ -152,6 +152,69 @@ class DockerImageTargetExecutorTest {
         assertThat(verbsInvoked()).doesNotContain("create");
     }
 
+    @Test
+    @DisplayName("an image a by-tag inspect denies but the daemon still lists is treated as present")
+    void anImageOnlyTheListingCanSeeIsStillAvailable() {
+        // A Docker daemon whose tag index is temporarily confused answers `image inspect <tag>` with
+        // "no such image" for minutes on end, while `image ls`, `docker run` and an id-based inspect
+        // all resolve the same image throughout. Believing the inspect alone refuses the run over an
+        // image sitting right there, and the executor's three-second retry cannot bridge a window
+        // that long.
+        dockerProcess.script("image", failure("No such image: " + IMAGE));
+        dockerProcess.scriptFormat("reference=", successWithStdout("e8ae2005cb70"));
+        dockerProcess.script("create", successWithStdout(CONTAINER_ID));
+        dockerProcess.script("start", success());
+        dockerProcess.script("inspect", successWithStdout(portMappingJson(8080, "49172")));
+        DockerImageTargetExecutor executor = executorAssumingDockerAvailable();
+
+        PreparedTarget prepared = executor.prepare(requestFor(targetWithoutReadinessCheck()));
+
+        assertThat(prepared.resolvedTarget().endpoint().value()).isEqualTo("http://localhost:49172");
+        assertThat(verbsInvoked()).contains("create");
+    }
+
+    @Test
+    @DisplayName("an image neither question can find is still refused, not attempted anyway")
+    void anImageNeitherQuestionFindsIsStillRefused() {
+        // The second question exists to overturn a wrong "no", never to manufacture a "yes". An
+        // empty listing is an honest absence, and `docker image ls` reports it by exiting 0 with no
+        // output — so presence has to be read from the output, not the status.
+        dockerProcess.script("image", failure("No such image: " + IMAGE));
+        dockerProcess.scriptFormat("reference=", success());
+        DockerImageTargetExecutor executor = executorAssumingDockerAvailable();
+
+        assertThatThrownBy(() -> executor.prepare(requestFor(targetWithoutReadinessCheck())))
+                .isInstanceOf(TargetPreparationException.class)
+                .satisfies(e -> assertThat(((TargetPreparationException) e).reason())
+                        .isEqualTo(FailureReason.IMAGE_NOT_FOUND));
+
+        assertThat(verbsInvoked()).doesNotContain("create");
+    }
+
+    @Test
+    @DisplayName("a wildcard image reference is refused rather than matched against every tag")
+    void aWildcardImageReferenceIsNeverAnsweredByTheListing() {
+        // `--filter reference=` matches a shell-style pattern, so `service:*` lists every tag of
+        // that service — and answering "present" for a reference `docker create` rejects as an
+        // invalid reference format trades a clear failure here for an obscure one a step later.
+        dockerProcess.script("image", failure("No such image"));
+        dockerProcess.scriptFormat("reference=", successWithStdout("e8ae2005cb70"));
+        DockerImageTargetExecutor executor = executorAssumingDockerAvailable();
+        DockerImageTarget wildcard = new DockerImageTarget(new ImageReference("payment-service:*"),
+                new ContainerPort(8080), ResourceEnvelopeRequest.none(), null);
+
+        assertThatThrownBy(() -> executor.prepare(requestFor(wildcard)))
+                .isInstanceOf(TargetPreparationException.class)
+                .satisfies(e -> assertThat(((TargetPreparationException) e).reason())
+                        .isEqualTo(FailureReason.IMAGE_NOT_FOUND));
+
+        assertThat(dockerProcess.invocations())
+                .as("a pattern must never even be put to the listing, whose answer would be a "
+                        + "different question's")
+                .noneSatisfy(invocation -> assertThat(invocation).contains("reference=payment-service:*"));
+        assertThat(verbsInvoked()).doesNotContain("create");
+    }
+
     // ---- docker create fails ----------------------------------------------------------------
 
     @Test

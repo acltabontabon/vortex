@@ -80,9 +80,20 @@ public final class DockerImageTargetExecutor implements TargetExecutor {
      */
     private static final Duration READINESS_PROBE_TIMEOUT = Duration.ofSeconds(5);
 
-    /** {@code docker image inspect} by tag is observed to intermittently answer "no such image" for
-     *  an image that {@code docker images} and an id-based inspect both confirm is present — a
-     *  Docker Desktop daemon flake, not a real absence. Retried briefly before it is trusted. */
+    /**
+     * {@code docker image inspect} by tag is observed to answer "no such image" for an image that
+     * {@code docker image ls} and an id-based inspect both confirm is present.
+     *
+     * <p>Originally treated as a brief flake and answered with the retry below. Observed since to
+     * last <em>minutes</em>: every by-tag inspect in that window failed, while {@code docker image
+     * ls}, {@code docker run} and an id-based inspect all resolved the same image throughout, and
+     * the daemon eventually righted itself with no intervention. A three-second retry cannot bridge
+     * a window that long, so the run is refused with "the configured image is not present locally"
+     * about an image sitting right there.
+     *
+     * <p>The retry is kept for the short case it was written for, and {@link #imageIsPresent} no
+     * longer asks only the one question that can be wrong for minutes at a time.
+     */
     private static final Duration IMAGE_LOOKUP_RETRY_TIMEOUT = Duration.ofSeconds(3);
     private static final Duration IMAGE_LOOKUP_RETRY_INTERVAL = Duration.ofMillis(500);
 
@@ -232,25 +243,68 @@ public final class DockerImageTargetExecutor implements TargetExecutor {
 
     private void requireImageAvailable(ImageReference image) {
         Instant deadline = Instant.now().plus(IMAGE_LOOKUP_RETRY_TIMEOUT);
-        DockerProcess.DockerCommandResult result;
         while (true) {
-            result = dockerProcess.run(
-                    List.of(dockerExecutable, "image", "inspect", image.value()),
-                    DOCKER_COMMAND_TIMEOUT);
-            if (result.succeeded() || !Instant.now().isBefore(deadline)) {
-                break;
+            if (imageIsPresent(image)) {
+                return;
+            }
+            if (!Instant.now().isBefore(deadline)) {
+                throw new TargetPreparationException(FailureReason.IMAGE_NOT_FOUND,
+                        "Docker image not available: " + image.value());
             }
             try {
                 Thread.sleep(IMAGE_LOOKUP_RETRY_INTERVAL.toMillis());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                break;
+                throw new TargetPreparationException(FailureReason.IMAGE_NOT_FOUND,
+                        "Docker image not available: " + image.value());
             }
         }
-        if (!result.succeeded()) {
-            throw new TargetPreparationException(FailureReason.IMAGE_NOT_FOUND,
-                    "Docker image not available: " + image.value());
+    }
+
+    /**
+     * Whether Docker holds this image, asked two ways because one of them can be wrong.
+     *
+     * <p>{@code image inspect} is asked first: it is the exact question, and it is the only one of
+     * the two that understands a digest reference ({@code image@sha256:…}), which {@code --filter
+     * reference=} does not match. When it says no, {@code image ls --filter reference=} is asked as
+     * well, because a daemon whose tag index is temporarily confused answers the first question
+     * wrongly and this one correctly — the observed failure being an image that {@code docker image
+     * ls} lists, {@code docker run} runs, and an id-based inspect resolves, while a by-tag inspect
+     * insists for minutes on end that it does not exist. Believing the first answer alone refuses
+     * the run over an image that is right there.
+     *
+     * <p>Only a positive second answer overturns the first. Both saying no is a genuine absence, and
+     * an image Vortex cannot find is still refused rather than attempted — Vortex never pulls or
+     * builds on somebody's behalf, so a wrong yes here becomes a confusing {@code docker create}
+     * failure instead of a clear one.
+     */
+    private boolean imageIsPresent(ImageReference image) {
+        boolean inspected = dockerProcess.run(
+                List.of(dockerExecutable, "image", "inspect", image.value()),
+                DOCKER_COMMAND_TIMEOUT).succeeded();
+        if (inspected || !isLiteralReference(image)) {
+            return inspected;
         }
+        DockerProcess.DockerCommandResult listed = dockerProcess.run(List.of(dockerExecutable,
+                "image", "ls", "--filter", "reference=" + image.value(), "--format", "{{.ID}}"),
+                DOCKER_COMMAND_TIMEOUT);
+        // This command exits 0 whether or not anything matched, so presence is the output, not the
+        // status — an empty listing is the honest "no", not a failure to ask.
+        return listed.succeeded() && listed.stdout().stream().anyMatch(line -> !line.isBlank());
+    }
+
+    /**
+     * Whether this reference names one image rather than describing a set of them.
+     *
+     * <p>{@code --filter reference=} matches a shell-style pattern, so {@code myservice:*} lists
+     * every tag of {@code myservice} and would answer "present" for a reference {@code docker create}
+     * then rejects outright as an invalid reference format. That turns a clear "this image is not
+     * available, pull or build it" into an obscure failure one step later, which is the opposite of
+     * why the second question is asked at all. A pattern is therefore left to {@code inspect} alone,
+     * which correctly refuses it.
+     */
+    private boolean isLiteralReference(ImageReference image) {
+        return image.value().chars().noneMatch(c -> c == '*' || c == '?' || c == '[');
     }
 
     private String createContainer(DockerImageTarget target, TargetPreparationRequest request) {
