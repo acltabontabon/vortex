@@ -18,8 +18,7 @@
       <p>A local-first workbench that helps engineering teams answer one question with confidence:
         can this service actually hold the load we expect of it?</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/acltabontabon/vortex">View on GitHub</a>
-        <a class="btn btn-secondary" href="https://github.com/acltabontabon/vortex/releases">See releases</a>
+        <a class="btn btn-primary" href="#download">Download vortex.jar</a>
       </div>
       <div class="badge">Early alpha — actively evolving</div>
     </section>
@@ -90,72 +89,38 @@
     <section id="download">
       <h2>Download</h2>
       <p>Vortex ships as a single runnable jar. No installer, no account — download it, run it locally.</p>
-      <div class="download-card" data-state="loading">
+      <div class="download-card">
         <div class="download-info">
-          <div class="download-version">Checking the latest release&hellip;</div>
-          <div class="download-meta">Requires Java 25+</div>
+          <div class="download-version" data-role="version">Latest build</div>
+          <div class="download-meta" data-role="meta">Requires Java 25+</div>
         </div>
         <div class="cta-row">
-          <a class="btn btn-primary" data-role="download-btn" href="https://github.com/acltabontabon/vortex/releases" aria-disabled="true">
-            Download vortex.jar
-          </a>
-          <a class="btn btn-secondary" data-role="notes-link" href="https://github.com/acltabontabon/vortex/releases">
-            Release notes
-          </a>
+          <a class="btn btn-primary" href="vortex.jar" download>Download vortex.jar</a>
         </div>
       </div>
       <pre class="run-cmd"><code>java -jar vortex.jar</code></pre>
     </section>
 
     <footer>
-      <p>
-        <a href="https://github.com/acltabontabon/vortex/blob/main/LICENSE">MIT License</a>
-        &nbsp;·&nbsp;
-        <a href="https://github.com/acltabontabon/vortex">github.com/acltabontabon/vortex</a>
-      </p>
       <p>© 2026 Alvin Cris Tabontabon.</p>
     </footer>
   </div>
   <script>
     (function () {
-      var card = document.querySelector('.download-card');
-      var versionEl = card.querySelector('.download-version');
-      var metaEl = card.querySelector('.download-meta');
-      var downloadBtn = card.querySelector('[data-role="download-btn"]');
-      var notesLink = card.querySelector('[data-role="notes-link"]');
-
-      fetch('https://api.github.com/repos/acltabontabon/vortex/releases')
+      fetch('release.json', { cache: 'no-store' })
         .then(function (res) {
-          if (!res.ok) throw new Error('GitHub API error ' + res.status);
+          if (!res.ok) throw new Error('release.json not found');
           return res.json();
         })
-        .then(function (releases) {
-          var release = releases && releases[0];
-          if (!release) throw new Error('No releases found');
-
-          var jarAsset = (release.assets || []).find(function (a) {
-            return a.name === 'vortex.jar';
-          });
-          if (!jarAsset) throw new Error('No vortex.jar asset on latest release');
-
-          card.dataset.state = 'ready';
-          versionEl.textContent = release.name || release.tag_name;
-          metaEl.textContent = 'Requires Java 25+' + (release.prerelease ? ' · Early alpha build' : '');
-          downloadBtn.href = jarAsset.browser_download_url;
-          downloadBtn.removeAttribute('aria-disabled');
-          notesLink.href = release.html_url;
+        .then(function (release) {
+          document.querySelector('[data-role="version"]').textContent = release.name || release.tag;
+          document.querySelector('[data-role="meta"]').textContent =
+            'Requires Java 25+' + (release.prerelease ? ' · Early alpha build' : '');
         })
         .catch(function () {
-          // The repo is currently private, so the public API call above 404s for
-          // anonymous visitors. This pinned asset link only resolves for someone
-          // already authenticated with repo access (e.g. the owner) — it is not a
-          // substitute for the dynamic lookup once the repo goes public.
-          card.dataset.state = 'error';
-          versionEl.textContent = 'v0.1.0-alpha.1';
-          metaEl.textContent = 'Requires Java 25+ · Early alpha build';
-          downloadBtn.href = 'https://github.com/acltabontabon/vortex/releases/download/v0.1.0-alpha.1/vortex.jar';
-          downloadBtn.removeAttribute('aria-disabled');
-          notesLink.href = 'https://github.com/acltabontabon/vortex/releases/tag/v0.1.0-alpha.1';
+          // release.json is generated at deploy time; if it's missing (e.g. local
+          // preview without a build step) the download button still works since
+          // its href is a static file, only the version label stays generic.
         });
     })();
   </script>

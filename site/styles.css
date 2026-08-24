@@ -280,11 +280,6 @@ p {
   margin-top: 0;
 }
 
-.download-card[data-state="loading"] .btn-primary {
-  opacity: 0.6;
-  pointer-events: none;
-}
-
 .run-cmd {
   margin: 0;
   padding: 12px 16px;

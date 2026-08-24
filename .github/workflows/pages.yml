@@ -31,6 +31,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The repo is private, so this jar is never publicly downloadable straight from
+      # GitHub. Fetching it here with the workflow's own token and publishing it
+      # alongside the static site gives visitors a real, public, direct download
+      # without changing repo visibility or committing the binary to git.
+      - name: Bundle latest release jar into the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
+          if [ -z "$TAG" ]; then
+            echo "No releases found yet; deploying the site without a bundled jar." >&2
+            exit 0
+          fi
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'vortex.jar' --dir site/ --clobber
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,isPrerelease \
+            --jq '{tag: .tagName, name: .name, prerelease: .isPrerelease}' > site/release.json
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
