@@ -56,6 +56,29 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+        debugInspectMount(workingDir);
+    }
+
+    /** TEMPORARY diagnostic: prove whether the bind mount Docker sees actually contains what we
+     *  just wrote, using a plain busybox container instead of DockerK6Runner's own machinery. */
+    private void debugInspectMount(Path workingDir) {
+        try {
+            System.out.println("[debug] workingDir.toAbsolutePath() = " + workingDir.toAbsolutePath());
+            System.out.println("[debug] workingDir.toRealPath()     = " + workingDir.toRealPath());
+            try (var files = Files.list(workingDir)) {
+                files.forEach(p -> System.out.println("[debug] host-side entry: " + p));
+            }
+            Process inspect = new ProcessBuilder("docker", "run", "--rm", "-v",
+                    workingDir.toAbsolutePath() + ":/inspect", "busybox", "ls", "-la", "/inspect")
+                    .redirectErrorStream(true)
+                    .start();
+            inspect.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
+            try (var reader = inspect.inputReader(StandardCharsets.UTF_8)) {
+                reader.lines().forEach(line -> System.out.println("[debug] container-side: " + line));
+            }
+        } catch (IOException | InterruptedException e) {
+            System.out.println("[debug] mount inspection failed: " + e);
+        }
     }
 
     /** A script that allocates far more than a very small memory budget the instant a VU starts,
