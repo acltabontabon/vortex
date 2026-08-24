@@ -21,8 +21,10 @@
 # second rate to confuse it with.
 #
 # This example is more elaborate than what Vortex writes for a new project: it
-# shows a multi-operation mix, a concurrency workload, two environments, a
-# secret reference, and recorded production traffic. Validate it with:
+# shows a multi-operation mix, a concurrency workload, a staged ramp, a spike,
+# two environments, a secret reference, and recorded production traffic — one
+# workload per test type, each shaped the way that type is best asked.
+# Validate it with:
 #
 #     vortex validate examples/checkout-service
 
@@ -159,7 +161,10 @@ workloads:
     operations:
       getAccount: 100
 
-  # One operation is a complete performance target. No mix, no synthetic flow.
+  # An experiment seeking the failure boundary, not just another ramp: load
+  # increases in stages until an objective is violated or Vortex's own
+  # configured safety limit is reached first, whichever comes sooner. One
+  # operation is a complete performance target — no mix, no synthetic flow.
   submission-capacity:
     type: BREAKPOINT
     description: "How many order submissions can this service actually take?"
@@ -205,18 +210,29 @@ workloads:
       getAccount: 55
       cancelOrder: 5
 
-  # The observed peak, held long enough to mean something. Above ordinary
-  # traffic by definition, which is the question a stress test asks.
+  # Traffic heavier than normal, ramped up in stages rather than held flat, so
+  # you can see where behaviour starts to change instead of only learning
+  # whether one number survived. Covers both "can we survive the busiest hour
+  # of the year?" and "what happens when we push past it?" — this ramp climbs
+  # through the observed peak (120) and on to 150, deliberately past it.
   #
-  # At 120 requests/sec this mix allocates 18 / 30 / 66 / 6.
+  # At the third stage (120 requests/sec, the observed peak) this mix
+  # allocates 18 / 30 / 66 / 6.
   production-peak:
     type: STRESS
-    description: "The workload the service receives at month-end settlement."
-    objective: "Confirm the service sustains its observed production peak."
+    description: "Traffic ramped up in view, through and past what the service receives at month-end settlement."
+    objective: "See where behaviour starts to change as load climbs toward and beyond the observed peak."
     shape:
       model: arrival-rate
-      rate: 120
-      duration: 30m
+      stages:
+        - target: 40
+          duration: 5m
+        - target: 80
+          duration: 5m
+        - target: 120
+          duration: 5m
+        - target: 150
+          duration: 5m
     source:
       kind: PRODUCTION_OBSERVED
       detail: "Grafana · checkout-service overview"
@@ -241,6 +257,32 @@ workloads:
         getAccount:
           latency:
             p95: 200ms
+
+  # A sudden jump, held briefly, then a return to normal — the shape a smooth
+  # ramp can never reproduce. Exposes cold caches, autoscaling lag and
+  # connection-pool warm-up that only show up when demand rises abruptly
+  # rather than climbing gradually. The 15s jump/recovery either side of the
+  # hold is short enough to read as sudden without being a zero-length step.
+  flash-sale-spike:
+    type: SPIKE
+    description: "A promotional push notification landing on every subscriber's phone at once."
+    objective: "See whether the service keeps meeting its objectives through a sudden jump in demand, not just a gradual one."
+    shape:
+      model: arrival-rate
+      stages:
+        - target: 20
+          duration: 30s
+        - target: 150
+          duration: 15s
+        - target: 150
+          duration: 2m
+        - target: 20
+          duration: 15s
+    operations:
+      createOrder: 15
+      getOrder: 25
+      getAccount: 55
+      cancelOrder: 5
 
   # Does it stay healthy for hours, not minutes? Memory leaks, pool exhaustion
   # and queue accumulation are invisible in the first ten minutes.
