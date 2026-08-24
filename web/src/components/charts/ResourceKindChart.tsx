@@ -1,7 +1,15 @@
 import { LineChart } from '@mantine/charts';
 import { Text } from '@mantine/core';
 import type { ResourceKindPlot } from '../../api/run';
-import { type ChartMarker, formatBytes, formatElapsed, toEpochSeconds, verticalMarkerLines } from './chartTime';
+import {
+  type ChartMarker,
+  formatBytes,
+  formatElapsed,
+  mixesCpuRatioWithPercent,
+  toDisplayValue,
+  toEpochSeconds,
+  verticalMarkerLines,
+} from './chartTime';
 
 /** One color per scope, so "system under test", "load generator" and "load generator host" are
  *  visually distinct on sight rather than only by hovering a legend — the single most damaging
@@ -38,18 +46,20 @@ function seriesKey(signalId: string, providerId: string) {
 /** One row per timestamp across every series in the plot, so lines from different scopes/providers
  *  share one x-axis rather than each drawing against its own timeline. */
 function merge(plot: ResourceKindPlot, origin: number): MergedRow[] {
+  const normalize = mixesCpuRatioWithPercent(plot);
   const byTime = new Map<string, MergedRow>();
   for (const series of plot.series) {
     const key = seriesKey(series.signalId, series.providerId);
     for (const point of series.points) {
+      const value = toDisplayValue(series, point.value, normalize);
       const existing = byTime.get(point.atIso);
       if (existing) {
-        existing[key] = point.value;
+        existing[key] = value;
       } else {
         byTime.set(point.atIso, {
           atIso: point.atIso,
           elapsedSeconds: toEpochSeconds(point.atIso) - origin,
-          [key]: point.value,
+          [key]: value,
         });
       }
     }
@@ -116,7 +126,12 @@ export function ResourceKindChart({
 
   const scopesPresent = Array.from(new Set(withPoints.map((series) => series.scope)));
 
-  const unitSymbol = withPoints[0].unitSymbol;
+  // Normalized to percent when this plot mixes a bare CPU ratio with an already-scaled one (see
+  // mixesCpuRatioWithPercent) — every series was already converted onto that one shared unit inside
+  // merge(), so the formatter below must agree, not fall back to whichever series happened to sort
+  // first.
+  const normalized = mixesCpuRatioWithPercent({ ...plot, series: withPoints });
+  const unitSymbol = normalized ? '%' : withPoints[0].unitSymbol;
   // A ratio's own unit symbol is blank by domain design — "0.3" alone means nothing on an axis.
   // CPU is the one resource kind Vortex measures as a bare ratio (a fraction of one core), so this
   // is the one place that ratio is named rather than left silent; a future ratio kind would need

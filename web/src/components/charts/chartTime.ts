@@ -1,6 +1,8 @@
 /** Shared, non-component pieces between {@code TimelineChart} and {@code ResourceKindChart} — split
  *  out so both chart components stay components-only exports (fast refresh needs that). */
 
+import type { ResourceKindPlot, ResourceSeries } from '../../api/run';
+
 export interface ChartMarker {
   atIso: string;
   label?: string;
@@ -33,6 +35,29 @@ export function formatElapsed(seconds: number): string {
   const minutes = Math.floor(whole / 60);
   const secs = whole % 60;
   return `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
+/**
+ * Whether this plot mixes a bare CPU ratio with an already-scaled percentage.
+ *
+ * <p>CPU is the one resource kind reported in two genuinely different native units across
+ * providers: Docker and the load generator measure a bare ratio (a fraction of one core), while
+ * Actuator's own Micrometer gauges are deliberately normalized to a percentage before Vortex ever
+ * sees them (see {@code ActuatorObservabilityProvider}). Both are correct in isolation — the bug is
+ * plotting them unconverted on the same axis, which silently formats one provider's ratio as though
+ * it were the other's percentage.
+ */
+export function mixesCpuRatioWithPercent(plot: ResourceKindPlot): boolean {
+  if (plot.kind !== 'CPU') return false;
+  const unitSymbols = new Set(plot.series.map((series) => series.unitSymbol));
+  return unitSymbols.size > 1;
+}
+
+/** A series' raw value, converted onto the plot's one common display unit when the plot mixes
+ *  units — a bare CPU ratio becomes a percentage (×100) so every line shares one scale; otherwise
+ *  the value is untouched. */
+export function toDisplayValue(series: ResourceSeries, rawValue: number, normalize: boolean): number {
+  return normalize && series.unitSymbol === '' ? rawValue * 100 : rawValue;
 }
 
 /** Builds the `referenceLines` recharts wants from a list of instants, dropping any that fall
