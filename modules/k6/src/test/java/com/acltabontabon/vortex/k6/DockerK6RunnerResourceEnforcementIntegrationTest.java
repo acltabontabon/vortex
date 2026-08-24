@@ -109,7 +109,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
                 CpuAllocation.ofMillicores(500), MemoryAllocation.ofMebibytes(256));
 
         var outcome = runner().run(runArgs(), workingDir, Map.of(), resources,
-                _ -> { }, _ -> { }, Cancellation.never());
+                System.out::println, System.err::println, Cancellation.never());
 
         assertThat(outcome.producedAResult()).isTrue();
         assertThat(outcome.effectiveResources()).isNotNull();
@@ -128,7 +128,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
         writeTrivialScript(workingDir);
 
         var outcome = runner().run(runArgs(), workingDir, Map.of(), ResourceEnvelopeRequest.none(),
-                _ -> { }, _ -> { }, Cancellation.never());
+                System.out::println, System.err::println, Cancellation.never());
 
         assertThat(outcome.producedAResult()).isTrue();
         assertThat(outcome.effectiveResources()).isNull();
@@ -148,7 +148,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
                 CpuAllocation.ofMillicores(1000), MemoryAllocation.ofMebibytes(48));
 
         var outcome = runner().run(runArgs(), workingDir, Map.of(), resources,
-                _ -> { }, _ -> { }, Cancellation.never());
+                System.out::println, System.err::println, Cancellation.never());
 
         assertThat(outcome.generatorOomKilled()).isTrue();
         assertThat(outcome.producedAResult()).isFalse();
