@@ -11,6 +11,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +49,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
     }
 
     private void writeTrivialScript(Path workingDir) {
+        allowContainerToTraverse(workingDir);
         try {
             Files.writeString(workingDir.resolve("script.js"), """
                     export const options = { vus: 1, iterations: 1 };
@@ -58,10 +60,29 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
         }
     }
 
+    /** {@code @TempDir} creates its directory {@code rwx------}, which the official k6 image's
+     *  non-root container user cannot traverse once bind-mounted on a native Linux Docker host —
+     *  {@code stat script.js} then fails with a permission error that k6 reports as the file being
+     *  entirely absent. Vortex's own execution directories are unaffected: they are created with
+     *  {@code Files.createDirectories}, which follows the umask instead of JUnit's deliberately
+     *  private default. This is a test-fixture correction, not a change to runner behaviour. */
+    private void allowContainerToTraverse(Path workingDir) {
+        try {
+            Files.setPosixFilePermissions(workingDir, PosixFilePermissions.fromString("rwxr-xr-x"));
+        } catch (UnsupportedOperationException e) {
+            // No POSIX permissions to set (e.g. native Windows) — Docker there runs Linux containers
+            // inside its own VM, where bind-mounted paths are translated by Docker Desktop rather
+            // than inheriting host ACLs, so there is nothing for this test to adjust.
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     /** A script that allocates far more than a very small memory budget the instant a VU starts,
      *  before a single iteration runs — so a container capped well below it is killed for exceeding
      *  the limit rather than merely running slowly. */
     private void writeMemoryHungryScript(Path workingDir) {
+        allowContainerToTraverse(workingDir);
         try {
             Files.writeString(workingDir.resolve("script.js"), """
                     // Allocated in the init context, once per VU, before any iteration — a single
@@ -85,7 +106,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
         args.add("run");
         args.add("--quiet");
         args.add("--no-color");
-        args.add("./script.js");
+        args.add("script.js");
         return args;
     }
 
@@ -109,7 +130,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
                 CpuAllocation.ofMillicores(500), MemoryAllocation.ofMebibytes(256));
 
         var outcome = runner().run(runArgs(), workingDir, Map.of(), resources,
-                System.out::println, System.err::println, Cancellation.never());
+                _ -> { }, _ -> { }, Cancellation.never());
 
         assertThat(outcome.producedAResult()).isTrue();
         assertThat(outcome.effectiveResources()).isNotNull();
@@ -128,7 +149,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
         writeTrivialScript(workingDir);
 
         var outcome = runner().run(runArgs(), workingDir, Map.of(), ResourceEnvelopeRequest.none(),
-                System.out::println, System.err::println, Cancellation.never());
+                _ -> { }, _ -> { }, Cancellation.never());
 
         assertThat(outcome.producedAResult()).isTrue();
         assertThat(outcome.effectiveResources()).isNull();
@@ -148,7 +169,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
                 CpuAllocation.ofMillicores(1000), MemoryAllocation.ofMebibytes(48));
 
         var outcome = runner().run(runArgs(), workingDir, Map.of(), resources,
-                System.out::println, System.err::println, Cancellation.never());
+                _ -> { }, _ -> { }, Cancellation.never());
 
         assertThat(outcome.generatorOomKilled()).isTrue();
         assertThat(outcome.producedAResult()).isFalse();

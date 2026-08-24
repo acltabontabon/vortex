@@ -190,15 +190,6 @@ public final class DockerK6Runner implements K6Runner {
         command.add("-w");
         command.add("/vortex");
 
-        // The official image has no extensions built in (see class Javadoc), so k6's automatic
-        // extension resolution — a pre-run static-analysis pass that provisions a custom binary
-        // when a script imports one — has nothing to do here but scan the entry script before
-        // running it. That scan is unreliable against this bind mount on some Docker hosts,
-        // failing with "moduleSpecifier ... couldn't be found on local disk" for a script that
-        // is, provably, on disk. Disabling it removes a pass this image can never use anyway.
-        command.add("-e");
-        command.add("K6_AUTO_EXTENSION_RESOLUTION=false");
-
         // Secrets travel as environment variables into the container, not as command arguments,
         // so they never appear in `docker ps` output or in a logged command line.
         for (String name : environment.keySet()) {
