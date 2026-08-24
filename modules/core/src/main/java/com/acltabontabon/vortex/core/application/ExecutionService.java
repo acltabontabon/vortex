@@ -191,9 +191,16 @@ public final class ExecutionService {
             // container and not the host), in that order. See EffectiveTestPlan.withTargetAddress.
             EffectiveTestPlan planForEngine = planForEngine(execution.plan(), prepared.resolvedTarget());
 
+            // The engine's first progress report is the first evidence that traffic exists. Until
+            // then the collector has been sampling a service that was merely ready — a container
+            // whose JVM had just finished starting, whose own CPU gauge reads like a service under
+            // load because it was one, briefly, on its own behalf. Telling the session when the run
+            // really began is what keeps that moment out of the run's peak.
+            Consumer<ExecutionProgress> sink = trafficAnnouncing(progressSink, telemetrySession);
+
             PerformanceEngine.EngineOutcome outcome =
                     engine.execute(id, planForEngine, resolvedLoadGeneratorBudget.allocation(),
-                            progressSink, cancellation);
+                            sink, cancellation);
 
             if (cancellation.isCancelled()) {
                 // A cancelled run keeps whatever it measured, and is graded rather than discarded.
@@ -259,6 +266,28 @@ public final class ExecutionService {
                 recordCleanup(execution, prepared.cleanup());
             }
         }
+    }
+
+    /**
+     * The caller's progress sink, with the first report of real traffic also telling telemetry so.
+     *
+     * <p>Gated on a measured request rate rather than on any report at all. Progress starts flowing
+     * while the run is still being set up — "Resolved host port 58459" is a progress report — and a
+     * session told that traffic began at that moment would discard nothing, because nothing has
+     * happened yet. A report carrying a rate is the engine saying it has counted requests, which
+     * cannot be true before there were any.
+     *
+     * <p>{@code trafficStarted()} is idempotent, so signalling it on every qualifying report rather
+     * than tracking the first here keeps the wrapper trivial and correct under any progress cadence.
+     */
+    private Consumer<ExecutionProgress> trafficAnnouncing(Consumer<ExecutionProgress> progressSink,
+            TelemetryCollector.Session telemetrySession) {
+        return progress -> {
+            if (progress.currentRateIfPresent().filter(rate -> rate.value().signum() > 0).isPresent()) {
+                telemetrySession.trafficStarted();
+            }
+            progressSink.accept(progress);
+        };
     }
 
     /**

@@ -109,6 +109,35 @@ describe('ResourceKindChart', () => {
     expect(container.querySelector('svg')).toBeInTheDocument();
   });
 
+  it('names lines by their own measurement when one scope carries several of them', () => {
+    // Three system-under-test gauges all labelled "System under test" left the legend falling back
+    // on the series key, rendering as "usage · usage · utilization".
+    const { container } = renderWithProviders(
+      <ResourceKindChart
+        plot={plot([
+          actuatorSeries({ signalId: 'a', seriesLabel: 'system.cpu.usage' }),
+          actuatorSeries({ signalId: 'b', seriesLabel: 'process.cpu.usage' }),
+        ])}
+      />,
+    );
+    expect(container.textContent).toContain('system.cpu.usage');
+    expect(container.textContent).toContain('process.cpu.usage');
+    expect(container.textContent).not.toContain('System under test');
+  });
+
+  it('names a line by its scope when that scope is the only one carrying it', () => {
+    const { container } = renderWithProviders(
+      <ResourceKindChart
+        plot={plot([
+          series(),
+          actuatorSeries({ scope: 'LOAD_GENERATOR_HOST', scopeLabel: 'Load generator host' }),
+        ])}
+      />,
+    );
+    expect(container.textContent).toContain('System under test');
+    expect(container.textContent).toContain('Load generator host');
+  });
+
   it('renders nothing when every series is empty', () => {
     const { container } = renderWithProviders(
       <ResourceKindChart plot={plot([series({ points: [] })])} />,

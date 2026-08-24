@@ -250,8 +250,7 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
             return Session.refused(gaps);
         }
 
-        return new SamplingSession(reachable, endpoint,
-                StageWindows.fromPlan(plan.stages(), now), correlation, gaps,
+        return new SamplingSession(reachable, endpoint, plan.stages(), correlation, gaps,
                 openSink(executionId), watchdogFor(plan), dockerProviders);
     }
 
@@ -302,7 +301,21 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
 
         private final List<ObservabilityProvider> providers;
         private final String endpoint;
-        private final List<StageWindows.StageWindow> stages;
+
+        /**
+         * The planned stages, kept so the windows below can be re-anchored once traffic actually
+         * starts — see {@link #trafficStarted()}.
+         */
+        private final List<com.acltabontabon.vortex.core.workload.Stage> plannedStages;
+
+        /**
+         * When each stage was in effect. Anchored at session start until traffic is confirmed, then
+         * re-anchored to that instant: a session begins before the generator produces anything, so an
+         * anchor taken here places every boundary earlier than it belongs by however long the engine
+         * took to start — enough, on short stages, to attribute one stage's measurements to another.
+         * Volatile because the sampler thread reads it while the run's own thread re-anchors it.
+         */
+        private volatile List<StageWindows.StageWindow> stages;
         private final ObservabilityProvider.RunCorrelation correlation;
         private final ResourceSampleSink sink;
         private final Duration watchdog;
@@ -330,22 +343,53 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
         private static final Duration FINISH_JOIN_TIMEOUT = Duration.ofMillis(500);
 
         private final AtomicBoolean finished = new AtomicBoolean(false);
+        private final AtomicBoolean trafficConfirmed = new AtomicBoolean(false);
         private volatile Telemetry cachedTelemetry;
 
         SamplingSession(List<ObservabilityProvider> providers, String endpoint,
-                List<StageWindows.StageWindow> stages,
+                List<com.acltabontabon.vortex.core.workload.Stage> plannedStages,
                 ObservabilityProvider.RunCorrelation correlation, List<TelemetryGap> startupGaps,
                 ResourceSampleSink sink, Duration watchdog,
                 List<DockerContainerObservabilityProvider> dockerProviders) {
             this.providers = providers;
             this.endpoint = endpoint;
-            this.stages = stages;
+            this.plannedStages = plannedStages == null ? List.of() : List.copyOf(plannedStages);
+            this.stages = StageWindows.fromPlan(this.plannedStages, Instant.now());
             this.correlation = correlation;
             this.gaps.addAll(startupGaps);
             this.sink = sink;
             this.watchdog = watchdog;
             this.dockerProviders = List.copyOf(dockerProviders);
             this.sampler = Thread.ofVirtual().name("vortex-telemetry").start(this::sampleUntilStopped);
+        }
+
+        /**
+         * Re-bases this session on the moment traffic actually began.
+         *
+         * <p>Two things are corrected, both consequences of sampling deliberately starting earlier
+         * than the workload. The stage windows are re-anchored, so a stage's measurements are the ones
+         * taken while that stage was really running rather than while the engine was still starting.
+         * And each signal's aggregate is restarted: the peak and the most recent reading now describe
+         * the run, not the setup that preceded it.
+         *
+         * <p>Everything gathered before this point is discarded, including each signal's start
+         * reading — see {@link Readings#restartOnNextSample()} for why that reading is not the
+         * baseline it looks like.
+         *
+         * <p>Idempotent, because nothing guarantees the engine reports its first progress exactly
+         * once, and re-basing twice would silently discard real measurements the second time.
+         */
+        @Override
+        public void trafficStarted() {
+            if (!trafficConfirmed.compareAndSet(false, true)) {
+                return;
+            }
+            Instant at = Instant.now();
+            stages = StageWindows.fromPlan(plannedStages, at);
+            synchronized (runReadings) {
+                runReadings.values().forEach(Readings::restartOnNextSample);
+                stageReadings.clear();
+            }
         }
 
         private void sampleUntilStopped() {
@@ -565,10 +609,11 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
      */
     private static final class Readings {
 
-        private final MetricObservation first;
+        private MetricObservation first;
         private MetricObservation peak;
         private MetricObservation last;
         private Instant peakAt;
+        private boolean awaitingFirstOfRun;
 
         Readings(MetricObservation observation) {
             this.first = observation;
@@ -578,10 +623,36 @@ public final class ObservabilityTelemetryCollector implements TelemetryCollector
 
         void record(MetricObservation observation, Instant at) {
             last = observation;
+            if (awaitingFirstOfRun) {
+                awaitingFirstOfRun = false;
+                first = observation;
+                peak = observation;
+                peakAt = at;
+                return;
+            }
             if (observation.value() > peak.value()) {
                 peak = observation;
                 peakAt = at;
             }
+        }
+
+        /**
+         * Discards everything gathered before traffic existed, starting again at the next sample.
+         *
+         * <p>Deferred to the next sample rather than applied here, because "here" is the moment the
+         * engine first reported progress and the newest reading at that moment is still a setup one —
+         * seeding the peak with it would keep exactly the value this is meant to discard, and a run
+         * whose later readings never exceed it would report its own start-up as its peak.
+         *
+         * <p>The start reading is discarded along with the peak. It is documented as the service at
+         * rest, which is what makes it evidence — "the pool was already saturated before the test
+         * started" is a real finding. A container that has just been declared ready is not at rest: it
+         * is a JVM finishing its own start-up, reading 97% CPU on its own behalf. Keeping that as the
+         * baseline would trade a wrong peak for an equally wrong claim that the service began the run
+         * saturated.
+         */
+        void restartOnNextSample() {
+            awaitingFirstOfRun = true;
         }
 
         /**

@@ -150,6 +150,69 @@ class ObservabilityTelemetryCollectorTest {
     }
 
     @Test
+    void aSetupReadingNeverBecomesTheRunsPeak() {
+        // A container declared ready is a JVM that has just finished starting. Its own CPU gauge reads
+        // like a service under load, because it was one — on its own behalf, before any traffic
+        // existed. Observed on a real run as 97% on the very first sample, reported as the run's peak,
+        // beside a container that never exceeded 62% of its allotment once the workload arrived.
+        var plan = Fixtures.plan();
+        var provider = new RisingReadingProvider();
+        var collector = new ObservabilityTelemetryCollector(List.of(provider), null,
+                ResourceSampleSinkFactory.none(), DOCKER_PROCESS, "docker");
+
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET, null);
+        sleep(20);
+        // The engine's first progress report: it has measured something, so traffic exists.
+        session.trafficStarted();
+        sleep(ObservabilityTelemetryCollector.SAMPLE_INTERVAL.toMillis() + 700);
+        TelemetryCollector.Telemetry telemetry =
+                session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(30)));
+
+        assertThat(provider.readings).hasSizeGreaterThan(1);
+        double setupReading = provider.readings.getFirst();
+
+        assertThat(telemetry.run())
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.value())
+                            .as("the peak must come from the workload, not from the setup that "
+                                    + "preceded it")
+                            .isNotEqualTo(setupReading)
+                            .isGreaterThan(setupReading);
+                    assertThat(observation.traceIfPresent())
+                            .as("the start reading is discarded with the peak: a container just "
+                                    + "declared ready is not a service at rest, so keeping it as the "
+                                    + "baseline would only trade a wrong peak for a wrong claim that "
+                                    + "the run began saturated")
+                            .hasValueSatisfying(trace ->
+                                    assertThat(trace.startValue()).isNotEqualTo(setupReading));
+                });
+    }
+
+    @Test
+    void announcingTrafficRepeatedlyDoesNotKeepDiscardingMeasurements() {
+        // Nothing guarantees the engine reports its first progress exactly once, and re-basing on
+        // every report would hold the peak at whatever was measured most recently — a run whose peak
+        // is always its latest sample is not reporting a peak at all.
+        var plan = Fixtures.plan();
+        var provider = new RisingReadingProvider();
+        var collector = new ObservabilityTelemetryCollector(List.of(provider), null,
+                ResourceSampleSinkFactory.none(), DOCKER_PROCESS, "docker");
+
+        TelemetryCollector.Session session = collector.start(plan, EXECUTION_ID, EXTERNAL_TARGET, null);
+        session.trafficStarted();
+        sleep(ObservabilityTelemetryCollector.SAMPLE_INTERVAL.toMillis() + 700);
+        session.trafficStarted();
+        TelemetryCollector.Telemetry telemetry =
+                session.finish(new TimeWindow(Fixtures.NOW, Fixtures.NOW.plusSeconds(30)));
+
+        double peak = provider.readings.stream().mapToDouble(Double::doubleValue).max().orElseThrow();
+        assertThat(telemetry.run())
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.value()).isEqualTo(peak));
+    }
+
+    @Test
     void streamsEveryClassifiedSampleToTheSink() {
         var plan = Fixtures.plan();
         var provider = new FixedReadingProvider("prometheus", "metric:system.cpu.utilization", 77.0);

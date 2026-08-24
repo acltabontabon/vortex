@@ -126,6 +126,13 @@ export function ResourceKindChart({
 
   const scopesPresent = Array.from(new Set(withPoints.map((series) => series.scope)));
 
+  /** Scopes carrying more than one line on this plot, whose lines a scope label cannot tell apart. */
+  const sharedScopes = new Set(
+    scopesPresent.filter(
+      (scope) => withPoints.filter((series) => series.scope === scope).length > 1,
+    ),
+  );
+
   // Normalized to percent when this plot mixes a bare CPU ratio with an already-scaled one (see
   // mixesCpuRatioWithPercent) — every series was already converted onto that one shared unit inside
   // merge(), so the formatter below must agree, not fall back to whichever series happened to sort
@@ -152,7 +159,12 @@ export function ResourceKindChart({
         dataKey="elapsedSeconds"
         series={withPoints.map((series) => ({
           name: seriesKey(series.signalId, series.providerId),
-          label: series.scopeLabel,
+          // The scope alone names a line only while it identifies one. Three system-under-test
+          // gauges on one plot all labelled "System under test" left the legend to fall back on the
+          // series key, which rendered as "usage · usage · utilization" — three lines named after
+          // the last word of their metric id. Where a scope is ambiguous the measurement's own name
+          // is what distinguishes them; colour still carries the scope either way.
+          label: sharedScopes.has(series.scope) ? series.seriesLabel : series.scopeLabel,
           color: SERIES_COLOR[series.scope] ?? 'ai.6',
           ...(series.scope !== 'SYSTEM_UNDER_TEST' ? { strokeDasharray: '4 3' } : {}),
         }))}

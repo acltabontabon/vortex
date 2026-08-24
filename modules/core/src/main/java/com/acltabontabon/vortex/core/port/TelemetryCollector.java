@@ -72,6 +72,24 @@ public interface TelemetryCollector {
          */
         Telemetry finish(TimeWindow window);
 
+        /**
+         * Signals that the load generator has begun producing traffic.
+         *
+         * <p>Sampling deliberately starts earlier than this — the gauges that explain a bottleneck
+         * are instantaneous, and a collector attached after the fact reports a service sitting idle.
+         * But the interval between the two belongs to the setup, not the run: a container declared
+         * ready is a JVM that has just finished starting, and a service's own CPU gauge does not
+         * distinguish "still warming up" from "under load". Left folded into the run's aggregate, that
+         * moment becomes the run's peak — observed at 97% CPU on the very first sample of a run whose
+         * container never exceeded 62% of its allotment once traffic arrived.
+         *
+         * <p>Implementations should treat everything before this point as the pre-load baseline
+         * rather than as evidence about the workload. The default does nothing, which is right for a
+         * collector that gathers nothing and for one that never aggregates across time.
+         */
+        default void trafficStarted() {
+        }
+
         /** A session that observed nothing, and had nothing to say about why. */
         static Session empty() {
             return window -> Telemetry.none();
