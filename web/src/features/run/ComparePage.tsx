@@ -1,11 +1,10 @@
 import { useSearchParams } from 'react-router-dom';
-import { Alert, Button, Card, Skeleton, Stack, Text, Title } from '@mantine/core';
+import { Alert, Card, Skeleton, Stack, Text, Title } from '@mantine/core';
 import { useCompareQuery, useComparisonAnalysisPanel } from '../../api/globalRuns';
 import type { CompareSide } from '../../api/globalRuns';
-import { AsyncPanel } from '../../components/AsyncPanel';
+import { AiAnalysisPanel } from './AiAnalysisPanel';
 import { errorFallback } from '../../lib/queryFallback';
 import classes from './ComparePage.module.css';
-import analysisClasses from './RunAnalysisPanel.module.css';
 
 /**
  * Two runs, side by side.
@@ -104,61 +103,16 @@ export function ComparePage() {
         <Side title="Candidate" side={data.candidate} />
       </div>
 
-      <section>
-        <Title order={2} size="h4" mb="sm">
-          AI interpretation
-        </Title>
-
-        {status.data && (
-          <AsyncPanel
-            title="Interpreting"
-            isRunning={status.data.analysing}
-            runningMessage="Interpreting. The differences above are already final — this only adds interpretation."
-            availability={status.data.availability}
-            hasResult={status.data.latest !== null}
-          >
-            {status.data.latest && (
-              <Card withBorder radius="md">
-                <Text size="sm">{status.data.latest.conclusion}</Text>
-                {status.data.latest.findings.length > 0 && (
-                  <Stack gap={4} mt="sm">
-                    {status.data.latest.findings.map((finding, i) => (
-                      <Text key={i} size="sm">
-                        <span className={analysisClasses.typeTag}>{finding.typeLabel}</span>{' '}
-                        {finding.statement}
-                        <span className={analysisClasses.dim}> ({finding.confidenceLabel})</span>
-                      </Text>
-                    ))}
-                  </Stack>
-                )}
-                {status.data.latest.missingTelemetry.length > 0 && (
-                  <Stack gap={2} mt="sm">
-                    <Text size="xs" fw={600} c="dimmed">
-                      Not measured on one or both sides
-                    </Text>
-                    {status.data.latest.missingTelemetry.map((missing, i) => (
-                      <Text key={i} size="xs" c="dimmed">
-                        <strong>{missing.what}</strong> — {missing.whyItMatters}
-                      </Text>
-                    ))}
-                  </Stack>
-                )}
-                {status.data.latest.provenanceDescribe && (
-                  <Text size="xs" c="dimmed" mt="sm">
-                    {status.data.latest.provenanceDescribe}
-                  </Text>
-                )}
-              </Card>
-            )}
-          </AsyncPanel>
-        )}
-
-        {status.data && !status.data.analysing && status.data.latest === null && status.data.availability.available && (
-          <Button onClick={() => start.mutate()} loading={start.isPending} variant="light">
-            Explain this comparison
-          </Button>
-        )}
-      </section>
+      <AiAnalysisPanel
+        title="AI interpretation"
+        disclaimer="Vortex has already computed every difference above. This adds an AI reading of what materially changed — it does not decide comparability or the regression verdict."
+        runningLabel="Interpreting"
+        runningMessage="Interpreting. The differences above are already final — this only adds interpretation."
+        triggerLabel="Explain this comparison"
+        status={status.data}
+        onStart={() => start.mutate()}
+        starting={start.isPending}
+      />
     </Stack>
   );
 }

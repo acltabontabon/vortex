@@ -21,7 +21,11 @@ export function FindingsTable({ findings }: { findings: RunEvidence['findings'] 
       </Title>
       <div className={shared.table}>
         {findings.map((finding) => (
-          <details key={finding.headline} className={classes.row}>
+          <details
+            key={finding.headline}
+            className={classes.row}
+            data-evidence-ids={finding.evidenceIds.join(' ')}
+          >
             <summary className={classes.summary}>
               <span className={`${classes.mark} ${TONE[finding.levelKind] ?? ''}`}>
                 {MARK[finding.levelKind] ?? '?'}

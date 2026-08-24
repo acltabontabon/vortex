@@ -32,6 +32,17 @@ body {
 .axis-level { fill: var(--mantine-color-dimmed); font-size: 11px; }
 .axis-end { fill: var(--mantine-color-dimmed); font-size: 11px; }
 
+/* Applied briefly to a deterministic finding row when an AI finding's evidence badge is clicked —
+   found via `[data-evidence-ids~="..."]`, a plain attribute selector, so this has to stay a global
+   class rather than a CSS-module one (module class names are hashed and not knowable at query time). */
+@keyframes evidence-highlight-fade {
+  from { background-color: var(--mantine-color-ai-1); }
+  to { background-color: transparent; }
+}
+.evidence-highlight {
+  animation: evidence-highlight-fade 1.5s ease-out;
+}
+
 /* Screen-reader-only text — visible content still carries the same information at a glance
    (a colored dot/mark), this just names it for anyone not reading it visually. */
 .visually-hidden {

@@ -18,3 +18,26 @@
   cursor: pointer;
   font-weight: 600;
 }
+
+.evidenceBadges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-left: 0.4rem;
+}
+
+.evidenceBadge {
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--mantine-color-ai-7);
+  background: var(--mantine-color-ai-0);
+  border: 1px solid var(--mantine-color-ai-3);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  cursor: pointer;
+}
+
+.evidenceBadge:hover {
+  background: var(--mantine-color-ai-1);
+}

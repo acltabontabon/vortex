@@ -25,8 +25,10 @@ public final class PromptLibrary {
      */
     /** Bumped whenever a prompt's shape or substance changes, so a stored analysis can always be
      * traced back to the exact prompt text that produced it. v3: findings carry a type, evidence
-     * is required on recommendations and nextTest, and nextTest states what it would distinguish. */
-    public static final String VERSION = "v3";
+     * is required on recommendations and nextTest, and nextTest states what it would distinguish.
+     * v4: rule prose condensed for local-model instruction budgets — same constraints, same JSON
+     * schema, but each rule states the requirement without its explanatory justification. */
+    public static final String VERSION = "v4";
 
     public static final String ANALYZE_EXECUTION = "analyze-execution";
     public static final String EXPLAIN_WORKLOAD = "explain-workload";
