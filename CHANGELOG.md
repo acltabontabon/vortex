@@ -8,6 +8,8 @@ Vortex has not made a release yet, so everything to date is recorded under
 
 ## Unreleased
 
+## [0.1.0-alpha.1] - 2026-08-25
+
 ### Added
 
 - OpenAPI-driven onboarding — import a service's OpenAPI document and Vortex deterministically

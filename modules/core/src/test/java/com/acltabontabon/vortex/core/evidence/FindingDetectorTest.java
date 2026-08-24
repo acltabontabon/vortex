@@ -203,6 +203,46 @@ class FindingDetectorTest {
                 assertThat(finding.headline()).contains("outcome, not a target");
             });
         }
+
+        /**
+         * The fraction here is not a peak-vs-average artefact — by the time it reaches
+         * {@code FindingDetector}, {@code RunEvidenceService} has already compared against the
+         * ramp's own time-weighted average. What is asserted here is only the wording: a ramp that
+         * only ever touches its peak for an instant must not be told it "was sustained for the
+         * whole run", nor that it fell short of a rate that was never the thing being compared.
+         */
+        @Test
+        @DisplayName("a ramp that tracked its own profile is not told it sustained a flat peak")
+        void rampThatTrackedItselfNamesTheProfileNotAFlatPeak() {
+            var findings = detector.detect(identity(), rampingWorkload(1.0),
+                    performance(results(120, 0.0), null, null),
+                    AcceptanceEvidence.of(ThresholdEvaluation.empty()), List.of(),
+                    ObservabilityEvidence.empty());
+
+            assertThat(findings).anySatisfy(finding -> {
+                assertThat(finding.id()).isEqualTo("finding:throughput.sustained");
+                assertThat(finding.headline())
+                        .contains("tracked the load profile")
+                        .doesNotContain("was sustained for the whole run");
+            });
+        }
+
+        @Test
+        @DisplayName("a ramp's shortfall names the ramp's peak, not a flat offered rate")
+        void rampShortfallNamesTheRampsPeak() {
+            var findings = detector.detect(identity(), rampingWorkload(0.55),
+                    performance(results(120, 0.0), null, null),
+                    AcceptanceEvidence.of(ThresholdEvaluation.empty()), List.of(),
+                    ObservabilityEvidence.empty());
+
+            var shortfall = findings.stream()
+                    .filter(finding -> finding.id().equals("finding:throughput.shortfall"))
+                    .findFirst().orElseThrow();
+
+            assertThat(shortfall.headline())
+                    .contains("load its ramp asked for")
+                    .doesNotContain("of the offered");
+        }
     }
 
     @Nested
@@ -522,6 +562,23 @@ class FindingDetectorTest {
                 deliveredFraction, "", WorkloadSource.manual(),
                 Duration.ofMinutes(10), Duration.ofMinutes(10), List.of(), List.of(),
                 72_000L, "", 71_000, 12, ScriptSource.GENERATED, Map.of(), Map.of());
+    }
+
+    /**
+     * A workload with more than one stage — {@code hasStages()} true — so the finding's wording is
+     * gated to the ramping form rather than the flat one. The delivered fraction is supplied
+     * directly, as {@code RunEvidenceService} would have already compared it against the ramp's own
+     * average rather than its peak; this helper is only exercising wording, not that arithmetic.
+     */
+    private static WorkloadEvidence rampingWorkload(double deliveredFraction) {
+        List<com.acltabontabon.vortex.core.workload.Stage> stages = List.of(
+                com.acltabontabon.vortex.core.workload.Stage.ofRate(50, Duration.ofSeconds(20)),
+                com.acltabontabon.vortex.core.workload.Stage.ofRate(100, Duration.ofSeconds(20)),
+                com.acltabontabon.vortex.core.workload.Stage.ofRate(150, Duration.ofSeconds(20)));
+        return new WorkloadEvidence(WorkloadModel.OPEN, RequestsPerSecond.of(150),
+                RequestsPerSecond.of(83), deliveredFraction, "", WorkloadSource.manual(),
+                Duration.ofSeconds(60), Duration.ofSeconds(60), stages, List.of(),
+                5_000L, "", 4_996, 0, ScriptSource.GENERATED, Map.of(), Map.of());
     }
 
     private static RunIdentity identity() {

@@ -1,6 +1,7 @@
 import { Menu, UnstyledButton } from '@mantine/core';
 import { useLocation } from 'react-router-dom';
 import { useServicesQuery } from './api';
+import { useRunQuery } from '../api/run';
 import classes from './Topbar.module.css';
 
 /**
@@ -25,7 +26,17 @@ export function ServiceSwitcher() {
   // relying on. "/services/new" matches too, with id "new" — harmless, since no real service ever
   // has that id, so the lookup below just falls through to the generic label.
   const currentId = pathname.match(/^\/services\/([^/]+)/)?.[1];
-  const current = services?.find((service) => service.id === currentId);
+  const byService = services?.find((service) => service.id === currentId);
+
+  // A run outlives edits to the service it tested, so `/runs/:id` (and its `/report` variant)
+  // deliberately isn't nested under `/services/:id` — but that means the regex above finds nothing
+  // there. Resolve the service from the run itself instead, so the breadcrumb doesn't just revert
+  // to the generic label once you're inside a run. `/runs` (the list) and `/runs/compare` have no
+  // single associated service, so they're excluded rather than treated as a run id.
+  const runIdMatch = pathname.match(/^\/runs\/([^/]+)/)?.[1];
+  const runId = runIdMatch && runIdMatch !== 'compare' ? runIdMatch : null;
+  const { data: run } = useRunQuery(currentId ? null : runId);
+  const current = byService ?? (run ? { id: run.plan.projectId, name: run.plan.projectName } : undefined);
 
   if (!services || services.length === 0) return null;
 

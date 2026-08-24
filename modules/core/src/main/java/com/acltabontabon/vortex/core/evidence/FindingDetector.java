@@ -133,12 +133,18 @@ public final class FindingDetector {
             List<String> citations =
                     List.of(EvidenceIds.THROUGHPUT_TARGET, EvidenceIds.THROUGHPUT_ACHIEVED);
             String percent = workload.deliveredPercent().orElse("");
+            boolean ramping = workload.hasStages();
 
             if (fraction >= WorkloadEvidence.SUSTAINED) {
                 findings.add(new DeterministicFinding(
                         "finding:throughput.sustained", FindingLevel.PASS,
-                        "The configured workload of " + workload.configuredPeak().displayWithUnit()
-                                + " was sustained for the whole run.",
+                        ramping
+                                ? "The run tracked the load profile it was configured to run, "
+                                        + "which peaked at " + workload.configuredPeak().displayWithUnit()
+                                        + "."
+                                : "The configured workload of "
+                                        + workload.configuredPeak().displayWithUnit()
+                                        + " was sustained for the whole run.",
                         "", EvidenceStrength.HIGH, citations));
                 return;
             }
@@ -147,8 +153,12 @@ public final class FindingDetector {
             findings.add(new DeterministicFinding(
                     "finding:throughput.shortfall",
                     severe ? FindingLevel.FAIL : FindingLevel.WARNING,
-                    "The run delivered " + percent + " of the offered "
-                            + workload.configuredPeak().displayWithUnit() + ".",
+                    ramping
+                            ? "The run delivered " + percent + " of the load its ramp asked for, "
+                                    + "which peaked at " + workload.configuredPeak().displayWithUnit()
+                                    + "."
+                            : "The run delivered " + percent + " of the offered "
+                                    + workload.configuredPeak().displayWithUnit() + ".",
                     "Either the service could not absorb the offered traffic or the load generator "
                             + "could not sustain it. The two are distinguishable in the raw engine "
                             + "output, and until they are distinguished this run did not test what "

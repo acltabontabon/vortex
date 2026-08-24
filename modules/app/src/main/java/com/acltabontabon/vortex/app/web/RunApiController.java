@@ -748,7 +748,7 @@ public class RunApiController {
                         .filter(peak -> peak > 0)
                         .map(String::valueOf)
                         .orElse(""),
-                results.deliveredFraction()
+                evidence.workload().deliveredFractionIfPresent()
                         .map(fraction -> String.format("%.0f%%", fraction * 100))
                         .orElse(""));
     }

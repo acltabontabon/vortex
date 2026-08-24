@@ -134,6 +134,15 @@ public final class K6PerformanceEngine implements PerformanceEngine {
             Path script = directory.resolve(SCRIPT_FILE);
             Files.writeString(script, generator.generate(scriptCheckable(plan)), StandardCharsets.UTF_8);
 
+            // A dataset's rows never reach the plan (see PlannedDataset) — validation runs before a
+            // real execution has staged its actual copy, and has no dataset store to read one from
+            // itself. k6's SharedArray still opens the file eagerly while inspect loads the script's
+            // init code, so it needs something parseable there, not the real rows: inspect only
+            // extracts options, it never runs an iteration that would read a field out of one.
+            for (var dataset : plan.datasets()) {
+                Files.writeString(directory.resolve(dataset.stagedFile()), "[{}]", StandardCharsets.UTF_8);
+            }
+
             List<String> problems = new ArrayList<>();
             var outcome = runner.run(
                     List.of("inspect", SCRIPT_FILE),

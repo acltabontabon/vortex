@@ -63,4 +63,26 @@ class DeterministicAnalyzerTest {
                     .hasValue(stages.get(i - 1).targetLoad());
         }
     }
+
+    /**
+     * The same correction, applied to the whole-run note instead of a single stage: a run that
+     * tracked its ramp's own time-weighted average exactly must not be told it fell short of the
+     * ramp's peak, which it was only ever going to touch for an instant.
+     */
+    @Test
+    @DisplayName("a run that tracked its whole ramp is not told it fell short of the ramp's peak")
+    void aRunTrackingItsWholeRampHasNoShortfallNote() {
+        EffectiveTestPlan plan = Fixtures.breakpointPlan(); // 50 -> 100 -> 150 -> 200, 5 min each
+
+        // Time-weighted average of that exact ramp: (50 + 75 + 125 + 175) / 4 = 106.25.
+        MeasuredResults shape = Fixtures.results(60, 0.0);
+        MeasuredResults results = new MeasuredResults(shape.window(), plan.peakLevel(),
+                RequestsPerSecond.of(106.25), shape.requests(), 0, shape.latency(), Map.of(),
+                shape.series(), List.of());
+
+        var summary = analyzer.analyze(plan, results);
+
+        assertThat(summary.notes()).noneMatch(note -> note.contains("below the offered")
+                || note.contains("below the load its ramp asked for"));
+    }
 }

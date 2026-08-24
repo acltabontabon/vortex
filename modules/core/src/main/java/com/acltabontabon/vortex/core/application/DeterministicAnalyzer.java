@@ -12,6 +12,7 @@ import com.acltabontabon.vortex.core.analysis.ResourceLimitFinding;
 import com.acltabontabon.vortex.core.analysis.ThroughputCeiling;
 import com.acltabontabon.vortex.core.analysis.ThroughputCeilingDetector;
 import com.acltabontabon.vortex.core.validity.RunQualityAssessment;
+import com.acltabontabon.vortex.core.evidence.WorkloadEvidence;
 import com.acltabontabon.vortex.core.metrics.MeasuredResults;
 import com.acltabontabon.vortex.core.metrics.StageTelemetry;
 import com.acltabontabon.vortex.core.metrics.SamplePoint;
@@ -191,15 +192,23 @@ public final class DeterministicAnalyzer {
 
         notes.add(plan.classification().caveat());
 
-        results.deliveredFraction().ifPresent(delivered -> {
+        LoadLevel comparisonBasis = plan.idealizedAverageArrivalRate().orElse(plan.peakLevel());
+        boolean ramping = plan.stages().size() > 1;
+        results.deliveredFraction(comparisonBasis).ifPresent(delivered -> {
             double shortfall = 1.0 - delivered;
-            if (shortfall > 0.05) {
-                notes.add("The achieved throughput was "
-                        + Math.round(shortfall * 100) + "% below the offered "
-                        + plan.peakLevel().displayWithUnit()
-                        + ". Either the service could not absorb the offered traffic, or the load "
-                        + "generator could not sustain it — check the raw output before treating this "
-                        + "as a service limit.");
+            if (shortfall > 1.0 - WorkloadEvidence.SHORTFALL) {
+                notes.add(ramping
+                        ? "The achieved throughput was " + Math.round(shortfall * 100)
+                                + "% below the load its ramp asked for, which peaked at "
+                                + plan.peakLevel().displayWithUnit()
+                                + ". Either the service could not absorb the offered traffic, or "
+                                + "the load generator could not sustain it — check the raw output "
+                                + "before treating this as a service limit."
+                        : "The achieved throughput was " + Math.round(shortfall * 100)
+                                + "% below the offered " + plan.peakLevel().displayWithUnit()
+                                + ". Either the service could not absorb the offered traffic, or "
+                                + "the load generator could not sustain it — check the raw output "
+                                + "before treating this as a service limit.");
             }
         });
 

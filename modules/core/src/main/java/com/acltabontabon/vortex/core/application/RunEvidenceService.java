@@ -45,6 +45,7 @@ import com.acltabontabon.vortex.core.resource.ResourceScope;
 import com.acltabontabon.vortex.core.resource.ResourceSeriesProjection;
 import com.acltabontabon.vortex.core.resource.ResourceSignal;
 import com.acltabontabon.vortex.core.resource.ResourceTelemetryReader;
+import com.acltabontabon.vortex.core.shared.LoadLevel;
 import com.acltabontabon.vortex.core.shared.Percentile;
 import com.acltabontabon.vortex.core.threshold.LatencyThreshold;
 import com.acltabontabon.vortex.core.threshold.Threshold;
@@ -310,12 +311,13 @@ public final class RunEvidenceService {
                 ? ""
                 : "An outcome, not a target — the virtual users went as fast as the service "
                         + "allowed.";
+        LoadLevel comparisonBasis = plan.idealizedAverageArrivalRate().orElse(plan.peakLevel());
 
         return new WorkloadEvidence(
                 plan.workloadModel(),
                 plan.peakLevel(),
                 results.achievedRate(),
-                results.deliveredFraction().orElse(null),
+                results.deliveredFraction(comparisonBasis).orElse(null),
                 caveat,
                 plan.workloadSource(),
                 plan.totalDuration(),

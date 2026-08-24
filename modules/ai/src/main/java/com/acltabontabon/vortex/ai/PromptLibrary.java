@@ -27,8 +27,10 @@ public final class PromptLibrary {
      * traced back to the exact prompt text that produced it. v3: findings carry a type, evidence
      * is required on recommendations and nextTest, and nextTest states what it would distinguish.
      * v4: rule prose condensed for local-model instruction budgets — same constraints, same JSON
-     * schema, but each rule states the requirement without its explanatory justification. */
-    public static final String VERSION = "v4";
+     * schema, but each rule states the requirement without its explanatory justification.
+     * v5: dropped product-name references and downstream/rhetorical padding from rule prose — same
+     * constraints, same JSON schema. */
+    public static final String VERSION = "v5";
 
     public static final String ANALYZE_EXECUTION = "analyze-execution";
     public static final String EXPLAIN_WORKLOAD = "explain-workload";

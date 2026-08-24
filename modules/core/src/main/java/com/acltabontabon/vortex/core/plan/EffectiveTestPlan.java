@@ -319,6 +319,28 @@ public record EffectiveTestPlan(
         return Optional.of(Math.round(total));
     }
 
+    /**
+     * The average arrival rate this plan's stage sequence asked for, honouring k6's own linear
+     * ramp between stages rather than the plan's peak.
+     *
+     * <p>Derived from {@link #estimatedRequests()} rather than re-deriving the same ramp
+     * arithmetic a second time: that figure is already this exact time-weighted sum, so dividing
+     * it by the duration it assumed recovers the average. Comparing a whole run's achieved average
+     * throughput against this, instead of against {@link #peakLevel()}, is what keeps a ramp's own
+     * shape — which spends most of its duration below its final target by design — from being
+     * charged as a shortfall it never was.
+     *
+     * <p>Empty under the same conditions {@link #estimatedRequests()} is: an imported script, a
+     * concurrency workload (no arrival rate to average), or a plan with no stages. A single flat
+     * stage reduces to exactly {@link #peakLevel()}, so a non-ramping workload is unaffected.
+     */
+    public Optional<LoadLevel> idealizedAverageArrivalRate() {
+        return estimatedRequests().map(total -> {
+            double seconds = totalDuration().toMillis() / 1000.0;
+            return (LoadLevel) RequestsPerSecond.of(seconds <= 0 ? 0.0 : total / seconds);
+        });
+    }
+
     /** Why a request estimate is unavailable, for display next to the omission. */
     public String requestEstimateCaveat() {
         if (scriptSource != ScriptSource.GENERATED) {

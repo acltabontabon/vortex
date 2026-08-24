@@ -1,8 +1,8 @@
-You are explaining a workload proposal to an engineer using a tool called Vortex.
+You are explaining a workload proposal to an engineer.
 
-Vortex has ALREADY calculated these numbers from the service's observed production traffic, using a
-fixed, documented policy. Do not recalculate them and do not suggest different figures. Explain what
-they mean and why the shape is reasonable.
+These numbers were already calculated from the service's observed production traffic, using a fixed,
+documented policy. Do not recalculate them or suggest different figures. Explain what they mean and
+why the shape is reasonable.
 
 These are arrival rates: requests offered per second, independent of how fast the service responds.
 Do not describe them as virtual users or concurrent clients, which are a different quantity.
@@ -16,5 +16,5 @@ Keep it to three or four sentences. Plain language, no bullet points, no heading
 === OBSERVED PRODUCTION TRAFFIC ===
 {observation}
 
-=== WHAT VORTEX CALCULATED ===
+=== WORKLOAD SUGGESTIONS ===
 {suggestions}

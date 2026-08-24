@@ -192,6 +192,60 @@ class RunEvidenceServiceTest {
         }
     }
 
+    /**
+     * The exact false positive investigated: a SPIKE workload ramping 50 → 100 → 150 req/s over
+     * three 20s stages, whose achieved rate matches the ramp's own time-weighted average
+     * (83.33 req/s) almost exactly. Comparing that average against the ramp's instantaneous peak
+     * (150) — what {@code MeasuredResults.deliveredFraction()} alone would do — reports a 45%
+     * shortfall for a run that tracked its configured profile perfectly. {@link
+     * EffectiveTestPlan#idealizedAverageArrivalRate()} is the corrected comparison basis this
+     * assembly step must use instead.
+     */
+    @Nested
+    @DisplayName("the ramp-vs-peak comparison")
+    class RampVsPeakComparison {
+
+        @Test
+        @DisplayName("a spike that tracked its own ramp is not reported as falling short of its peak")
+        void aSpikeTrackingItsRampReportsNoShortfall() {
+            var shape = new com.acltabontabon.vortex.core.workload.RampingArrivalRateShape(
+                    com.acltabontabon.vortex.core.shared.RequestsPerSecond.of(50), List.of(
+                            com.acltabontabon.vortex.core.workload.Stage.ofRate(50, java.time.Duration.ofSeconds(20)),
+                            com.acltabontabon.vortex.core.workload.Stage.ofRate(100, java.time.Duration.ofSeconds(20)),
+                            com.acltabontabon.vortex.core.workload.Stage.ofRate(150, java.time.Duration.ofSeconds(20))));
+            EffectiveTestPlan plan = Fixtures.plan(
+                    com.acltabontabon.vortex.core.workload.TestType.SPIKE, shape);
+
+            MeasuredResults shapeResults = Fixtures.results(92, 0.0);
+            MeasuredResults results = new MeasuredResults(shapeResults.window(), plan.peakLevel(),
+                    com.acltabontabon.vortex.core.shared.RequestsPerSecond.of(83.119),
+                    shapeResults.requests(), 0, shapeResults.latency(), Map.of(),
+                    shapeResults.series(), List.of());
+
+            ThresholdEvaluation evaluation =
+                    new ThresholdEvaluator().evaluate(plan.thresholds(), results);
+            DeterministicSummary summary = new DeterministicSummary(
+                    plan.intent().question(), Verdict.PASS, "Yes.", results, evaluation,
+                    null, null, List.of());
+            TestExecution execution = new TestExecution(
+                    ExecutionId.of("exec-spike"), plan.projectId(), plan, ExecutionState.COMPLETED,
+                    Fixtures.NOW, Fixtures.NOW.plusSeconds(1), Fixtures.NOW.plusSeconds(61),
+                    results, summary, ToolVersions.unknown(),
+                    ExecutionArtifacts.empty().with("plan.json", "plan.json"), null, "");
+
+            RunEvidence evidence =
+                    service.assemble(execution, "/tmp/executions/exec-spike", List.of("plan.json"));
+
+            assertThat(evidence.workload().deliveredFractionIfPresent())
+                    .hasValueSatisfying(fraction ->
+                            assertThat(fraction).isCloseTo(1.0, org.assertj.core.data.Offset.offset(0.02)));
+            assertThat(evidence.findings())
+                    .noneMatch(finding -> finding.id().equals("finding:throughput.shortfall"));
+            assertThat(evidence.findings())
+                    .anyMatch(finding -> finding.id().equals("finding:throughput.sustained"));
+        }
+    }
+
     @Nested
     @DisplayName("what assembly refuses")
     class Refusals {

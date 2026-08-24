@@ -163,18 +163,32 @@ public record MeasuredResults(
     }
 
     /**
-     * How much of the offered load the service actually accepted, as a fraction of one.
+     * How much of a given target rate the service actually accepted, as a fraction of one.
+     *
+     * <p>{@code MeasuredResults} carries no notion of a workload's stage sequence — it is the
+     * boundary to the engine's wire format, not to the plan — so a caller comparing against
+     * anything other than the raw {@link #targetLoad} (e.g. a ramp-aware average) supplies that
+     * basis explicitly.
+     */
+    public Optional<Double> deliveredFraction(LoadLevel comparisonBasis) {
+        if (!(comparisonBasis instanceof RequestsPerSecond target) || achievedRate == null
+                || target.asDouble() <= 0) {
+            return Optional.empty();
+        }
+        return Optional.of(achievedRate.asDouble() / target.asDouble());
+    }
+
+    /**
+     * How much of the offered load the service actually accepted, as a fraction of one, compared
+     * against the workload's raw peak. See {@link #deliveredFraction(LoadLevel)} for comparing
+     * against a different basis, such as a ramp's own time-weighted average.
      *
      * <p>Only meaningful when the workload controlled an arrival rate. A closed workload's
      * throughput is an outcome rather than a target, so there is no shortfall to compute — the
      * virtual users simply went slower.
      */
     public Optional<Double> deliveredFraction() {
-        if (!(targetLoad instanceof RequestsPerSecond target) || achievedRate == null
-                || target.asDouble() <= 0) {
-            return Optional.empty();
-        }
-        return Optional.of(achievedRate.asDouble() / target.asDouble());
+        return deliveredFraction(targetLoad);
     }
 
     public Optional<MetricObservation> observation(String id) {
