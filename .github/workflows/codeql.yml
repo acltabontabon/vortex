@@ -1,12 +1,10 @@
 name: CodeQL
 
+# Disabled from automatic triggers: code scanning requires GitHub Advanced Security, which
+# isn't available on this private repo's plan. Re-enable push/pull_request/schedule triggers
+# once GHAS is enabled (or the repo goes public).
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  schedule:
-    - cron: '0 3 * * 1' # weekly, Monday 03:00 UTC
+  workflow_dispatch: {}
 
 concurrency:
   group: codeql-${{ github.workflow }}-${{ github.ref }}
