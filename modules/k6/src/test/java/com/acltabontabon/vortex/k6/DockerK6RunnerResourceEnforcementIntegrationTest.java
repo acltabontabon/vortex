@@ -56,29 +56,6 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        debugInspectMount(workingDir);
-    }
-
-    /** TEMPORARY diagnostic: prove whether the bind mount Docker sees actually contains what we
-     *  just wrote, using a plain busybox container instead of DockerK6Runner's own machinery. */
-    private void debugInspectMount(Path workingDir) {
-        try {
-            System.out.println("[debug] workingDir.toAbsolutePath() = " + workingDir.toAbsolutePath());
-            System.out.println("[debug] workingDir.toRealPath()     = " + workingDir.toRealPath());
-            try (var files = Files.list(workingDir)) {
-                files.forEach(p -> System.out.println("[debug] host-side entry: " + p));
-            }
-            Process inspect = new ProcessBuilder("docker", "run", "--rm", "-v",
-                    workingDir.toAbsolutePath() + ":/inspect", "busybox", "ls", "-la", "/inspect")
-                    .redirectErrorStream(true)
-                    .start();
-            inspect.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
-            try (var reader = inspect.inputReader(StandardCharsets.UTF_8)) {
-                reader.lines().forEach(line -> System.out.println("[debug] container-side: " + line));
-            }
-        } catch (IOException | InterruptedException e) {
-            System.out.println("[debug] mount inspection failed: " + e);
-        }
     }
 
     /** A script that allocates far more than a very small memory budget the instant a VU starts,
@@ -132,7 +109,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
                 CpuAllocation.ofMillicores(500), MemoryAllocation.ofMebibytes(256));
 
         var outcome = runner().run(runArgs(), workingDir, Map.of(), resources,
-                System.out::println, System.err::println, Cancellation.never());
+                _ -> { }, _ -> { }, Cancellation.never());
 
         assertThat(outcome.producedAResult()).isTrue();
         assertThat(outcome.effectiveResources()).isNotNull();
@@ -151,7 +128,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
         writeTrivialScript(workingDir);
 
         var outcome = runner().run(runArgs(), workingDir, Map.of(), ResourceEnvelopeRequest.none(),
-                System.out::println, System.err::println, Cancellation.never());
+                _ -> { }, _ -> { }, Cancellation.never());
 
         assertThat(outcome.producedAResult()).isTrue();
         assertThat(outcome.effectiveResources()).isNull();
@@ -171,7 +148,7 @@ class DockerK6RunnerResourceEnforcementIntegrationTest {
                 CpuAllocation.ofMillicores(1000), MemoryAllocation.ofMebibytes(48));
 
         var outcome = runner().run(runArgs(), workingDir, Map.of(), resources,
-                System.out::println, System.err::println, Cancellation.never());
+                _ -> { }, _ -> { }, Cancellation.never());
 
         assertThat(outcome.generatorOomKilled()).isTrue();
         assertThat(outcome.producedAResult()).isFalse();
