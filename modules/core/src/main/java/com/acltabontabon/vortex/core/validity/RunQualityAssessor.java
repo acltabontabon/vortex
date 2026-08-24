@@ -8,6 +8,8 @@ import com.acltabontabon.vortex.core.execution.FailureReason;
 import com.acltabontabon.vortex.core.metrics.FailureClass;
 import com.acltabontabon.vortex.core.metrics.MeasuredResults;
 import com.acltabontabon.vortex.core.metrics.StageTelemetry;
+import com.acltabontabon.vortex.core.metrics.TelemetryAvailability;
+import com.acltabontabon.vortex.core.metrics.TelemetryGap;
 import com.acltabontabon.vortex.core.plan.EffectiveTestPlan;
 import com.acltabontabon.vortex.core.resource.ResourceScope;
 import com.acltabontabon.vortex.core.resource.ResourceSignal;
@@ -401,10 +403,26 @@ public final class RunQualityAssessor {
                 worst.targetLoad()));
     }
 
+    /**
+     * A metric a provider does not publish at all is not evidence anything was missed — the
+     * "resource" it would have named does not exist for this service (a HikariCP pool metric for a
+     * service with no JDBC datasource is never coming back, no matter how long the run holds or how
+     * many times it is retried). Only a gap that could plausibly have resolved to a real observation —
+     * the provider was unreachable, answered with nothing for this window, refused credentials, or
+     * returned something unreadable — is evidence the run's picture of resources is actually
+     * incomplete.
+     */
+    private boolean mayHideARealResource(TelemetryGap gap) {
+        return gap.availability() != TelemetryAvailability.UNSUPPORTED;
+    }
+
     private Optional<ValidityFinding> telemetryIncomplete(MeasuredResults results,
             List<StageObservation> stages) {
 
-        boolean gaps = !results.telemetryGaps().isEmpty();
+        List<TelemetryGap> countable = results.telemetryGaps().stream()
+                .filter(this::mayHideARealResource)
+                .toList();
+        boolean gaps = !countable.isEmpty();
         long coveredStages = results.stageTelemetry().stream()
                 .filter(stage -> !stage.isEmpty())
                 .count();
@@ -414,8 +432,7 @@ public final class RunQualityAssessor {
             return Optional.empty();
         }
         String detail = gaps
-                ? results.telemetryGaps().size() + " measurement"
-                        + (results.telemetryGaps().size() == 1 ? " was" : "s were")
+                ? countable.size() + " measurement" + (countable.size() == 1 ? " was" : "s were")
                         + " asked for and could not be supplied"
                 : "telemetry covered " + coveredStages + " of " + stages.size() + " stages";
 
@@ -423,7 +440,7 @@ public final class RunQualityAssessor {
                 ValidityEffect.QUALIFIES,
                 "Telemetry was incomplete: " + detail + ". No resource can be named as the first to "
                         + "reach its limit when not all of them were observed.",
-                results.telemetryGaps().stream()
+                countable.stream()
                         .map(gap -> gap.metricName())
                         .filter(name -> !name.isBlank())
                         .toList()));

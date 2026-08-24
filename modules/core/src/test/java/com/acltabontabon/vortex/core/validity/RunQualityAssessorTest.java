@@ -594,6 +594,43 @@ class RunQualityAssessorTest {
         void completeTelemetryDoesNotFire() {
             assertThat(assess(healthy(), List.of()).permitsLimitingResourceStatement()).isTrue();
         }
+
+        @Test
+        @DisplayName("a metric a provider never publishes at all does not count as incomplete")
+        void anUnsupportedOnlyGapDoesNotFire() {
+            // A HikariCP metric from a service with no JDBC datasource is never coming back, no
+            // matter how the run goes — that is a fact about the service, not a missed observation.
+            var unsupportedOnly = rebuild(healthy(), healthy().window(), healthy().series(),
+                    reported(0), allSucceeded(30_852), List.of(),
+                    List.of(new TelemetryGap("actuator", "hikaricp.connections.active",
+                            TelemetryAvailability.UNSUPPORTED, "this service does not publish it")),
+                    List.of());
+
+            var assessment = assess(unsupportedOnly, List.of());
+
+            assertThat(assessment.has(ValidityReason.TELEMETRY_INCOMPLETE)).isFalse();
+            assertThat(assessment.permitsLimitingResourceStatement()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a genuine gap still fires and counts only itself, alongside an unsupported one")
+        void aRealGapFiresAndDoesNotCountTheUnsupportedOne() {
+            var mixed = rebuild(healthy(), healthy().window(), healthy().series(), reported(0),
+                    allSucceeded(30_852), List.of(),
+                    List.of(
+                            new TelemetryGap("actuator", "hikaricp.connections.active",
+                                    TelemetryAvailability.UNSUPPORTED, "this service does not publish it"),
+                            new TelemetryGap("generator", "metric:generator.process.cpu.utilization",
+                                    TelemetryAvailability.NO_DATA, "no samples yet")),
+                    List.of());
+
+            var finding = assess(mixed, List.of()).finding(ValidityReason.TELEMETRY_INCOMPLETE)
+                    .orElseThrow();
+
+            assertThat(finding.statement()).contains("1 measurement was");
+            assertThat(finding.evidenceIds())
+                    .containsExactly("metric:generator.process.cpu.utilization");
+        }
     }
 
     @Nested
