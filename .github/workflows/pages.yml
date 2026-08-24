@@ -1,8 +1,14 @@
 name: Pages
 
 on:
-  release:
-    types: [published]
+  # The Release workflow publishes releases using the default GITHUB_TOKEN, and GitHub
+  # suppresses further workflow_dispatch-style events (like `release: published`) from
+  # token-authored actions to prevent recursive runs. Chaining off `workflow_run` instead
+  # is the standard workaround: it reacts to the Release run itself completing, regardless
+  # of which token drove it.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -17,6 +23,7 @@ concurrency:
 jobs:
   deploy:
     name: deploy
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
