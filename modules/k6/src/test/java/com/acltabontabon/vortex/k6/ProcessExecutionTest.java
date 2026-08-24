@@ -37,13 +37,18 @@ class ProcessExecutionTest {
     void cancellationStopsAProcessWellBeforeItWouldFinishOnItsOwn() {
         Instant start = Instant.now();
 
-        var outcome = ProcessExecution.run(List.of("sh", "-c", "sleep 30"), workingDir, Map.of(),
+        // A direct exec, not "sh -c sleep 30" — matching how Vortex actually spawns engines (never
+        // through a shell). Some /bin/sh implementations (dash, Debian/Ubuntu's default) fork a real
+        // child for a script's trailing command rather than exec-replacing themselves with it, which
+        // would orphan that child on destroy() and leave it holding this test's own stdout pipe open
+        // for the real 30s — a shell-fork artifact this test has no interest in exercising.
+        var outcome = ProcessExecution.run(List.of("sleep", "30"), workingDir, Map.of(),
                 line -> { }, line -> { }, IMMEDIATELY, process -> { });
 
         assertThat(outcome.cancelled()).isTrue();
-        // sh responds to the default TERM signal immediately, so this should complete in well under
-        // a second — asserting "under 30s" would also pass if cancellation silently did nothing and
-        // this test just got lucky on timing, which is exactly the failure mode worth ruling out.
+        // sleep responds to the default TERM signal immediately, so this should complete in well
+        // under a second — asserting "under 30s" would also pass if cancellation silently did nothing
+        // and this test just got lucky on timing, which is exactly the failure mode worth ruling out.
         assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofSeconds(10));
     }
 
@@ -53,8 +58,12 @@ class ProcessExecutionTest {
 
         // Ignores SIGTERM outright, so only destroyForcibly() (SIGKILL) can end it. A 1-second grace
         // proves the forced-kill path fires — without it, this would hang for the real 30s sleep.
-        var outcome = ProcessExecution.run(List.of("sh", "-c", "trap '' TERM; sleep 30"), workingDir,
-                Map.of(), line -> { }, line -> { }, IMMEDIATELY, process -> { }, 1L);
+        // The explicit "exec" is POSIX-guaranteed to replace the shell's own process image rather
+        // than fork a child for it (see the sibling test above for why an implicit trailing command
+        // cannot be relied on to do the same) — otherwise destroyForcibly() would kill only the shell
+        // and orphan sleep, which is exactly the 30s hang this test exists to rule out.
+        var outcome = ProcessExecution.run(List.of("sh", "-c", "trap '' TERM; exec sleep 30"),
+                workingDir, Map.of(), line -> { }, line -> { }, IMMEDIATELY, process -> { }, 1L);
 
         assertThat(outcome.cancelled()).isTrue();
         assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofSeconds(20));
