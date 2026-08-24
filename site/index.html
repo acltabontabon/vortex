@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vortex — production-informed capacity evidence</title>
-  <meta name="description" content="Vortex helps engineering teams turn vague performance requirements into repeatable, production-informed capacity evidence.">
+  <meta name="description" content="You can run a load test. But what should you actually test? Vortex turns an API spec and a traffic goal into a workload, runs it, and gives you evidence-backed capacity answers.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -13,10 +13,11 @@
   <div class="wrap">
     <section class="hero">
       <div class="eyebrow">Vortex</div>
-      <h1>Turn vague performance requirements into repeatable, production-informed capacity evidence.</h1>
-      <p class="strap">Adopt the ecosystem. Own the engineering workflow.</p>
-      <p>A local-first workbench that helps engineering teams answer one question with confidence:
-        can this service actually hold the load we expect of it?</p>
+      <h1>You can run a load test. But what should you actually test?</h1>
+      <p class="strap">Local-first — runs against your own service, on your own machine.</p>
+      <p>Vortex brings the workload, objectives, execution, and evidence together so you can answer one
+        question with confidence: can this service actually handle the load you expect of it?</p>
+      <p class="hero-cycle" aria-hidden="true"><span data-role="cycle-text">What load should I test?</span></p>
       <div class="cta-row">
         <a class="btn btn-primary" href="#download">Download vortex.jar</a>
       </div>
@@ -25,35 +26,43 @@
 
     <section>
       <h2>The paralysis of &ldquo;it&rsquo;s probably fine&rdquo;</h2>
-      <p>You own a service. You have a rough sense of its traffic. But you're not a performance-testing
-        specialist, and neither is most of your team — so the honest answer to "will this hold up?" is
-        usually a shrug.</p>
-      <p>The hard part was never running a load test. It's knowing what traffic to model, which thresholds
-        actually matter, and how to read the wall of numbers a test produces afterward. Vortex exists to
-        remove that paralysis.</p>
+      <p>You own a service. Someone asks if it'll hold up under production load. You know roughly how
+        much traffic it sees — but then come the harder questions: what should you actually test, what
+        counts as peak, what response time is acceptable, and for how long. None of those have an
+        obvious answer.</p>
+      <p class="quip">
+        <span class="quip-q">&ldquo;Can it handle production?&rdquo;</span>
+        <span class="quip-a"><span class="strike">&ldquo;Probably.&rdquo;</span> is not capacity evidence.</span>
+      </p>
+      <p>And a test can run successfully and still give you the wrong conclusion.</p>
     </section>
+
+    <div class="statement breakout" data-reveal>
+      <p class="statement-lead">The hard part was never running a load test.</p>
+      <p class="statement-reveal">It&rsquo;s knowing what the test is supposed to prove.</p>
+    </div>
 
     <section>
       <h2>How it works</h2>
       <ol class="flow">
-        <li>
+        <li data-step="service">
           <strong>Service</strong>
           <p>Pick the one service you're testing, so everything that follows stays focused on it.</p>
         </li>
-        <li>
+        <li data-step="workload">
           <strong>Workload</strong>
           <p>Describe a realistic traffic condition once — version-controlled and reusable, not a
             throwaway script you'll rewrite next time.</p>
         </li>
-        <li>
-          <strong>Evaluation</strong>
-          <p>State the actual question you care about: can it hold peak load? Where does it break?</p>
+        <li data-step="question">
+          <strong>Question</strong>
+          <p>State what you're actually trying to learn: can it hold peak load? Where does it break?</p>
         </li>
-        <li>
+        <li data-step="run">
           <strong>Run</strong>
           <p>Run it.</p>
         </li>
-        <li>
+        <li data-step="evidence">
           <strong>Evidence</strong>
           <p>Get back a result and the exact conditions that produced it — traceable, comparable, and
             defensible when you show it to a colleague.</p>
@@ -61,33 +70,8 @@
       </ol>
     </section>
 
-    <section>
-      <h2>What makes the results trustworthy</h2>
-      <div class="quotes">
-        <blockquote>A total is divided, never repeated.</blockquote>
-        <blockquote>Arrival rate and concurrency are never conflated.</blockquote>
-        <blockquote>Aggregate latency is never the whole story.</blockquote>
-        <blockquote>Capacity is always conditional.</blockquote>
-        <blockquote>Unevaluated is not the same as passed.</blockquote>
-      </div>
-    </section>
-
-    <section>
-      <h2>AI is optional, never load-bearing</h2>
-      <p>Vortex is fully usable with no model at all. Every pass/fail answer it gives you is deterministic.
-        An optional local AI layer can help interpret results in plain language afterward — but it's
-        enrichment on top of the evidence, never a substitute for it.</p>
-    </section>
-
-    <section>
-      <h2>Where things stand</h2>
-      <p>Vortex is an early alpha — a working MVP, not a finished product. Some capabilities are still on
-        the roadmap. We'd rather tell you what isn't done yet than let you find out the hard way; the
-        GitHub repository tracks exactly where things stand.</p>
-    </section>
-
     <section id="download">
-      <h2>Download</h2>
+      <h2>Run Vortex.</h2>
       <p>Vortex ships as a single runnable jar. No installer, no account — download it, run it locally.</p>
       <div class="download-card">
         <div class="download-info">
@@ -99,6 +83,10 @@
         </div>
       </div>
       <pre class="run-cmd"><code>java -jar vortex.jar</code></pre>
+      <p class="fineprint">Early alpha. Vortex is actively evolving — see GitHub for current
+        capabilities and roadmap.</p>
+      <p class="fineprint">AI optional. Evidence deterministic. Local AI can help interpret results, but
+        never determines the verdict.</p>
     </section>
 
     <footer>
@@ -107,6 +95,69 @@
   </div>
   <script>
     (function () {
+      var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      // Hero: cycle through the questions a load test doesn't answer by itself.
+      var cycleEl = document.querySelector('[data-role="cycle-text"]');
+      var cyclePhrases = [
+        'What load should I test?',
+        'Is 300 RPS enough?',
+        'What should p95 be?',
+        'How long should I run it?',
+        'Did the service break — or did my load generator?'
+      ];
+      if (cycleEl && !reduceMotion) {
+        var cycleIndex = 0;
+        setInterval(function () {
+          cycleEl.classList.add('cycle-out');
+          setTimeout(function () {
+            cycleIndex = (cycleIndex + 1) % cyclePhrases.length;
+            cycleEl.textContent = cyclePhrases[cycleIndex];
+            cycleEl.classList.remove('cycle-out');
+          }, 300);
+        }, 2600);
+      }
+
+      // Problem section: reveal the follow-up line once the statement scrolls into view.
+      var statement = document.querySelector('.statement');
+      if (statement) {
+        if (reduceMotion || !('IntersectionObserver' in window)) {
+          statement.classList.add('in-view');
+        } else {
+          var statementObserver = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+              if (entry.isIntersecting) {
+                statement.classList.add('in-view');
+                statementObserver.unobserve(statement);
+              }
+            });
+          }, { threshold: 0.5 });
+          statementObserver.observe(statement);
+        }
+      }
+
+      // How it works: light up each step as it's scrolled into view, filling the line behind it.
+      var flowSteps = document.querySelectorAll('.flow li');
+      if (flowSteps.length) {
+        if (reduceMotion || !('IntersectionObserver' in window)) {
+          flowSteps.forEach(function (li) { li.classList.add('active'); });
+        } else {
+          var flowObserver = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('active');
+                var prev = entry.target.previousElementSibling;
+                while (prev) {
+                  prev.classList.add('passed');
+                  prev = prev.previousElementSibling;
+                }
+              }
+            });
+          }, { threshold: 0.6, rootMargin: '0px 0px -10% 0px' });
+          flowSteps.forEach(function (li) { flowObserver.observe(li); });
+        }
+      }
+
       fetch('release.json', { cache: 'no-store' })
         .then(function (res) {
           if (!res.ok) throw new Error('release.json not found');
