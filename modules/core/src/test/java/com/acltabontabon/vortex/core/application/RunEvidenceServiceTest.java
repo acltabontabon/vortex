@@ -17,6 +17,7 @@ import com.acltabontabon.vortex.core.execution.ExecutionState;
 import com.acltabontabon.vortex.core.execution.TestExecution;
 import com.acltabontabon.vortex.core.fixtures.Fixtures;
 import com.acltabontabon.vortex.core.metrics.MeasuredResults;
+import com.acltabontabon.vortex.core.resource.ResourceSignal;
 import com.acltabontabon.vortex.core.plan.EffectiveTestPlan;
 import com.acltabontabon.vortex.core.plan.ToolVersions;
 import com.acltabontabon.vortex.core.port.Clock;
@@ -299,6 +300,128 @@ class RunEvidenceServiceTest {
                     .extracting(com.acltabontabon.vortex.core.evidence.ResourceTimelineEvidence.ResourceSeriesEvidence::scope)
                     .containsExactlyInAnyOrder(sut, generator);
         }
+
+        @Test
+        @DisplayName("when Vortex confirmed the container's limits, only the container's own "
+                + "resources are the service's")
+        void aConfirmedContainerEnvelopeIsTheOnlyServiceResource() {
+            // system.cpu.usage is the machine's CPU as the JVM sees it, not the half core the
+            // container was actually held to — on a real run the two read 97% and 62% at once. Both
+            // under one "System under test" heading has exactly one plausible reading, and it is the
+            // wrong one.
+            var sut = com.acltabontabon.vortex.core.resource.ResourceScope.SYSTEM_UNDER_TEST;
+            var generator = com.acltabontabon.vortex.core.resource.ResourceScope.LOAD_GENERATOR;
+            Instant at = Fixtures.NOW.plusSeconds(30);
+            var samples = List.of(
+                    sample(at, "actuator", "metric:system.cpu.usage", sut, 0.97),
+                    sample(at, "docker", "metric:docker.cpu.utilization", sut, 0.31),
+                    sample(at, "generator", "metric:generator.cpu", generator, 0.3));
+
+            RunEvidence evidence = assembleWith(samples, List.of(
+                    hostScoped("metric:system.cpu.usage", 97.0),
+                    vortexConfigured("metric:docker.cpu.utilization", 0.31)));
+
+            assertThat(evidence.observability().signals())
+                    .as("every measurement is still collected and citable — only the claim that it "
+                            + "is a resource of the service is withdrawn")
+                    .hasSize(2);
+            assertThat(serviceResourceIds(evidence))
+                    .containsExactly("metric:docker.cpu.utilization");
+
+            var cpuPlot = evidence.resourceTimeline().plots().stream()
+                    .filter(plot -> plot.kind() == com.acltabontabon.vortex.core.resource.ResourceKind.CPU)
+                    .findFirst().orElseThrow();
+            assertThat(cpuPlot.series())
+                    .extracting(com.acltabontabon.vortex.core.evidence.ResourceTimelineEvidence.ResourceSeriesEvidence::signalId)
+                    .as("the generator's own CPU answers a different question and is read on its own "
+                            + "terms, so it stays")
+                    .containsExactlyInAnyOrder("metric:docker.cpu.utilization", "metric:generator.cpu");
+        }
+
+        @Test
+        @DisplayName("with no Vortex-configured envelope, the service's own gauges are left alone")
+        void withoutAConfirmedEnvelopeNothingIsFiltered() {
+            // An external endpoint is somebody else's deployment. Vortex set no limits there, so the
+            // service's own gauges are the only account of it anyone has, and dropping them would
+            // leave the section empty rather than honest.
+            var sut = com.acltabontabon.vortex.core.resource.ResourceScope.SYSTEM_UNDER_TEST;
+            Instant at = Fixtures.NOW.plusSeconds(30);
+            var samples = List.of(
+                    sample(at, "actuator", "metric:system.cpu.usage", sut, 0.97),
+                    sample(at, "actuator", "metric:heap", sut, 0.5));
+
+            RunEvidence evidence = assembleWith(samples, List.of(
+                    hostScoped("metric:system.cpu.usage", 97.0),
+                    hostScoped("metric:heap", 50.0)));
+
+            assertThat(serviceResourceIds(evidence))
+                    .containsExactlyInAnyOrder("metric:system.cpu.usage", "metric:heap");
+        }
+
+        private List<String> serviceResourceIds(RunEvidence evidence) {
+            return evidence.observability().signals().stream()
+                    .filter(signal -> signal.resourceIfPresent().isPresent())
+                    .map(com.acltabontabon.vortex.core.evidence.ObservedSignal::id)
+                    .toList();
+        }
+
+        private com.acltabontabon.vortex.core.resource.ResourceSample sample(Instant at,
+                String providerId, String signalId,
+                com.acltabontabon.vortex.core.resource.ResourceScope scope, double value) {
+            return new com.acltabontabon.vortex.core.resource.ResourceSample(at, providerId, signalId,
+                    com.acltabontabon.vortex.core.resource.ResourceKind.CPU, scope, value,
+                    com.acltabontabon.vortex.core.metrics.MetricUnit.RATIO, 0);
+        }
+
+        /** A gauge the service publishes about itself, limited only by what a percentage can be. */
+        private ResourceSignal hostScoped(String signalId, double value) {
+            return new ResourceSignal(observation(signalId, value,
+                    com.acltabontabon.vortex.core.metrics.MetricUnit.PERCENT),
+                    com.acltabontabon.vortex.core.resource.ResourceKind.CPU,
+                    com.acltabontabon.vortex.core.resource.ResourceScope.SYSTEM_UNDER_TEST,
+                    new com.acltabontabon.vortex.core.resource.ResourceLimit(100.0,
+                            com.acltabontabon.vortex.core.metrics.MetricUnit.PERCENT,
+                            com.acltabontabon.vortex.core.resource.LimitBasis.INHERENT_TO_UNIT,
+                            "the definition of a percentage"));
+        }
+
+        /** A limit Vortex requested at container-create time and confirmed was applied. */
+        private ResourceSignal vortexConfigured(String signalId, double value) {
+            return new ResourceSignal(observation(signalId, value,
+                    com.acltabontabon.vortex.core.metrics.MetricUnit.RATIO),
+                    com.acltabontabon.vortex.core.resource.ResourceKind.CPU,
+                    com.acltabontabon.vortex.core.resource.ResourceScope.SYSTEM_UNDER_TEST,
+                    new com.acltabontabon.vortex.core.resource.ResourceLimit(0.5,
+                            com.acltabontabon.vortex.core.metrics.MetricUnit.RATIO,
+                            com.acltabontabon.vortex.core.resource.LimitBasis.VORTEX_CONFIGURED,
+                            "the CPU limit Vortex applied to this container"));
+        }
+
+        private com.acltabontabon.vortex.core.metrics.MetricObservation observation(String signalId,
+                double value, com.acltabontabon.vortex.core.metrics.MetricUnit unit) {
+            return com.acltabontabon.vortex.core.metrics.MetricObservation.of(signalId, signalId,
+                    com.acltabontabon.vortex.core.metrics.MetricSource.DERIVED, unit,
+                    com.acltabontabon.vortex.core.metrics.Aggregation.MAX, value,
+                    new com.acltabontabon.vortex.core.metrics.TimeWindow(Fixtures.NOW,
+                            Fixtures.NOW.plusSeconds(60)));
+        }
+
+        private RunEvidence assembleWith(List<com.acltabontabon.vortex.core.resource.ResourceSample> samples,
+                List<ResourceSignal> signals) {
+            var completeness = new com.acltabontabon.vortex.core.metrics.TelemetryCompleteness(
+                    com.acltabontabon.vortex.core.metrics.TelemetryCompleteness.Status.COMPLETE,
+                    new com.acltabontabon.vortex.core.metrics.TimeWindow(Fixtures.NOW,
+                            Fixtures.NOW.plusSeconds(60)), "");
+            RunEvidenceService service = new RunEvidenceService(
+                    new DeterministicAnalyzer(new ThresholdEvaluator(), new BreakpointDetector(),
+                            new SystemSaturationDetector()),
+                    new FindingDetector(), new EvidenceSanitizer(), new RegressionEvaluator(),
+                    Clock.fixed(GENERATED_AT), com.acltabontabon.vortex.core.port.HostInformation.unknown(),
+                    executionId -> new com.acltabontabon.vortex.core.resource.ResourceTelemetryReader.Result(
+                            completeness, samples));
+            return service.assemble(completedWithResources(signals), "/tmp/executions/exec1",
+                    List.of("plan.json"));
+        }
     }
 
     // ---------------------------------------------------------------- fixtures
@@ -320,6 +443,29 @@ class RunEvidenceServiceTest {
                 "Can it hold 20 requests/sec?", Verdict.PASS, "Yes.", results, evaluation,
                 null, null, List.of("This is an isolated test."));
 
+        return new TestExecution(
+                ExecutionId.of("exec1"), plan.projectId(), plan, ExecutionState.COMPLETED,
+                Fixtures.NOW, Fixtures.NOW.plusSeconds(1), Fixtures.NOW.plusSeconds(601),
+                results, summary, ToolVersions.unknown(),
+                ExecutionArtifacts.empty().with("plan.json", "plan.json"), null, "");
+    }
+
+    /** A completed run whose measurements carry the given resource classifications, and an
+     *  observation for each so the two lists line up the way a real run's do. */
+    private static TestExecution completedWithResources(List<ResourceSignal> signals) {
+        MeasuredResults base = Fixtures.results(281, 0.0008);
+        MeasuredResults results = new MeasuredResults(base.window(), base.targetLoad(),
+                base.achievedRate(), base.requests(), base.failures(), base.latency(),
+                base.perOperation(), base.series(),
+                signals.stream().map(ResourceSignal::observation).toList(),
+                base.stageTelemetry(), base.telemetryGaps(), base.generation(), base.phases(),
+                base.reliability(), signals);
+        ThresholdEvaluation evaluation =
+                new ThresholdEvaluator().evaluate(Fixtures.thresholds(), results);
+        DeterministicSummary summary = new DeterministicSummary(
+                "Can it hold 20 requests/sec?", Verdict.PASS, "Yes.", results, evaluation,
+                null, null, List.of("This is an isolated test."));
+        EffectiveTestPlan plan = Fixtures.plan();
         return new TestExecution(
                 ExecutionId.of("exec1"), plan.projectId(), plan, ExecutionState.COMPLETED,
                 Fixtures.NOW, Fixtures.NOW.plusSeconds(1), Fixtures.NOW.plusSeconds(601),

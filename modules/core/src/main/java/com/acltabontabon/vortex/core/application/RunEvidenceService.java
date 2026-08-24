@@ -38,8 +38,10 @@ import com.acltabontabon.vortex.core.plan.PlannedOperation;
 import com.acltabontabon.vortex.core.evidence.TelemetryCoverage;
 import com.acltabontabon.vortex.core.port.HostInformation;
 import com.acltabontabon.vortex.core.port.Clock;
+import com.acltabontabon.vortex.core.resource.LimitBasis;
 import com.acltabontabon.vortex.core.resource.ResourceKind;
 import com.acltabontabon.vortex.core.resource.ResourceSample;
+import com.acltabontabon.vortex.core.resource.ResourceScope;
 import com.acltabontabon.vortex.core.resource.ResourceSeriesProjection;
 import com.acltabontabon.vortex.core.resource.ResourceSignal;
 import com.acltabontabon.vortex.core.resource.ResourceTelemetryReader;
@@ -56,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -360,6 +363,45 @@ public final class RunEvidenceService {
 
     // ------------------------------------------------------------------ observability
 
+    /**
+     * The signal ids that describe the service's own resource envelope, when Vortex established one.
+     *
+     * <p>A run whose target Vortex created holds the service to a CPU and memory allotment Vortex
+     * requested and then confirmed was applied ({@link LimitBasis#VORTEX_CONFIGURED}). Those are the
+     * service's resources for the purposes of this report: they are the envelope the run was actually
+     * conducted inside, and the only figures a reader can compare against the conditions recorded
+     * beside them.
+     *
+     * <p>Everything else the service publishes about itself is measured against a different
+     * denominator. {@code system.cpu.usage} is the machine's CPU as the JVM sees it — on this run,
+     * 97% while the container was using 62% of the half core it was given, because the two are not
+     * answering the same question. Presenting both under one "System under test" heading invited
+     * exactly one reading: that the service was nearly out of CPU. It was not, and no arrangement of
+     * those two numbers on one axis makes the difference visible.
+     *
+     * <p>Empty when Vortex did not configure the target's resources — an external endpoint is
+     * somebody else's deployment, and there the service's own gauges are the only account of it
+     * anyone has. Nothing is filtered in that case.
+     */
+    private Set<String> serviceEnvelopeSignalIds(MeasuredResults results) {
+        return results.resourceSignals().stream()
+                .filter(signal -> signal.scope().describesTheServiceUnderTest())
+                .filter(signal -> signal.limitIfPresent()
+                        .filter(limit -> limit.basis() == LimitBasis.VORTEX_CONFIGURED)
+                        .isPresent())
+                .map(ResourceSignal::signalId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /** Whether this service-scoped signal survives {@link #serviceEnvelopeSignalIds}. Signals in any
+     *  other scope are untouched: the generator's own resources answer a different question and are
+     *  read on their own terms. */
+    private boolean describesTheServiceEnvelope(ResourceScope scope, String signalId,
+            Set<String> envelope) {
+        return envelope.isEmpty() || !scope.describesTheServiceUnderTest()
+                || envelope.contains(signalId);
+    }
+
     private ObservabilityEvidence observability(MeasuredResults results) {
         // Classification, where a provider supplied it, keyed by the observation it belongs to.
         // Every observation is rendered either way; carrying the classification alongside is what
@@ -370,10 +412,17 @@ public final class RunEvidenceService {
                         signal -> signal.signalId(), signal -> signal, (first, second) -> first,
                         java.util.LinkedHashMap::new));
 
+        // Signals outside the service's own confirmed envelope stay in the run as plain
+        // observations: still collected, still cited, still exported, still on the timeline — only
+        // no longer presented as a resource of the system under test, which is a claim about a limit
+        // and the one thing they cannot support.
+        Set<String> envelope = serviceEnvelopeSignalIds(results);
+
         List<ObservedSignal> signals = results.observations().stream()
                 .map(observation -> {
                     var resource = classified.get(observation.id());
-                    return resource == null
+                    return resource == null || !describesTheServiceEnvelope(
+                            resource.scope(), resource.signalId(), envelope)
                             ? ObservedSignal.of(observation)
                             : new ObservedSignal(observation, resource);
                 })
@@ -526,10 +575,20 @@ public final class RunEvidenceService {
                 .collect(Collectors.toMap(ResourceSignal::signalId, signal -> signal,
                         (first, second) -> first, LinkedHashMap::new));
 
+        // Same envelope rule the resources list follows, and for the same reason: a "CPU \u2014 system
+        // under test" plot carrying the machine's CPU beside the container's reads as one quantity
+        // disagreeing with itself, and the axis belongs to whichever of them ran higher.
+        Set<String> envelope = serviceEnvelopeSignalIds(results);
+
         Map<String, List<ResourceSample>> bySeries = read.samples().stream()
+                .filter(sample -> describesTheServiceEnvelope(
+                        sample.scope(), sample.signalId(), envelope))
                 .collect(Collectors.groupingBy(
                         sample -> sample.providerId() + " " + sample.signalId(),
                         LinkedHashMap::new, Collectors.toList()));
+        if (bySeries.isEmpty()) {
+            return new ResourceTimelineEvidence(false, read.completeness(), List.of());
+        }
 
         Map<ResourceKind, List<ResourceTimelineEvidence.ResourceSeriesEvidence>> byKind =
                 new LinkedHashMap<>();
