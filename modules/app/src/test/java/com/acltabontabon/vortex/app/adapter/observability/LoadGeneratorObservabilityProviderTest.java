@@ -197,7 +197,14 @@ class LoadGeneratorObservabilityProviderTest {
 
             var provider = new LoadGeneratorObservabilityProvider(true);
             provider.collect(query());
-            var second = provider.collect(query());
+            // A later window end than the first sample's — processCpu() differences two readings
+            // over elapsed time, and query() alone repeats the same fixed instant, which would
+            // short-circuit the rate calculation as "nothing has elapsed yet" regardless of whether
+            // this platform actually supports the reading.
+            var laterQuery = new ObservabilityProvider.ObservabilityQuery("http://localhost:8080",
+                    new TimeWindow(WINDOW.start(), WINDOW.end().plusMillis(500)), List.of(),
+                    ObservabilityProvider.RunCorrelation.none());
+            var second = provider.collect(laterQuery);
 
             var cpuGap = second.gaps().stream()
                     .filter(gap -> gap.metricName().equals("metric:generator.process.cpu.utilization"))
