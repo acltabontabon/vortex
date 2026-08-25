@@ -306,6 +306,20 @@
         }
       }
 
+      // Vortex spiral: its stroke-dashoffset "flow" is a real repaint on every frame (unlike the
+      // GPU-composited transform animations elsewhere on the page), so unlike the one-shot reveals
+      // above, keep tracking visibility for its whole lifetime and pause the animation whenever the
+      // diagram scrolls off-screen — no point repainting a diagram nobody can see.
+      var spiral = document.querySelector('.diagram-spiral');
+      if (spiral && !reduceMotion && 'IntersectionObserver' in window) {
+        var spiralObserver = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            spiral.classList.toggle('is-flowing', entry.isIntersecting);
+          });
+        }, { threshold: 0 });
+        spiralObserver.observe(spiral);
+      }
+
       fetch('release.json', { cache: 'no-store' })
         .then(function (res) {
           if (!res.ok) throw new Error('release.json not found');

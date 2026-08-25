@@ -513,6 +513,15 @@ a {
   stroke-linecap: round;
   stroke-dasharray: 3 2.4;
   animation: diagram-flow 5s linear infinite;
+  /* Paused until JS confirms the diagram is actually on-screen — a stroke-dashoffset animation
+     repaints every frame (unlike the composited transforms elsewhere on the page), so it isn't
+     worth running while scrolled out of view. No separate no-JS fallback needed: like every other
+     [data-reveal] element on this page, .vortex-diagram stays opacity:0 without JS anyway. */
+  animation-play-state: paused;
+}
+
+.diagram-spiral.is-flowing path {
+  animation-play-state: running;
 }
 
 .diagram-spiral path:nth-child(2) {
