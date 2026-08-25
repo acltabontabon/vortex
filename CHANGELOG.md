@@ -8,6 +8,8 @@ Vortex has not made a release yet, so everything to date is recorded under
 
 ## Unreleased
 
+## [0.1.0-alpha.3] - 2026-08-26
+
 ### Changed
 
 - The homepage's command strip now resolves each intent against the selected service instead of
