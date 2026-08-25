@@ -24,10 +24,10 @@
     },
     {
       "name": "site",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8899", "--directory", "site"],
-      "port": 8899,
-      "url": "http://localhost:8899"
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "site", "run", "dev"],
+      "port": 5174,
+      "url": "http://localhost:5174"
     }
   ]
 }

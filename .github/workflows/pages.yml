@@ -31,10 +31,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build the site
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
+
       # The repo is private, so this jar is never publicly downloadable straight from
       # GitHub. Fetching it here with the workflow's own token and publishing it
       # alongside the static site gives visitors a real, public, direct download
-      # without changing repo visibility or committing the binary to git.
+      # without changing repo visibility or committing the binary to git. Written into
+      # dist/ (the build output) rather than the site/ source, and after the build so
+      # `npm run build`'s emptyOutDir doesn't wipe it back out.
       - name: Bundle latest release jar into the site
         env:
           GH_TOKEN: ${{ github.token }}
@@ -45,15 +59,15 @@ jobs:
             echo "No releases found yet; deploying the site without a bundled jar." >&2
             exit 0
           fi
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'vortex.jar' --dir site/ --clobber
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'vortex.jar' --dir site/dist/ --clobber
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,isPrerelease \
-            --jq '{tag: .tagName, name: .name, prerelease: .isPrerelease}' > site/release.json
+            --jq '{tag: .tagName, name: .name, prerelease: .isPrerelease}' > site/dist/release.json
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site/
+          path: site/dist/
 
       - id: deployment
         uses: actions/deploy-pages@v4
