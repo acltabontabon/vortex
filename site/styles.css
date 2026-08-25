@@ -73,6 +73,16 @@ body {
   filter: blur(1px);
   animation: vortex-spin 100s linear infinite;
   will-change: transform;
+  /* Animating a blurred + masked layer is expensive on the main thread — measured ~29% CPU
+     sustained just from this element alone (browsers largely can't take the cheap GPU-only
+     transform path once filter/mask are in the mix). Paused by default; JS below runs it only
+     while the hero — the one section it's actually framed around — is in view. */
+  animation-play-state: paused;
+}
+
+.vortex-bg.is-spinning::before,
+.vortex-bg.is-spinning::after {
+  animation-play-state: running;
 }
 
 .vortex-bg::after {

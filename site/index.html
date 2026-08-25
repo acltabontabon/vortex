@@ -320,6 +320,21 @@
         spiralObserver.observe(spiral);
       }
 
+      // Background swirl: same story, worse — animating this masked, blurred layer measured
+      // ~29% of the main thread on its own regardless of scroll position, since it's fixed and
+      // was rendering behind every section, not just the hero it's actually framed around. Only
+      // spin it while the hero itself is in view.
+      var heroSection = document.querySelector('.hero');
+      var vortexBg = document.querySelector('.vortex-bg');
+      if (heroSection && vortexBg && !reduceMotion && 'IntersectionObserver' in window) {
+        var heroObserver = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            vortexBg.classList.toggle('is-spinning', entry.isIntersecting);
+          });
+        }, { threshold: 0 });
+        heroObserver.observe(heroSection);
+      }
+
       fetch('release.json', { cache: 'no-store' })
         .then(function (res) {
           if (!res.ok) throw new Error('release.json not found');
