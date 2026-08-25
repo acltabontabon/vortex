@@ -259,10 +259,11 @@ if (buttons.length && !reduceMotion) {
   });
 }
 
-// Architecture diagram: each node rests at a small hand-placed tilt (set in HTML via --tilt /
-// data-tilt) for a sketchnote feel. On hover it "picks up" — straightens and lifts with a spring,
-// like plucking a sticky note off a whiteboard — then springs back to its tilt on release.
-var archNodes = document.querySelectorAll('.arch-node');
+// Architecture diagram + concept-diagram inputs: each rests at a small hand-placed tilt (set in
+// HTML via --tilt / data-tilt) for a sketchnote feel. On hover it "picks up" — straightens and
+// lifts with a spring, like plucking a sticky note off a whiteboard — then springs back to its
+// tilt on release.
+var archNodes = document.querySelectorAll('.arch-node, .diagram-inputs li');
 if (archNodes.length && !reduceMotion) {
   archNodes.forEach(function (node) {
     var tilt = parseFloat(node.dataset.tilt) || 0;

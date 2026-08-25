@@ -918,6 +918,11 @@ p {
   color: #c9d1d9;
 }
 
+.terminal-line {
+  display: flex;
+  align-items: center;
+}
+
 .terminal-prompt {
   color: #5fd6c9;
   margin-right: 10px;
@@ -1059,45 +1064,70 @@ a {
   max-width: 480px;
 }
 
-.diagram-inputs li,
-.diagram-outputs li {
+/* Inputs arrive as loose, hand-placed sticky notes — a rough sketch-edge outline, a per-item
+   --tilt (set inline in HTML), and a flat "drawn" shadow instead of a soft realistic one, the
+   same sketchnote language as .arch-node. They tumble in slightly overshot and settle to their
+   resting tilt, and hovering picks one up (see interactions.js for the spring-driven version;
+   this transition is the non-JS/reduced-motion fallback). The messiness is the point — these are
+   raw inputs, not yet evidence. */
+.diagram-inputs li {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--fg-muted);
   background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 13px;
+  filter: url(#sketch-edge);
+  box-shadow: 2px 2px 0 rgba(var(--accent-rgb), 0.16);
   opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.4s ease, transform 0.4s ease;
+  transform: translateY(10px) rotate(0deg);
+  transition: opacity 0.5s ease, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
 }
 
-.vortex-diagram.in-view .diagram-inputs li,
-.vortex-diagram.in-view .diagram-outputs li {
+.vortex-diagram.in-view .diagram-inputs li {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) rotate(var(--tilt, 0deg));
 }
 
+.diagram-inputs li:hover {
+  transform: rotate(0deg) translateY(-3px);
+  box-shadow: 3px 4px 0 rgba(var(--accent-rgb), 0.28);
+}
+
+/* Outputs land precise and lit — no tilt, an accent-tinted panel with a soft glow, and a small
+   glowing dot standing in for "measured, not guessed." The contrast with the inputs above is
+   deliberate: raw context in, evidence out. */
 .diagram-outputs li {
-  color: var(--fg);
-}
-
-.diagram-outputs li.output-optional {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  border-style: dashed;
-  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--fg);
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  border-radius: 999px;
+  padding: 5px 14px 5px 10px;
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.06), 0 3px 12px rgba(var(--accent-rgb), 0.16);
+  opacity: 0;
+  transform: translateY(8px) scale(0.92);
+  transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.22, 1.4, 0.36, 1);
 }
 
-.output-optional-tag {
-  font-size: 0.65rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--fg-muted);
-  opacity: 0.75;
+.vortex-diagram.in-view .diagram-outputs li {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.diagram-outputs li::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px 1px rgba(var(--accent-rgb), 0.65);
 }
 
 .diagram-spiral {
@@ -1150,7 +1180,7 @@ a {
   font-weight: 700;
   color: var(--fg);
   letter-spacing: -0.01em;
-  margin: 8px 0 4px;
+  margin: 32px 0 4px;
 }
 
 .concept-distinction strong {
