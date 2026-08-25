@@ -1,7 +1,6 @@
-import { Alert, Card, Stack, Text, Title } from '@mantine/core';
+import { Alert, Stack, Text, Title } from '@mantine/core';
 import type { Preflight } from '../../api/run';
 import { Fact, Facts } from '../../components/Fact';
-import { ServerSvg } from '../../components/charts/ServerSvg';
 import classes from './PreflightSections.module.css';
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -17,11 +16,41 @@ const CHECK_COLOR: Record<string, string> = {
   SKIPPED: 'neutral',
 };
 
+// A rotating palette for the operation-mix bar. Not a verdict color (pass/fail/warn) — how traffic
+// is split across operations carries no pass/fail meaning of its own, so it draws from the app's
+// non-verdict hues instead.
+const MIX_COLORS = ['brand', 'live', 'ai', 'warn', 'neutral'];
+
+/** Best-effort width for one segment of the mix bar. A figure that fails to parse degrades to a
+ *  thin sliver (`.mixSegment`'s own min-width) rather than vanishing — the exact number is still
+ *  stated in the legend beneath the bar regardless, so the bar is a supplement, never the record. */
+function shareWeight(sharePercent: string): number {
+  const parsed = Number.parseFloat(sharePercent);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0.1;
+}
+
+function Tile({ value, label }: { value: string; label: string }) {
+  return (
+    <div className={classes.tile}>
+      <div className={classes.tileValue}>{value}</div>
+      <div className={classes.tileLabel}>{label}</div>
+    </div>
+  );
+}
+
 /**
  * What will happen if you press Run, before anything is sent — the content both the standalone
  * Preflight page and the in-place drawer show. Somebody who has never used Vortex should be able to
  * read it and answer, without asking anybody: what service, what question, which workload, how much
  * traffic, spread how, for how long, against what, and what would count as success.
+ *
+ * <p>Organized as a reading order, not a pile of equally-weighted cards: the question, then the one
+ * sentence that answers it, then anything that changes what pressing Run actually risks (mutating
+ * data, a safety finding) surfaced before the specifics rather than buried after them, then "This
+ * run" — the shot itself, led by the handful of numbers worth reading at a glance before the
+ * supporting detail — then "Pass conditions", which is deliberately one panel: readiness checks and
+ * success thresholds are two different questions ("can this run at all" vs. "what would this run
+ * have to show"), but they're both "what decides pass or fail" and belong under one heading.
  */
 export function PreflightSections({
   preflight,
@@ -32,6 +61,16 @@ export function PreflightSections({
    *  the question line still renders either way, since nothing else states that. */
   showHeading?: boolean;
 }) {
+  const hasPassConditions = preflight.checks.length > 0 || preflight.thresholdDescriptions.length > 0;
+  // The classification caveat arrives twice — once as its own field, once folded into
+  // safetyFindings as an INFO-severity entry with the identical title/detail — because the domain
+  // treats "this is an isolated test" as both a fact about the run (classificationLabel) and a
+  // thing worth flagging (a finding). Rendered once each is enough; showing the same sentence as
+  // both a fact and a full-width alert box reads as noise, not two pieces of information.
+  const safetyFindings = preflight.safetyFindings.filter(
+    (finding) => finding.title !== preflight.classificationLabel,
+  );
+
   return (
     <>
       {showHeading && (
@@ -44,72 +83,15 @@ export function PreflightSections({
       </Text>
 
       {preflight.plainEnglishSummary && (
-        <Alert color="live" mb="md">
+        <div className={classes.summaryPanel}>
           {/* The domain sends real paragraph breaks and bullet lines (`\n\n`, `\n  • `) — plain JSX
               text collapses all of that to one run-on line, so this has to opt back into respecting
               them. */}
           <p className={classes.summary}>{preflight.plainEnglishSummary}</p>
-        </Alert>
+        </div>
       )}
 
       <Stack gap="md">
-        <Card withBorder radius="md">
-          <Title order={3} size="h4" mb="sm">
-            What will run
-          </Title>
-          <Facts>
-            <Fact label="Test">{preflight.workloadName}</Fact>
-            <Fact label="Environment">{preflight.environmentName}</Fact>
-            <Fact label="Target" note={preflight.targetRewritten ? preflight.targetRewriteReason : undefined}>
-              {preflight.effectiveTarget}
-              {preflight.targetRewritten && preflight.configuredTarget && (
-                <Text size="xs" c="dimmed">
-                  Configured as {preflight.configuredTarget}
-                </Text>
-              )}
-            </Fact>
-            <Fact label="Dependencies">{preflight.dependencyModeLabel}</Fact>
-            <Fact label="Duration">{preflight.durationDisplay}</Fact>
-            <Fact label="Classification" note={preflight.classificationCaveat}>
-              {preflight.classificationLabel}
-            </Fact>
-          </Facts>
-        </Card>
-
-        <Card withBorder radius="md">
-          <Title order={3} size="h4" mb="sm">
-            How much traffic
-          </Title>
-          <Facts>
-            <Fact label="Model">{preflight.workloadModelLabel}</Fact>
-            <Fact label="Level">{preflight.peakLevelDisplay}</Fact>
-            <Fact label="Source">{preflight.workloadSourceDescribe}</Fact>
-            {preflight.hasRequestEstimate && (
-              <Fact label="Estimated requests" note={preflight.estimateCaveat}>
-                {preflight.requests}
-              </Fact>
-            )}
-          </Facts>
-
-          {preflight.compositionRenderable && preflight.compositionSvg && (
-            <ServerSvg svg={preflight.compositionSvg} className={classes.diagram} />
-          )}
-
-          {preflight.operations.length > 0 && (
-            <div className={classes.operations}>
-              {preflight.operations.map((op) => (
-                <div key={op.name} className={classes.operationRow}>
-                  <span>{op.name}</span>
-                  <span className={classes.dim}>
-                    {op.sharePercent}
-                    {op.rateDisplay && ` · ${op.rateDisplay}`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
         {preflight.mutatingOperations.length > 0 && (
           <Alert color="warn" title="This run will mutate data">
             <Text size="sm" mb="xs">
@@ -123,37 +105,9 @@ export function PreflightSections({
           </Alert>
         )}
 
-        {preflight.checks.length > 0 && (
-          <Card withBorder radius="md">
-            <Title order={3} size="h4" mb="sm">
-              Checks
-            </Title>
-            <Stack gap="xs">
-              {preflight.checks.map((check) => (
-                <div key={check.name} className={classes.checkRow}>
-                  <span
-                    className={classes.checkDot}
-                    style={{ background: `var(--mantine-color-${CHECK_COLOR[check.statusKind] ?? 'neutral'}-6)` }}
-                    aria-hidden="true"
-                  />
-                  <div>
-                    <Text size="sm" fw={600}>
-                      {check.name} — {check.statusLabel}
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      {check.detail}
-                      {check.remedy && ` ${check.remedy}`}
-                    </Text>
-                  </div>
-                </div>
-              ))}
-            </Stack>
-          </Card>
-        )}
-
-        {preflight.safetyFindings.length > 0 && (
+        {safetyFindings.length > 0 && (
           <Stack gap="xs">
-            {preflight.safetyFindings.map((finding) => (
+            {safetyFindings.map((finding) => (
               <Alert
                 key={finding.title}
                 color={SEVERITY_COLOR[finding.severityKind] ?? 'neutral'}
@@ -165,17 +119,115 @@ export function PreflightSections({
           </Stack>
         )}
 
-        {preflight.thresholdDescriptions.length > 0 && (
-          <Card withBorder radius="md">
-            <Title order={3} size="h4" mb="sm">
-              What would count as success
+        <div className={classes.group}>
+          <Title order={3} size="h4" mb="md" className={classes.groupTitle}>
+            This run
+          </Title>
+
+          <div className={classes.tileRow}>
+            {preflight.peakLevelDisplay && <Tile value={preflight.peakLevelDisplay} label="Level" />}
+            {preflight.durationDisplay && <Tile value={preflight.durationDisplay} label="Duration" />}
+            {preflight.environmentName && <Tile value={preflight.environmentName} label="Environment" />}
+          </div>
+
+          <Facts>
+            <Fact label="Test">{preflight.workloadName}</Fact>
+            <Fact label="Target" note={preflight.targetRewritten ? preflight.targetRewriteReason : undefined}>
+              {preflight.effectiveTarget}
+              {preflight.targetRewritten && preflight.configuredTarget && (
+                <Text size="xs" c="dimmed">
+                  Configured as {preflight.configuredTarget}
+                </Text>
+              )}
+            </Fact>
+            <Fact label="Dependencies">{preflight.dependencyModeLabel}</Fact>
+            <Fact label="Classification" note={preflight.classificationCaveat}>
+              {preflight.classificationLabel}
+            </Fact>
+            <Fact label="Source">{preflight.workloadSourceDescribe}</Fact>
+            {preflight.hasRequestEstimate && (
+              <Fact label="Estimated requests" note={preflight.estimateCaveat}>
+                {preflight.requests}
+              </Fact>
+            )}
+          </Facts>
+
+          {preflight.operations.length > 0 && (
+            <div className={classes.mixSection}>
+              <div className={classes.mixBar}>
+                {preflight.operations.map((op, index) => (
+                  <div
+                    key={op.name}
+                    className={classes.mixSegment}
+                    style={{
+                      flexGrow: shareWeight(op.sharePercent),
+                      background: `var(--mantine-color-${MIX_COLORS[index % MIX_COLORS.length]}-6)`,
+                    }}
+                    title={`${op.name} — ${op.sharePercent}${op.rateDisplay ? ` · ${op.rateDisplay}` : ''}`}
+                  />
+                ))}
+              </div>
+              <div className={classes.mixLegend}>
+                {preflight.operations.map((op, index) => (
+                  <div key={op.name} className={classes.mixLegendRow}>
+                    <span
+                      className={classes.mixSwatch}
+                      style={{ background: `var(--mantine-color-${MIX_COLORS[index % MIX_COLORS.length]}-6)` }}
+                      aria-hidden="true"
+                    />
+                    <span>{op.name}</span>
+                    <span className={classes.dim}>
+                      {op.sharePercent}
+                      {op.rateDisplay && ` · ${op.rateDisplay}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {hasPassConditions && (
+          <div className={classes.group}>
+            <Title order={3} size="h4" mb="md" className={classes.groupTitle}>
+              Pass conditions
             </Title>
-            <ul className={classes.list}>
-              {preflight.thresholdDescriptions.map((description) => (
-                <li key={description}>{description}</li>
-              ))}
-            </ul>
-          </Card>
+
+            {preflight.checks.length > 0 && (
+              <div className={classes.checkGrid}>
+                {preflight.checks.map((check) => (
+                  <div key={check.name} className={classes.checkCard}>
+                    <div className={classes.checkHeader}>
+                      <span
+                        className={classes.checkDot}
+                        style={{ background: `var(--mantine-color-${CHECK_COLOR[check.statusKind] ?? 'neutral'}-6)` }}
+                        aria-hidden="true"
+                      />
+                      <Text size="sm" fw={600}>
+                        {check.name} — {check.statusLabel}
+                      </Text>
+                    </div>
+                    <Text size="xs" c="dimmed">
+                      {check.detail}
+                      {check.remedy && ` ${check.remedy}`}
+                    </Text>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {preflight.checks.length > 0 && preflight.thresholdDescriptions.length > 0 && (
+              <div className={classes.divider} />
+            )}
+
+            {preflight.thresholdDescriptions.length > 0 && (
+              <ul className={classes.list}>
+                {preflight.thresholdDescriptions.map((description) => (
+                  <li key={description}>{description}</li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </Stack>
     </>

@@ -1,5 +1,10 @@
-.diagram {
-  margin: var(--mantine-spacing-sm) 0;
+.summaryPanel {
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--mantine-color-live-6);
+  border-radius: var(--mantine-radius-md);
+  background: var(--surface-card);
+  padding: 1.1rem 1.25rem;
+  margin-bottom: var(--mantine-spacing-md);
 }
 
 /*
@@ -13,23 +18,109 @@
   line-height: 1.5;
 }
 
-.operations {
-  margin-top: var(--mantine-spacing-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+/* Elevation tier 2, the same surface ConfigurationPage's .group uses — one hairline-bordered,
+   tinted block per section, rather than the default Mantine Card these sections started as. */
+.group {
+  border: 1px solid var(--border-default);
+  border-radius: var(--mantine-radius-md);
+  background: var(--surface-card);
+  padding: 1.1rem 1.25rem;
 }
 
-.operationRow {
+/* A small typographic anchor breaking up what would otherwise be three identical plain headings
+   stacked down the page — decorative only (::before content is excluded from the accessible name
+   and from textContent, so it never touches what a query or a screen reader sees as this title). */
+.groupTitle {
   display: flex;
-  justify-content: space-between;
-  font-size: 0.85rem;
-  padding: 0.2rem 0;
-  border-bottom: 1px solid var(--mantine-color-default-border);
+  align-items: center;
+  gap: 7px;
 }
 
-.operationRow:last-child {
-  border-bottom: none;
+.groupTitle::before {
+  content: '▸';
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 0.85em;
+  color: var(--mantine-color-brand-6);
+}
+
+/*
+ * The handful of numbers worth reading before anything else — level, duration, classification,
+ * environment. Instrumentation, not another row in a fact table: large tabular-nums figures sitting
+ * directly on the panel's own surface, the same idiom OverviewPage's fact grid uses for "the numbers
+ * a reader scans for first."
+ */
+.tileRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--mantine-spacing-lg);
+  padding-bottom: 1rem;
+  margin-bottom: var(--mantine-spacing-sm);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tile {
+  min-width: 0;
+}
+
+/* Deliberately no forced break-word: at 150px min-width a figure like "220 requests/sec" wraps
+   at the space ("220" / "requests/sec"), not mid-word — break-word forced a three-line, slash-split
+   wrap here on real data, which reads as broken rather than dense. */
+.tileValue {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 1.3rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tileLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mantine-color-dimmed);
+  margin-top: 2px;
+}
+
+/* The operation mix, as a proportion rather than a column of percentages — one glance says "mostly
+   one operation" or "evenly split" in a way a text list can't. The legend beneath is still the
+   record of exact figures; the bar is a supplement to it, never a replacement. */
+.mixSection {
+  margin-top: var(--mantine-spacing-md);
+}
+
+.mixBar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border-subtle);
+}
+
+.mixSegment {
+  min-width: 3px;
+}
+
+.mixLegend {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.1rem;
+  row-gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.mixLegendRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.mixSwatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
 }
 
 .dim {
@@ -42,16 +133,38 @@
   font-size: 0.85rem;
 }
 
-.checkRow {
+/* Checks as a scannable set of cards rather than one narrow vertical list — reads as a control
+   panel's own indicator row, not a report. */
+.checkGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.65rem;
+}
+
+.checkCard {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--mantine-radius-sm);
+  padding: 0.65rem 0.8rem;
+}
+
+.checkHeader {
   display: flex;
-  gap: 0.6rem;
-  align-items: flex-start;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
 }
 
 .checkDot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-top: 0.35rem;
   flex-shrink: 0;
+}
+
+/* Separates readiness checks from success thresholds within the one "Pass conditions" panel —
+   two different questions sharing one heading, told apart by a hairline rather than a second box. */
+.divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 1rem 0;
 }

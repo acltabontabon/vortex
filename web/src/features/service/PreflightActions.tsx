@@ -1,5 +1,6 @@
 import { Alert, Button, Group, Text, TextInput, Title } from '@mantine/core';
 import type { Preflight } from '../../api/run';
+import classes from './PreflightActions.module.css';
 
 /**
  * The confirm-and-start controls — identical between the standalone Preflight page's sticky aside
@@ -35,9 +36,23 @@ export function PreflightActions({
   onRecheck: () => void;
   rechecking: boolean;
 }) {
+  // Just the numbers, not the test type — the drawer's own title bar already states that, and
+  // repeating it here risks a second exact-text match against a query built for "stated once".
+  const recap = [preflight.peakLevelDisplay, preflight.durationDisplay].filter(Boolean).join(' · ');
+
   return (
     <>
-      <Title order={3} size="h4" mb="sm">
+      {recap && (
+        <Text size="xs" className={classes.recap} mb="xs">
+          {recap}
+        </Text>
+      )}
+
+      <Title order={3} size="h4" mb="sm" className={classes.heading}>
+        <span
+          className={`${classes.statusDot} ${preflight.canRun ? classes.statusDotReady : classes.statusDotBlocked}`}
+          aria-hidden="true"
+        />
         {preflight.canRun ? 'Ready to run' : 'Cannot run yet'}
       </Title>
 
@@ -52,6 +67,7 @@ export function PreflightActions({
           label={`Type "${requiredChallenges.join('" or "')}" to confirm`}
           value={confirmation}
           onChange={(event) => onConfirmationChange(event.currentTarget.value)}
+          classNames={{ input: classes.confirmInput }}
           mb="sm"
         />
       )}
@@ -77,7 +93,7 @@ export function PreflightActions({
         </Button>
       </Group>
 
-      <Text size="xs" c="dimmed" mt="sm">
+      <Text size="xs" className={classes.provenance}>
         {preflight.runnerLabel} · {preflight.scriptSourceLabel} · {preflight.fingerprintShortHash}
       </Text>
     </>
