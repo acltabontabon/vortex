@@ -8,6 +8,12 @@ Vortex has not made a release yet, so everything to date is recorded under
 
 ## Unreleased
 
+### Fixed
+
+- Runs completed before the Yes/No/Undetermined answer prefix was dropped (0.1.0-alpha.2) now get
+  that same wording retroactively — a migration backfills the stored answer text for existing runs,
+  so history isn't stuck with the old phrasing forever.
+
 ## [0.1.0-alpha.2] - 2026-08-25
 
 ### Added
