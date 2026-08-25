@@ -30,6 +30,17 @@ export interface RangeMarker {
   displayWithUnit: string;
 }
 
+/** One configured workload — enough of it to resolve an intent against, and no more. Per-test
+ *  runnability is deliberately absent: it costs a subprocess per workload server-side, and it is
+ *  preflight's question anyway. */
+export interface WorkloadRef {
+  name: string;
+  /** The `TestType` enum name, not its label — behaviour keys off this, prose never. */
+  testType: string;
+  testTypeLabel: string;
+  productionInformed: boolean;
+}
+
 export interface ServiceCard {
   id: string;
   name: string;
@@ -39,8 +50,16 @@ export interface ServiceCard {
   canRun: boolean;
   blockers: string[];
   nextStepText: string | null;
+  /** The FIRST workload's label — a weaker claim than `workloads`. Feeds `workloadSummary()`. */
   workloadTestTypeLabel: string | null;
   workloadProductionInformed: boolean | null;
+  workloads: WorkloadRef[];
+  apiImported: boolean;
+  /** Never a blocker — a run without objectives still measures everything, it just decides nothing. */
+  objectivesConfigured: boolean;
+  productionObserved: boolean;
+  /** Finished runs within the homepage's own recent scan — a lower bound, not total history. */
+  recentTerminalRunCount: number;
   updatedAtRelative: string;
   updatedAtIso: string;
   headroomDisplay: string | null;

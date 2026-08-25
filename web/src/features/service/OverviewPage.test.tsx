@@ -17,8 +17,11 @@ import { OverviewPage } from './OverviewPage';
 // data hooks this file doesn't mock, which would otherwise leave every composing-mode test staring
 // at a permanent loading skeleton with no Cancel button ever reaching the DOM.
 vi.mock('./TestComposer', () => ({
-  TestComposer: ({ onClose }: { onClose: () => void }) => (
-    <button onClick={onClose}>Cancel</button>
+  TestComposer: ({ onClose, initialType }: { onClose: () => void; initialType?: string | null }) => (
+    <>
+      <button onClick={onClose}>Cancel</button>
+      <span data-testid="composer-initial-type">{initialType ?? 'none'}</span>
+    </>
   ),
 }));
 
@@ -626,6 +629,28 @@ describe('the overview page', () => {
     renderWithProviders(<OverviewPage />, { route: '/?compose=new' });
 
     expect(screen.getByRole('heading', { name: 'Compose' })).toBeInTheDocument();
+  });
+
+  it('opens the composer on the evaluation the URL asks for', () => {
+    queryResult = {
+      data: anOverview({ tests: [aTest()], evidenceByTestType: [anEvidence()] }),
+      isError: false,
+    };
+    renderWithProviders(<OverviewPage />, { route: '/?compose=new&type=BREAKPOINT' });
+
+    expect(screen.getByTestId('composer-initial-type')).toHaveTextContent('BREAKPOINT');
+  });
+
+  it('ignores an evaluation this build does not offer, rather than seeding an unresolvable form', () => {
+    const overview = anOverview({ tests: [aTest()], evidenceByTestType: [anEvidence()] });
+    queryResult = { data: overview, isError: false };
+    // Stated against the server's own list, so this stays true if the set of test types changes.
+    const offered = overview.evidenceByTestType.map((evidence) => evidence.testType);
+    expect(offered).not.toContain('NOT_A_TEST_TYPE');
+
+    renderWithProviders(<OverviewPage />, { route: '/?compose=new&type=NOT_A_TEST_TYPE' });
+
+    expect(screen.getByTestId('composer-initial-type')).toHaveTextContent('none');
   });
 
   it('opens the composer on a specific test named by the URL, and falls back for a stale one', () => {

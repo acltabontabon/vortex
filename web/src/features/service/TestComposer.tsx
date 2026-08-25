@@ -217,10 +217,15 @@ export function TestComposer({
   onPreviewChange,
   showInlineChart = false,
   target = null,
+  initialType = null,
 }: {
   serviceId: string;
   mode: 'create' | 'edit';
   editingName?: string;
+  /** The test type the caller arrived intending to create, already validated against the server's
+   *  own list by whoever resolved it — this never guesses. Honoured only in create mode: an
+   *  existing test's type comes from what was saved, not from where the link came from. */
+  initialType?: string | null;
   onClose: () => void;
   /** Reports the live form state up to the Workload Preview rail — see `WorkloadPreviewPanel.tsx`.
    *  Called with `null` on unmount so the rail never shows a stale snapshot after the composer
@@ -250,7 +255,7 @@ export function TestComposer({
     initialValues: {
       name: '',
       description: '',
-      type: 'AVERAGE_LOAD',
+      type: mode === 'create' ? (initialType ?? 'AVERAGE_LOAD') : 'AVERAGE_LOAD',
       model: 'OPEN',
       shapeKind: 'STEADY',
       rate: 50,

@@ -47,11 +47,22 @@ function scrollTestRowIntoView(name: string): void {
  * the composer is shareable/back-button-safe the same way `?test=` already is, but this is UI state
  * with URL persistence, not a routing layer of its own — one function, no state machine.
  */
-type ComposerState = { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; name: string };
+type ComposerState =
+  | { mode: 'closed' }
+  | { mode: 'create'; initialType: string | null }
+  | { mode: 'edit'; name: string };
 
 function resolveComposerState(overview: Overview, params: URLSearchParams): ComposerState {
   const compose = params.get('compose');
-  if (compose === 'new') return { mode: 'create' };
+  if (compose === 'new') {
+    // `evidenceByTestType` is one entry per TestType, always — the server's own list, already on
+    // this page's wire, so validating the requested type costs no extra request. A type this build
+    // does not offer falls back to the composer's default rather than seeding a form with a value
+    // nothing downstream can resolve: the same shape the `edit` branch below already takes.
+    const requested = params.get('type');
+    const known = overview.evidenceByTestType.some((evidence) => evidence.testType === requested);
+    return { mode: 'create', initialType: known ? requested : null };
+  }
   if (compose === 'edit') {
     const name = params.get('composeTest') ?? '';
     // A stale/bookmarked link to a test since renamed or deleted falls back to closed rather than
@@ -118,10 +129,13 @@ export function OverviewPage() {
   // opinion of its own about it.
   const [composerPreview, setComposerPreview] = useState<ComposerPreviewSnapshot | null>(null);
 
-  function openCreate() {
+  /** @param testType the intent the caller arrived with, when they had one — see resolveComposerState */
+  function openCreate(testType?: string) {
     setParams((next) => {
       next.set('compose', 'new');
       next.delete('composeTest');
+      if (testType) next.set('type', testType);
+      else next.delete('type');
       return next;
     }, { replace: true });
   }
@@ -138,6 +152,7 @@ export function OverviewPage() {
     setParams((next) => {
       next.delete('compose');
       next.delete('composeTest');
+      next.delete('type');
       return next;
     }, { replace: true });
   }
@@ -222,7 +237,7 @@ export function OverviewPage() {
             selectedName={selectedTest?.name ?? null}
             onSelect={selectTest}
             composerState={composerState}
-            onCreateTest={openCreate}
+            onCreateTest={() => openCreate()}
             onEditTest={openEdit}
             onCloseComposer={closeComposer}
             onPreviewChange={setComposerPreview}
@@ -517,6 +532,7 @@ function TestsSection({
           serviceId={serviceId}
           mode={composerState.mode}
           editingName={composerState.mode === 'edit' ? composerState.name : undefined}
+          initialType={composerState.mode === 'create' ? composerState.initialType : null}
           onClose={onCloseComposer}
           onPreviewChange={onPreviewChange}
           showInlineChart={showInlineChart}

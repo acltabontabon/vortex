@@ -63,13 +63,43 @@ public class HomeApiController {
     public record RangeMarkerDto(String kind, String label, String displayWithUnit) {}
 
     /**
+     * One configured workload, as much of it as the homepage needs to resolve an intent against.
+     *
+     * <p>Deliberately not a {@code TestRowDto}. That record carries per-test runnability, which
+     * costs a plan resolution — and, through {@code TestRunner.resolve}, a load-generator version
+     * subprocess — for every workload it describes. Affordable once for one service's workspace;
+     * not N services × M workloads on every homepage load. Whether a particular test can run right
+     * now is preflight's own question, and preflight is one click away and answers it itself.
+     *
+     * @param testType the {@code TestType} enum name — stable, unlike {@code testTypeLabel}, so a
+     *                 caller keying behaviour off which kind of test this is keys off an identifier
+     *                 rather than prose somebody will reword
+     */
+    public record WorkloadRefDto(String name, String testType, String testTypeLabel,
+            boolean productionInformed) {}
+
+    /**
      * @param nextStepText              the domain's own instruction for the single most useful
      *                                   thing to do next, or null when the checklist is complete
      * @param workloadTestTypeLabel     the question the first configured workload was set up to
-     *                                  answer (e.g. "Breakpoint"), or null when none is configured
+     *                                  answer (e.g. "Breakpoint"), or null when none is configured.
+     *                                  A deliberately weaker claim than {@code workloads} below —
+     *                                  it describes one workload, not the set
      * @param workloadProductionInformed whether that workload derives from observed production
      *                                   traffic rather than being hand-authored; null alongside
      *                                   {@code workloadTestTypeLabel}
+     * @param workloads                 every configured workload, so a caller can ask "is there a
+     *                                  breakpoint test here?" rather than guessing from the first
+     * @param apiImported               whether an operation catalog exists — without one there is
+     *                                  nothing to build a workload's operation mix from
+     * @param objectivesConfigured      whether thresholds exist. Not a blocker by design (see
+     *                                  {@code ProjectReadiness.Kind.EVALUATION}): a run without
+     *                                  them still measures everything, it just decides nothing
+     * @param productionObserved        whether observed production traffic has been recorded
+     * @param recentTerminalRunCount    finished runs for this service <em>within the homepage's own
+     *                                  recent scan</em> — a lower bound, never a claim about total
+     *                                  history, since the scan is the most recent {@value
+     *                                  #SCAN_LIMIT} runs across every service
      * @param updatedAtRelative         when the service's own record last changed. Coarser than a
      *                                  setup-editing timestamp — nothing in the domain tracks that —
      *                                  but real: creation or a metadata edit, not fabricated
@@ -81,6 +111,8 @@ public class HomeApiController {
     public record ServiceCardDto(String id, String name, String description,
             boolean running, RunRefDto runningRun, boolean canRun, List<String> blockers,
             String nextStepText, String workloadTestTypeLabel, Boolean workloadProductionInformed,
+            List<WorkloadRefDto> workloads, boolean apiImported, boolean objectivesConfigured,
+            boolean productionObserved, int recentTerminalRunCount,
             String updatedAtRelative, String updatedAtIso, String headroomDisplay,
             VerdictDto latestVerdict, List<RangeMarkerDto> rangeMarkers,
             int satisfiedCount, int totalCount,
@@ -108,7 +140,7 @@ public class HomeApiController {
     private record ServiceCard(Project project, ProjectConfiguration configuration,
             ProjectReadiness readiness, CapacityObservation capacity,
             HeadroomCalculator.Result headroom, CapacityRange range,
-            TestExecution latest, TestExecution running) {
+            TestExecution latest, TestExecution running, int terminalRunCount) {
 
         boolean hasEvidence() {
             return latest != null;
@@ -144,9 +176,11 @@ public class HomeApiController {
                 .sorted(Comparator.comparing(TestExecution::requestedAt).reversed())
                 .toList();
 
-        Optional<TestExecution> latest = mine.stream()
+        List<TestExecution> terminal = mine.stream()
                 .filter(execution -> execution.state().isTerminal())
-                .findFirst();
+                .toList();
+
+        Optional<TestExecution> latest = terminal.stream().findFirst();
         Optional<TestExecution> running = mine.stream()
                 .filter(execution -> !execution.state().isTerminal())
                 .findFirst();
@@ -169,7 +203,7 @@ public class HomeApiController {
                 : CapacityRange.productionOnly(production);
 
         return new ServiceCard(project, configuration, readiness, observation, headroom, range,
-                latest.orElse(null), running.orElse(null));
+                latest.orElse(null), running.orElse(null), terminal.size());
     }
 
     // ---------------------------------------------------------------- DTO mapping
@@ -199,6 +233,11 @@ public class HomeApiController {
                 .map(next -> display.shorten(next.nextStep(), 64))
                 .orElse(null);
 
+        List<WorkloadRefDto> workloads = card.configuration().workloads().stream()
+                .map(workload -> new WorkloadRefDto(workload.name(), workload.type().name(),
+                        workload.type().label(), workload.source().isProductionInformed()))
+                .toList();
+
         var primaryWorkload = card.configuration().workloads().stream().findFirst();
         String workloadTestTypeLabel = primaryWorkload.map(w -> w.type().label()).orElse(null);
         Boolean workloadProductionInformed = primaryWorkload
@@ -213,6 +252,9 @@ public class HomeApiController {
                 card.isRunning(), runningRun,
                 card.canRun(), card.readiness().blockers().stream().map(ProjectReadiness.Item::label).toList(),
                 nextStepText, workloadTestTypeLabel, workloadProductionInformed,
+                workloads, card.readiness().apiImported(),
+                card.readiness().thresholdsConfigured(), card.readiness().productionObserved(),
+                card.terminalRunCount(),
                 display.relative(card.project().updatedAt()),
                 DateTimeFormatter.ISO_INSTANT.format(card.project().updatedAt()), headroomDisplay,
                 latestVerdict, rangeMarkers,

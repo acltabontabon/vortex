@@ -8,8 +8,26 @@ Vortex has not made a release yet, so everything to date is recorded under
 
 ## Unreleased
 
+### Changed
+
+- The homepage's command strip now resolves each intent against the selected service instead of
+  sending three of its four commands to the same page. "Find its limit" and "Validate capacity" go
+  straight to the preflight for that service's own breakpoint or average-load workload — chosen by
+  the kind of test it is, not by which workload happens to be first — or open the test composer
+  already set to that evaluation when none exists yet. "Compare runs" reaches the run list filtered
+  to the service, where two runs can actually be picked, rather than a read-only evidence page.
+  Every command now states what it will do before it is pressed ("Run breakpoint-ramp", "Set one
+  up", "Pick two of 3 recent runs"), says when a run would reach no verdict for want of objectives,
+  and explains itself rather than going quiet when it cannot act.
+- The selected service is now part of the homepage address, so leaving for a composer or a preflight
+  and coming back returns to the service that was being worked on. Declining a run at preflight
+  returns where it was launched from instead of always landing on the service page.
+
 ### Fixed
 
+- The "Fix" links on the setup checklist for objectives and production traffic now scroll to those
+  sections of the configuration page. They had always pointed at anchors the page never defined, so
+  they silently landed at the top of it.
 - Runs completed before the Yes/No/Undetermined answer prefix was dropped (0.1.0-alpha.2) now get
   that same wording retroactively — a migration backfills the stored answer text for existing runs,
   so history isn't stuck with the old phrasing forever.

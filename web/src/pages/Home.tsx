@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Container,
   Title,
@@ -28,7 +29,11 @@ export function Home() {
   const { data, isError } = useHomeQuery();
   const error = errorFallback(isError, 'Could not load the workbench',
       '/api/home did not respond. Reload the page to try again.');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Selection lives in the URL, the same way OverviewPage carries `?test=`: leaving for a composer
+  // or a preflight is a push, so Back returns to the workbench with this service still chosen
+  // rather than to a shelf that has forgotten what you were doing.
+  const [params, setParams] = useSearchParams();
+  const selectedId = params.get('service');
 
   const cards = data?.cards ?? [];
   const hasServices = cards.length > 0;
@@ -42,7 +47,19 @@ export function Home() {
 
   // No default selection — the homepage opens showing services, not already "inside" one. Picking
   // a service is a deliberate act that establishes homepage context, not something assumed for you.
+  // A stale or bookmarked id for a service since deleted resolves to nothing selected, rather than
+  // a command bar addressing a service that no longer exists.
   const selected = sortedCards.find((c) => c.id === selectedId) ?? null;
+
+  // `replace` so a run of card clicks doesn't stack history — navigating *away* is still a push,
+  // which is what makes Back land here again.
+  function select(id: string) {
+    setParams((next) => {
+      if (next.get('service') === id) next.delete('service');
+      else next.set('service', id);
+      return next;
+    }, { replace: true });
+  }
 
   return (
     <Container size={1560} px={0} py="xl">
@@ -65,7 +82,7 @@ export function Home() {
               <ServiceShelf
                 services={sortedCards}
                 selectedId={selectedId}
-                onSelect={(id) => setSelectedId((prev) => (prev === id ? null : id))}
+                onSelect={select}
               />
             </div>
 

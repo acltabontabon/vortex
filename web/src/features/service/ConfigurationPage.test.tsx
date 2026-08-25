@@ -117,4 +117,17 @@ describe('the configuration page', () => {
 
     expect(screen.getByText('Could not load configuration')).toBeInTheDocument();
   });
+
+  // WorkspaceAssembler emits `configuration#production` and `#objectives` for readiness "Fix"
+  // links. Both landed at the top of the page for as long as they existed, because neither
+  // section had the id being pointed at.
+  it.each(['operations', 'datasets', 'environments', 'production', 'objectives'])(
+    'carries the #%s anchor the readiness links point at',
+    (anchor) => {
+      queryResult = { data: aConfiguration(), isError: false };
+      const { container } = renderWithProviders(<ConfigurationPage />);
+
+      expect(container.querySelector(`#${anchor}`)).not.toBeNull();
+    },
+  );
 });

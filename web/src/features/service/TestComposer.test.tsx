@@ -121,6 +121,21 @@ describe('the inline test composer', () => {
     expect(screen.getByLabelText('Name')).toHaveValue('stress-check');
   });
 
+  it('opens on the evaluation it was asked for, suggestion and all', () => {
+    testsResult = { data: aTestsResult(), isError: false };
+    catalogResult = { data: CATALOG, isError: false };
+    editResult = { data: undefined, isError: false };
+
+    renderWithProviders(
+      <TestComposer serviceId="checkout" mode="create" initialType="STRESS" onClose={() => {}} />,
+    );
+
+    // Not the AVERAGE_LOAD default this composer opens on when nobody asked for anything.
+    expect(screen.getByRole('radio', { name: /Stress/ })).toBeChecked();
+    // The seed flows through the existing suggestion effect rather than around it.
+    expect(screen.getByLabelText('Name')).toHaveValue('stress-check');
+  });
+
   it('never overwrites a name the user has typed, even after changing the evaluation', async () => {
     testsResult = { data: aTestsResult(), isError: false };
     catalogResult = { data: CATALOG, isError: false };

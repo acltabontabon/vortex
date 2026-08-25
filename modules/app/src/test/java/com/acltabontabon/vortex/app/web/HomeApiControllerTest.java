@@ -3,9 +3,12 @@ package com.acltabontabon.vortex.app.web;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.acltabontabon.vortex.core.application.CapacityService;
@@ -19,6 +22,7 @@ import com.acltabontabon.vortex.core.port.Repositories.ExecutionRepository;
 import com.acltabontabon.vortex.core.project.ProjectConfiguration;
 import com.acltabontabon.vortex.core.shared.ExecutionId;
 import com.acltabontabon.vortex.core.shared.ProjectId;
+import com.acltabontabon.vortex.core.workload.Workload;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -144,6 +148,88 @@ class HomeApiControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.cards[0].latestVerdict.verdict").value("NOT_EVALUATED"));
         }
+    }
+
+    @Nested
+    @DisplayName("what a card carries for the homepage's own commands")
+    class IntentFacts {
+
+        @Test
+        @DisplayName("lists every configured workload with the kind of test it is")
+        void listsWorkloads() throws Exception {
+            var configured = Fixtures.configuration().workloads();
+            var kinds = configured.stream().map(w -> w.type().name()).distinct().sorted().toList();
+
+            when(projects.all()).thenReturn(List.of(Fixtures.project()));
+            when(projects.configuration(any())).thenReturn(Fixtures.configuration());
+            when(executions.findRecent(anyInt())).thenReturn(List.of());
+
+            // Stated against the fixture rather than a copied list, so this keeps meaning what it
+            // says if the fixture's workloads change.
+            mockMvc.perform(get("/api/home"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.cards[0].workloads.length()").value(configured.size()))
+                    .andExpect(jsonPath("$.cards[0].workloads[*].testType", containsInAnyOrder(
+                            configured.stream().map(w -> w.type().name()).toArray())))
+                    .andExpect(jsonPath("$.cards[0].workloads[*].name", containsInAnyOrder(
+                            configured.stream().map(Workload::name).toArray())));
+
+            // The point of shipping the set: the intents ask for a kind, not for a position.
+            org.assertj.core.api.Assertions.assertThat(kinds).contains("BREAKPOINT", "AVERAGE_LOAD");
+        }
+
+        /** Absence is reported as absence, never as a default that reads like a measurement. */
+        @Test
+        @DisplayName("does not claim production was observed when it was not")
+        void productionAbsenceIsHonest() throws Exception {
+            when(projects.all()).thenReturn(List.of(Fixtures.project()));
+            when(projects.configuration(any())).thenReturn(Fixtures.configuration());
+            when(executions.findRecent(anyInt())).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/home"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.cards[0].productionObserved").value(false))
+                    .andExpect(jsonPath("$.cards[0].objectivesConfigured").value(true));
+        }
+
+        /** A run still in flight is not yet evidence, so it is not yet something to compare. */
+        @Test
+        @DisplayName("counts only finished runs")
+        void countsOnlyTerminalRuns() throws Exception {
+            when(projects.all()).thenReturn(List.of(Fixtures.project()));
+            when(projects.configuration(any())).thenReturn(Fixtures.configuration());
+            when(executions.findRecent(anyInt())).thenReturn(List.of(completedRun(), runningRun()));
+
+            mockMvc.perform(get("/api/home"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.cards[0].recentTerminalRunCount").value(1))
+                    .andExpect(jsonPath("$.cards[0].running").value(true));
+        }
+
+        /**
+         * The homepage reads every service's history from one scan, on purpose. Per-workload
+         * runnability would cost a plan resolution — and a load-generator version subprocess —
+         * for every workload of every service, which is why {@code WorkloadRefDto} does not carry
+         * it. This is the test that fails loudly if somebody reaches for that later.
+         */
+        @Test
+        @DisplayName("reads run history once for every service, not once per service")
+        void scansHistoryOnce() throws Exception {
+            when(projects.all()).thenReturn(List.of(Fixtures.project(), Fixtures.project(),
+                    Fixtures.project()));
+            when(projects.configuration(any())).thenReturn(Fixtures.configuration());
+            when(executions.findRecent(anyInt())).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/home")).andExpect(status().isOk());
+
+            verify(executions, times(1)).findRecent(anyInt());
+        }
+    }
+
+    private TestExecution runningRun() {
+        return new TestExecution(ExecutionId.of("e3"), ProjectId.of("checkout"), Fixtures.plan(),
+                ExecutionState.RUNNING, Fixtures.NOW, Fixtures.NOW, null, null, null, null, null,
+                null, "");
     }
 
     private TestExecution completedRun() {

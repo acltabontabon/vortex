@@ -82,7 +82,7 @@ export function PreflightPage() {
             startError={startError}
             pending={startMutation.isPending}
             onStart={onStart}
-            onCancel={() => navigate(`/services/${id}`)}
+            onCancel={() => navigate(-1)}
             onRecheck={() => preflightQuery.refetch()}
             rechecking={preflightQuery.isFetching}
           />
