@@ -30,6 +30,23 @@
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+  /* Whole-page slide feel: each top-level section (see .wrap > section below) is a mandatory
+     snap point sized to the viewport, so one scroll gesture advances exactly one section instead
+     of leaving the reader mid-way between two. */
+  scroll-snap-type: y mandatory;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+    /* Forced snapping after every scroll is itself a motion effect the reader didn't ask for —
+       disable it rather than just slowing it down. */
+    scroll-snap-type: none;
+  }
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -74,10 +91,24 @@ body {
 section {
   padding: 64px 0;
   border-bottom: 1px solid var(--border);
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 section:last-of-type {
   border-bottom: none;
+}
+
+/* Snap points for the whole-page slide scroll (see html's scroll-snap-type above). The footer
+   is included so a mandatory snap never strands it just out of reach below the last real section. */
+.wrap > section,
+.wrap > .statement,
+.wrap > footer {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
 }
 
 h1, h2 {
@@ -111,7 +142,14 @@ p {
   position: relative;
   z-index: 0;
   overflow: hidden;
-  padding-top: 96px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  /* svh (small viewport height) excludes mobile browser chrome that vh incorrectly counts as
+     visible space; the vh line first is a fallback for browsers without svh support. */
+  min-height: 100vh;
+  min-height: 100svh;
+  padding: 96px 0 92px;
 }
 
 .eyebrow {
@@ -281,6 +319,69 @@ p {
 @media (prefers-reduced-motion: reduce) {
   .status-dot {
     animation: none;
+  }
+}
+
+/* Scroll cue: with the hero now filling the viewport (see .hero above), the fold hides
+   everything below it — this hints there's more, and fades out as soon as the reader has
+   started scrolling on their own so it doesn't linger over the next section. */
+.scroll-cue {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 8px;
+  margin: 0;
+  cursor: pointer;
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+  transition: opacity 0.3s ease, color 0.3s ease;
+}
+
+.scroll-cue:hover,
+.scroll-cue:focus-visible {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.scroll-cue-arrow {
+  animation: scroll-cue-bounce 1.8s ease-in-out infinite;
+}
+
+@keyframes scroll-cue-bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(5px);
+  }
+}
+
+.hero.is-scrolled .scroll-cue {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-cue-arrow {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .scroll-cue {
+    bottom: 16px;
   }
 }
 
@@ -783,6 +884,11 @@ p {
   padding: 56px 24px;
   text-align: center;
   border-bottom: 1px solid var(--border);
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .statement-lead {
@@ -1611,7 +1717,7 @@ a {
     padding: 44px 0;
   }
   .hero {
-    padding-top: 56px;
+    padding: 64px 0 60px;
   }
   .lightbox {
     padding: 24px 16px;

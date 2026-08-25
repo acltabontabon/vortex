@@ -586,6 +586,25 @@ if (spiral && !reduceMotion && 'IntersectionObserver' in window) {
   });
 })();
 
+// Hero scroll cue: nudges the reader past the fold, then gets out of the way once they've
+// started scrolling on their own so it doesn't linger over the next section.
+(function initScrollCue() {
+  var heroSection = document.querySelector('.hero');
+  var scrollCue = document.querySelector('[data-role="scroll-cue"]');
+  if (!heroSection || !scrollCue) return;
+
+  scrollCue.addEventListener('click', function () {
+    var next = heroSection.nextElementSibling;
+    if (next) next.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  });
+
+  var updateScrolled = function () {
+    heroSection.classList.toggle('is-scrolled', window.scrollY > 40);
+  };
+  updateScrolled();
+  window.addEventListener('scroll', updateScrolled, { passive: true });
+})();
+
 fetch('release.json', { cache: 'no-store' })
   .then(function (res) {
     if (!res.ok) throw new Error('release.json not found');
