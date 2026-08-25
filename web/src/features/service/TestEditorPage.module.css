@@ -1,27 +1,19 @@
-.split {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--mantine-spacing-xl);
-}
-
-@media (min-width: 900px) {
-  .split {
-    grid-template-columns: minmax(0, 1fr) 320px;
-    align-items: start;
-  }
-}
-
-.main {
-  min-width: 0;
-}
-
-.aside {
-  min-width: 0;
-}
-
-.stickyCard {
+/*
+ * Sticky rather than scrolling away with the main column — matches OverviewPage's Recent Runs
+ * rail and PreflightPage's action card (see .railCol in each). A single sticky point on the
+ * Grid.Col itself, with a static fallback once the Grid collapses to one column below `md` (62em,
+ * matching the Grid.Col span breakpoint in the TSX) — sticky while stacked above scrolling
+ * content looks broken, not helpful.
+ */
+.railCol {
   position: sticky;
-  top: var(--mantine-spacing-lg);
+  top: 1.5rem;
+}
+
+@media (max-width: 62em) {
+  .railCol {
+    position: static;
+  }
 }
 
 .option {

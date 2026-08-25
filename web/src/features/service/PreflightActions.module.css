@@ -1,20 +1,49 @@
-/* A persistent recap while this sticky sidebar stays in view after the page has scrolled past
-   the numbers it repeats — deliberately just the figures, not the test type, which the drawer's
-   own title bar (or this page's own H2) already states once. */
-.recap {
+/* The same tabular-nums stat-tile idiom PreflightSections' "This run" tiles use — figures worth
+   reading at a glance, not a small monospace recap line easy to skim past. Kept here rather than
+   shared with PreflightSections (this repo duplicates small blocks instead of introducing
+   `composes:`, see OverviewPage.module.css). */
+.statRow {
+  display: flex;
+  gap: 1.5rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.stat {
+  min-width: 0;
+}
+
+.statValue {
   font-family: var(--mantine-font-family-monospace);
+  font-size: 1.3rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.statLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--mantine-color-dimmed);
+  margin-top: 2px;
 }
 
 .heading {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
 }
 
+/* Bigger than a plain status bullet, and the one thing on this card that moves — a quiet pulse
+   while ready to run, so the moment before pressing Run reads as "alive/waiting", not a static
+   label. motion's own animate prop is undefined (no pulse) for both the blocked state and reduced
+   motion, so this never fights that preference. */
 .statusDot {
-  width: 8px;
-  height: 8px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -35,7 +64,7 @@
 }
 
 /* Separates the controls above from this run's own provenance — a hairline, not another Card, since
-   this already sits inside a surface (PreflightPage's Card or the drawer's own footer). */
+   this already sits inside a surface (PreflightPage's action card or the drawer's own footer). */
 .provenance {
   margin-top: var(--mantine-spacing-md);
   padding-top: var(--mantine-spacing-sm);

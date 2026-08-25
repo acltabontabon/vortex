@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMediaQuery } from '@mantine/hooks';
-import { Stack, Text, Title } from '@mantine/core';
+import { Grid, Text, Title } from '@mantine/core';
 import { useTestsQuery } from '../../api/workspace';
 import { TestComposer } from './TestComposer';
 import { WorkloadPreviewPanel, type ComposerPreviewSnapshot } from './WorkloadPreviewPanel';
@@ -15,7 +15,7 @@ import classes from './TestEditorPage.module.css';
  * which meant every change to the composer's design had to be made twice — and, in practice, only
  * ever was made once, so this page quietly fell behind. `TestComposer` makes no layout assumptions
  * (see its own module CSS) beyond needing somewhere to put its Workload Preview when there's room
- * for one, which is exactly what `.aside` already provided.
+ * for one, which is exactly what the rail column already provides.
  */
 export function TestEditorPage() {
   const { id = '', name } = useParams();
@@ -27,8 +27,8 @@ export function TestEditorPage() {
   const testsQuery = useTestsQuery(id);
 
   return (
-    <Stack gap="lg" className={classes.split}>
-      <div className={classes.main}>
+    <Grid columnGap={48} rowGap="xl" align="start">
+      <Grid.Col span={{ base: 12, md: 9 }}>
         <Title order={1} size="h2" mb={4}>
           {editing ? name : 'Define a test'}
         </Title>
@@ -46,13 +46,11 @@ export function TestEditorPage() {
           showInlineChart={!isSideBySide}
           target={testsQuery.data?.header.target ?? null}
         />
-      </div>
+      </Grid.Col>
 
-      <div className={classes.aside}>
-        <div className={classes.stickyCard}>
-          <WorkloadPreviewPanel snapshot={preview} showChart={!!isSideBySide} />
-        </div>
-      </div>
-    </Stack>
+      <Grid.Col span={{ base: 12, md: 3 }} className={classes.railCol}>
+        <WorkloadPreviewPanel snapshot={preview} showChart={!!isSideBySide} />
+      </Grid.Col>
+    </Grid>
   );
 }

@@ -1,5 +1,5 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Card, Skeleton, Stack } from '@mantine/core';
+import { Grid, Skeleton } from '@mantine/core';
 import { Unknown } from '../../components/Unknown';
 import { errorFallback } from '../../lib/queryFallback';
 import { usePreflightFlow } from './usePreflightFlow';
@@ -64,13 +64,13 @@ export function PreflightPage() {
   }
 
   return (
-    <Stack gap="lg" className={classes.split}>
-      <div className={classes.main}>
+    <Grid columnGap={48} rowGap="xl" align="start">
+      <Grid.Col span={{ base: 12, md: 9 }}>
         <PreflightSections preflight={preflight} />
-      </div>
+      </Grid.Col>
 
-      <div className={classes.aside}>
-        <Card withBorder radius="md" className={classes.stickyCard}>
+      <Grid.Col span={{ base: 12, md: 3 }} className={classes.railCol}>
+        <div className={`${classes.actionCard} ${preflight.canRun ? '' : classes.actionCardBlocked}`}>
           <PreflightActions
             preflight={preflight}
             confirmation={confirmation}
@@ -86,8 +86,8 @@ export function PreflightPage() {
             onRecheck={() => preflightQuery.refetch()}
             rechecking={preflightQuery.isFetching}
           />
-        </Card>
-      </div>
-    </Stack>
+        </div>
+      </Grid.Col>
+    </Grid>
   );
 }

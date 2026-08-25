@@ -1,27 +1,35 @@
-.split {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--mantine-spacing-lg);
+/*
+ * Sticky rather than scrolling away with the main column — matches OverviewPage's Recent Runs
+ * rail (see .railCol there). A single sticky point on the Grid.Col itself, not duplicated onto a
+ * wrapper div and the Card inside it, and a static fallback once the Grid collapses to one column
+ * below `md` (62em, matching the Grid.Col span breakpoint below) — sticky while stacked above
+ * scrolling content looks broken, not helpful.
+ */
+.railCol {
+  position: sticky;
+  top: 1.5rem;
 }
 
-@media (min-width: 900px) {
-  .split {
-    grid-template-columns: minmax(0, 1fr) 320px;
-    align-items: start;
+@media (max-width: 62em) {
+  .railCol {
+    position: static;
   }
 }
 
-.main {
-  min-width: 0;
+/* The same accent-bordered surface PreflightSections' .group/.summaryPanel use — this card is the
+   most decision-critical thing on the page (it's what Run actually does), and a plain default
+   Mantine Card here was the one panel that didn't speak the rest of the page's visual language,
+   which read as a foreign, bolted-on sidebar widget rather than part of the page. The left edge
+   colors with the run's own readiness, so the state is visible before reading a word of it. */
+.actionCard {
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--mantine-color-pass-6);
+  border-radius: var(--mantine-radius-md);
+  background: var(--surface-card);
+  padding: 1.1rem 1.25rem;
+  transition: border-left-color 0.2s ease;
 }
 
-.aside {
-  min-width: 0;
-  position: sticky;
-  top: var(--mantine-spacing-lg);
-}
-
-.stickyCard {
-  position: sticky;
-  top: var(--mantine-spacing-lg);
+.actionCardBlocked {
+  border-left-color: var(--mantine-color-fail-6);
 }

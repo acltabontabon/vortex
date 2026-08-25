@@ -1,4 +1,6 @@
-import { Alert, Button, Group, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Stack, Text, TextInput, Title } from '@mantine/core';
+import { IconPlayerPlayFilled } from '@tabler/icons-react';
+import { motion, useReducedMotion } from 'motion/react';
 import type { Preflight } from '../../api/run';
 import classes from './PreflightActions.module.css';
 
@@ -36,22 +38,41 @@ export function PreflightActions({
   onRecheck: () => void;
   rechecking: boolean;
 }) {
-  // Just the numbers, not the test type — the drawer's own title bar already states that, and
-  // repeating it here risks a second exact-text match against a query built for "stated once".
-  const recap = [preflight.peakLevelDisplay, preflight.durationDisplay].filter(Boolean).join(' · ');
+  const reducedMotion = useReducedMotion() === true;
 
   return (
     <>
-      {recap && (
-        <Text size="xs" className={classes.recap} mb="xs">
-          {recap}
-        </Text>
+      {(preflight.peakLevelDisplay || preflight.durationDisplay) && (
+        <div className={classes.statRow}>
+          {preflight.peakLevelDisplay && (
+            <div className={classes.stat}>
+              <div className={classes.statValue}>{preflight.peakLevelDisplay}</div>
+              <div className={classes.statLabel}>Level</div>
+            </div>
+          )}
+          {preflight.durationDisplay && (
+            <div className={classes.stat}>
+              <div className={classes.statValue}>{preflight.durationDisplay}</div>
+              <div className={classes.statLabel}>Duration</div>
+            </div>
+          )}
+        </div>
       )}
 
-      <Title order={3} size="h4" mb="sm" className={classes.heading}>
-        <span
+      <Title
+        order={3}
+        size="h4"
+        mb="sm"
+        className={classes.heading}
+        c={preflight.canRun ? undefined : 'fail'}
+      >
+        <motion.span
           className={`${classes.statusDot} ${preflight.canRun ? classes.statusDotReady : classes.statusDotBlocked}`}
           aria-hidden="true"
+          animate={
+            preflight.canRun && !reducedMotion ? { scale: [1, 1.4, 1], opacity: [1, 0.55, 1] } : undefined
+          }
+          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
         />
         {preflight.canRun ? 'Ready to run' : 'Cannot run yet'}
       </Title>
@@ -78,20 +99,27 @@ export function PreflightActions({
         </Alert>
       )}
 
-      <Group>
+      <Stack gap="xs">
         {preflight.canRun ? (
-          <Button size="lg" disabled={!confirmed} loading={pending} onClick={onStart}>
+          <Button
+            size="lg"
+            fullWidth
+            leftSection={<IconPlayerPlayFilled size={16} />}
+            disabled={!confirmed}
+            loading={pending}
+            onClick={onStart}
+          >
             Run
           </Button>
         ) : (
-          <Button size="lg" variant="light" loading={rechecking} onClick={onRecheck}>
+          <Button size="lg" fullWidth variant="light" loading={rechecking} onClick={onRecheck}>
             Recheck
           </Button>
         )}
-        <Button size="lg" variant="default" onClick={onCancel}>
+        <Button size="sm" variant="subtle" c="dimmed" onClick={onCancel}>
           Cancel
         </Button>
-      </Group>
+      </Stack>
 
       <Text size="xs" className={classes.provenance}>
         {preflight.runnerLabel} · {preflight.scriptSourceLabel} · {preflight.fingerprintShortHash}
