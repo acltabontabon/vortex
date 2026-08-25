@@ -479,8 +479,16 @@ if (spiral && !reduceMotion && 'IntersectionObserver' in window) {
     var styles = getComputedStyle(document.documentElement);
     accentRgb = styles.getPropertyValue('--accent-rgb').trim() || accentRgb;
     var bgHex = styles.getPropertyValue('--bg').trim();
-    var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(bgHex);
-    if (m) bgRgb = parseInt(m[1], 16) + ', ' + parseInt(m[2], 16) + ', ' + parseInt(m[3], 16);
+    // The production build's CSS minifier shortens #ffffff to #fff, so both the 3- and 6-digit
+    // forms need handling here — matching only 6 digits silently kept the canvas on its dark
+    // fallback color under the light theme, since --bg never matched.
+    var long = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(bgHex);
+    var short = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(bgHex);
+    if (long) {
+      bgRgb = parseInt(long[1], 16) + ', ' + parseInt(long[2], 16) + ', ' + parseInt(long[3], 16);
+    } else if (short) {
+      bgRgb = parseInt(short[1] + short[1], 16) + ', ' + parseInt(short[2] + short[2], 16) + ', ' + parseInt(short[3] + short[3], 16);
+    }
   }
 
   function resize() {
