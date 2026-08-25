@@ -1,35 +1,19 @@
 /*
- * Sticky rather than scrolling away with the main column — matches OverviewPage's Recent Runs
- * rail (see .railCol there). A single sticky point on the Grid.Col itself, not duplicated onto a
- * wrapper div and the Card inside it, and a static fallback once the Grid collapses to one column
- * below `md` (62em, matching the Grid.Col span breakpoint below) — sticky while stacked above
- * scrolling content looks broken, not helpful.
+ * Title, question and the confirm-and-start controls in one row — no separate sidebar card. The
+ * card used to just repeat "This run"'s own Level/Duration figures next to a couple of buttons;
+ * once those numbers are one glance down instead of duplicated beside the title, there's nothing
+ * left that actually needed its own column, so PreflightSections now runs the full page width.
  */
-.railCol {
-  position: sticky;
-  top: 1.5rem;
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-bottom: var(--mantine-spacing-xl);
 }
 
-@media (max-width: 62em) {
-  .railCol {
-    position: static;
-  }
-}
-
-/* The same accent-bordered surface PreflightSections' .group/.summaryPanel use — this card is the
-   most decision-critical thing on the page (it's what Run actually does), and a plain default
-   Mantine Card here was the one panel that didn't speak the rest of the page's visual language,
-   which read as a foreign, bolted-on sidebar widget rather than part of the page. The left edge
-   colors with the run's own readiness, so the state is visible before reading a word of it. */
-.actionCard {
-  border: 1px solid var(--border-default);
-  border-left: 3px solid var(--mantine-color-pass-6);
-  border-radius: var(--mantine-radius-md);
-  background: var(--surface-card);
-  padding: 1.1rem 1.25rem;
-  transition: border-left-color 0.2s ease;
-}
-
-.actionCardBlocked {
-  border-left-color: var(--mantine-color-fail-6);
+.headerText {
+  min-width: 0;
+  flex: 1 1 320px;
 }

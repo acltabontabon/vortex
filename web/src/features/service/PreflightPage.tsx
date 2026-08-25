@@ -1,5 +1,5 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Grid, Skeleton } from '@mantine/core';
+import { Skeleton, Text, Title } from '@mantine/core';
 import { Unknown } from '../../components/Unknown';
 import { errorFallback } from '../../lib/queryFallback';
 import { usePreflightFlow } from './usePreflightFlow';
@@ -64,30 +64,36 @@ export function PreflightPage() {
   }
 
   return (
-    <Grid columnGap={48} rowGap="xl" align="start">
-      <Grid.Col span={{ base: 12, md: 9 }}>
-        <PreflightSections preflight={preflight} />
-      </Grid.Col>
-
-      <Grid.Col span={{ base: 12, md: 3 }} className={classes.railCol}>
-        <div className={`${classes.actionCard} ${preflight.canRun ? '' : classes.actionCardBlocked}`}>
-          <PreflightActions
-            preflight={preflight}
-            confirmation={confirmation}
-            onConfirmationChange={setConfirmation}
-            needsConfirmation={needsConfirmation}
-            requiredChallenges={requiredChallenges}
-            confirmed={confirmed}
-            failingChecks={failingChecks}
-            startError={startError}
-            pending={startMutation.isPending}
-            onStart={onStart}
-            onCancel={() => navigate(-1)}
-            onRecheck={() => preflightQuery.refetch()}
-            rechecking={preflightQuery.isFetching}
-          />
+    <>
+      <div className={classes.header}>
+        <div className={classes.headerText}>
+          <Title order={1} size="h3" mb={4}>
+            {preflight.testTypeLabel}
+          </Title>
+          <Text c="dimmed" size="sm">
+            {preflight.testTypeQuestion}
+          </Text>
         </div>
-      </Grid.Col>
-    </Grid>
+
+        <PreflightActions
+          layout="inline"
+          preflight={preflight}
+          confirmation={confirmation}
+          onConfirmationChange={setConfirmation}
+          needsConfirmation={needsConfirmation}
+          requiredChallenges={requiredChallenges}
+          confirmed={confirmed}
+          failingChecks={failingChecks}
+          startError={startError}
+          pending={startMutation.isPending}
+          onStart={onStart}
+          onCancel={() => navigate(-1)}
+          onRecheck={() => preflightQuery.refetch()}
+          rechecking={preflightQuery.isFetching}
+        />
+      </div>
+
+      <PreflightSections preflight={preflight} showHeading={false} showQuestion={false} />
+    </>
   );
 }

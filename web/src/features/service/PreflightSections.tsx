@@ -55,11 +55,14 @@ function Tile({ value, label }: { value: string; label: string }) {
 export function PreflightSections({
   preflight,
   showHeading = true,
+  showQuestion = true,
 }: {
   preflight: Preflight;
-  /** False when a shell already states the test type as its own title (the drawer's header bar) —
-   *  the question line still renders either way, since nothing else states that. */
+  /** False when a shell already states the test type as its own title (the drawer's header bar). */
   showHeading?: boolean;
+  /** False when a shell already states the question as part of its own title block (PreflightPage
+   *  combines heading + question + actions into one header row it owns). */
+  showQuestion?: boolean;
 }) {
   const hasPassConditions = preflight.checks.length > 0 || preflight.thresholdDescriptions.length > 0;
   // The classification caveat arrives twice — once as its own field, once folded into
@@ -78,9 +81,11 @@ export function PreflightSections({
           {preflight.testTypeLabel}
         </Title>
       )}
-      <Text c="dimmed" size="sm" mb="lg">
-        {preflight.testTypeQuestion}
-      </Text>
+      {showQuestion && (
+        <Text c="dimmed" size="sm" mb="lg">
+          {preflight.testTypeQuestion}
+        </Text>
+      )}
 
       {preflight.plainEnglishSummary && (
         <div className={classes.summaryPanel}>
@@ -119,6 +124,7 @@ export function PreflightSections({
           </Stack>
         )}
 
+        <div className={classes.runConditionsGrid}>
         <div className={classes.group}>
           <Title order={3} size="h4" mb="md" className={classes.groupTitle}>
             This run
@@ -229,6 +235,7 @@ export function PreflightSections({
             )}
           </div>
         )}
+        </div>
       </Stack>
     </>
   );

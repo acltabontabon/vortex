@@ -18,6 +18,24 @@
   line-height: 1.5;
 }
 
+/* Side by side once there's genuinely room for both without cramping either one's own internal
+   grid (.tileRow / .checkGrid are both auto-fit, so they reflow to fewer columns on their own as
+   this narrows — no coordination needed beyond picking a breakpoint wide enough that neither one
+   is left with a single, oddly-stretched column). Below that, stacked full-width like every other
+   section on the page. */
+.runConditionsGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--mantine-spacing-md);
+  align-items: start;
+}
+
+@media (min-width: 1100px) {
+  .runConditionsGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 /* Elevation tier 2, the same surface ConfigurationPage's .group uses — one hairline-bordered,
    tinted block per section, rather than the default Mantine Card these sections started as. */
 .group {
