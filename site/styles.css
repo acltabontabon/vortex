@@ -92,7 +92,6 @@ section {
   padding: 64px 0;
   border-bottom: 1px solid var(--border);
   min-height: 100vh;
-  min-height: 100svh;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -145,10 +144,7 @@ p {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  /* svh (small viewport height) excludes mobile browser chrome that vh incorrectly counts as
-     visible space; the vh line first is a fallback for browsers without svh support. */
   min-height: 100vh;
-  min-height: 100svh;
   padding: 96px 0 92px;
 }
 
@@ -885,10 +881,22 @@ p {
   text-align: center;
   border-bottom: 1px solid var(--border);
   min-height: 100vh;
-  min-height: 100svh;
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+/* svh (small viewport height) excludes mobile browser chrome that vh incorrectly counts as
+   visible space, so the full-screen sections above never sit taller than what's actually visible.
+   Gated behind @supports rather than the usual "declare vh, then redeclare svh" fallback because
+   the production CSS minifier collapses that pattern down to the svh line alone — any browser
+   without svh support was then left with no min-height at all instead of falling back to vh. */
+@supports (min-height: 100svh) {
+  .hero,
+  section,
+  .statement {
+    min-height: 100svh;
+  }
 }
 
 .statement-lead {
@@ -1718,6 +1726,22 @@ a {
   }
   .hero {
     padding: 64px 0 60px;
+  }
+  /* The two-actor stage is a horizontal row wide enough (each bubble up to 190px, plus the
+     status pill between them) that on a narrow phone it doesn't just get tight — the engineer's
+     column runs past the edge of the screen entirely. Wrapping wrap and centering stacks lead,
+     status, and engineer into their own centered lines instead, so nothing goes off-screen. */
+  .interro-stage {
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 20px;
+  }
+  .interro-stage-status {
+    flex-basis: 100%;
+    margin-bottom: 0;
+  }
+  .interro-bubble {
+    max-width: min(190px, 70vw);
   }
   .lightbox {
     padding: 24px 16px;
