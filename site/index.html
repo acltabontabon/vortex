@@ -3,6 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    // Runs inline, before the browser gets a chance to restore a reload/back-forward scroll
+    // position — with the page now a sequence of full-screen snap sections, landing back
+    // mid-page reads as broken rather than as a returning reader's place being remembered.
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
+  </script>
   <title>Vortex — production-informed capacity evidence</title>
   <meta name="description" content="Cool, you ran a load test. What did you actually prove? A load test tells you what happened — Vortex tells you if it means anything. Don't just generate load. Prove capacity.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
