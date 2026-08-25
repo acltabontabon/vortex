@@ -4,37 +4,149 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vortex — production-informed capacity evidence</title>
-  <meta name="description" content="You can run a load test. But what should you actually test? Vortex turns an API spec and a traffic goal into a workload, runs it, and gives you evidence-backed capacity answers.">
+  <meta name="description" content="Cool, you ran a load test. What did you actually prove? A load test tells you what happened — Vortex tells you if it means anything. Don't just generate load. Prove capacity.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="vortex-bg" aria-hidden="true"></div>
+  <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+    <filter id="sketch-edge" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="7" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.2" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </svg>
   <div class="wrap">
     <section class="hero">
-      <div class="eyebrow">Vortex</div>
-      <h1>You can run a load test. But what should you actually test?</h1>
-      <p class="strap">Local-first — runs against your own service, on your own machine.</p>
-      <p>Vortex brings the workload, objectives, execution, and evidence together so you can answer one
-        question with confidence: can this service actually handle the load you expect of it?</p>
-      <p class="hero-cycle" aria-hidden="true"><span data-role="cycle-text">What load should I test?</span></p>
+      <canvas class="vortex-bg" aria-hidden="true"></canvas>
+      <div class="eyebrow">
+        <span>Vortex</span>
+        <span class="eyebrow-divider" aria-hidden="true">—</span>
+        <span class="eyebrow-sub">Performance Engineering Workbench</span>
+      </div>
+      <h1>Cool, you ran a load test.<br>What did you actually prove?</h1>
+      <p class="hero-cycle" aria-hidden="true"><span data-role="cycle-text">Did the service break — or did your load generator?</span></p>
+      <p class="hero-explain">The test gives you numbers. Vortex asks whether they mean anything.</p>
+      <p class="hero-payoff">Don&rsquo;t just generate load. Prove capacity.</p>
       <div class="cta-row">
         <a class="btn btn-primary" href="#download">Download vortex.jar</a>
+        <div class="status-chip">
+          <span class="status-dot" aria-hidden="true"></span>
+          Early alpha — actively evolving
+        </div>
       </div>
-      <div class="badge">Early alpha — actively evolving</div>
     </section>
 
     <section>
-      <h2>The paralysis of &ldquo;it&rsquo;s probably fine&rdquo;</h2>
-      <p>You own a service. Someone asks if it'll hold up under production load. You know roughly how
-        much traffic it sees — but then come the harder questions: what should you actually test, what
-        counts as peak, what response time is acceptable, and for how long. None of those have an
-        obvious answer.</p>
-      <p class="quip">
-        <span class="quip-q">&ldquo;Can it handle production?&rdquo;</span>
-        <span class="quip-a"><span class="strike">&ldquo;Probably.&rdquo;</span> is not capacity evidence.</span>
-      </p>
-      <p>And a test can run successfully and still give you the wrong conclusion.</p>
+      <div class="section-title-row">
+        <h2>The paralysis of &ldquo;it&rsquo;s probably fine&rdquo;</h2>
+        <button type="button" class="interro-replay" data-role="interro-replay" title="Watch it again" aria-label="Watch it again">&#8635;</button>
+      </div>
+
+      <div class="interrogation">
+        <p class="interro-context">Production observed <span class="interro-num">~800 req/s</span> at peak.</p>
+
+        <div class="interro-stage" data-role="interro-stage">
+          <div class="interro-actor interro-actor-lead">
+            <div class="interro-bubble-slot">
+              <div class="interro-bubble" data-role="lead-bubble"><span class="interro-bubble-text" data-role="lead-text"></span></div>
+            </div>
+            <svg class="interro-figure" viewBox="0 0 64 150" aria-hidden="true">
+              <circle cx="32" cy="16" r="11" />
+              <path d="M22,28 L18,74 L46,74 L42,28 Z" />
+              <path d="M22,34 L8,26" />
+              <path d="M42,34 L50,50" />
+              <path d="M24,74 L18,116" />
+              <path d="M40,74 L46,116" />
+              <ellipse cx="15" cy="118" rx="6" ry="2.5" />
+              <ellipse cx="49" cy="118" rx="6" ry="2.5" />
+              <circle cx="27" cy="14" r="1.6" />
+              <circle cx="37" cy="14" r="1.6" />
+              <path d="M33,8 L41,6" />
+              <path d="M22,9 L30,9" />
+              <path d="M25,22 Q32,20 39,22" />
+            </svg>
+            <span class="interro-actor-name">Boss</span>
+          </div>
+
+          <div class="interro-stage-status" data-role="stage-status"><span class="interro-pass">&#10003; TEST PASSED</span></div>
+
+          <div class="interro-actor interro-actor-eng">
+            <div class="interro-bubble-slot">
+              <div class="interro-bubble" data-role="eng-bubble"><span class="interro-bubble-text" data-role="eng-text"></span></div>
+            </div>
+            <svg class="interro-figure" viewBox="0 0 64 150" aria-hidden="true">
+              <circle cx="32" cy="16" r="11" />
+              <path d="M22,28 L18,74 L46,74 L42,28 Z" />
+              <path d="M42,34 C52,26 52,10 36,6" />
+              <path d="M22,34 L16,52" />
+              <path d="M24,74 L18,116" />
+              <path d="M40,74 L46,116" />
+              <ellipse cx="15" cy="118" rx="6" ry="2.5" />
+              <ellipse cx="49" cy="118" rx="6" ry="2.5" />
+              <circle cx="27" cy="14" r="1.6" />
+              <circle cx="37" cy="14" r="1.2" />
+              <path d="M20,9 Q26,6 32,9" />
+              <path d="M34,10 Q38,7 44,11" />
+              <path d="M25,23 Q29,25 32,22 Q35,19 39,22" />
+            </svg>
+            <span class="interro-actor-name">Engineer</span>
+          </div>
+        </div>
+
+        <div class="interro-transcript">
+          <div class="interro-turn interro-lead">
+            <div class="interro-bubble"><span class="interro-msg">Can it handle production?</span></div>
+          </div>
+          <div class="interro-turn interro-eng">
+            <div class="interro-bubble"><span class="interro-msg">Probably.</span></div>
+          </div>
+
+          <div class="interro-turn interro-lead">
+            <div class="interro-bubble"><span class="interro-msg">What did you test?</span></div>
+          </div>
+          <div class="interro-turn interro-eng">
+            <div class="interro-bubble"><span class="interro-msg"><span class="interro-num">1,000 req/s</span>.</span></div>
+          </div>
+
+          <div class="interro-turn interro-lead">
+            <div class="interro-bubble"><span class="interro-msg">Why 1,000?</span></div>
+          </div>
+          <div class="interro-turn interro-eng">
+            <div class="interro-bubble"><span class="interro-msg">Nice round number.</span></div>
+          </div>
+
+          <div class="interro-turn interro-lead">
+            <div class="interro-bubble"><span class="interro-msg">For how long?</span></div>
+          </div>
+          <div class="interro-turn interro-eng">
+            <div class="interro-bubble"><span class="interro-msg"><span class="interro-num">10 minutes</span>.</span></div>
+          </div>
+
+          <div class="interro-turn interro-lead">
+            <div class="interro-bubble"><span class="interro-msg">Why ten?</span></div>
+          </div>
+          <div class="interro-turn interro-eng">
+            <div class="interro-bubble"><span class="interro-msg">It felt sufficient.</span></div>
+          </div>
+
+          <p class="interro-status"><span class="interro-pass">&#10003; TEST PASSED</span></p>
+
+          <div class="interro-turn interro-lead">
+            <div class="interro-bubble"><span class="interro-msg">So we&rsquo;re good for production?</span></div>
+          </div>
+          <div class="interro-turn interro-eng">
+            <div class="interro-bubble"><span class="interro-msg">Probably.</span></div>
+          </div>
+        </div>
+
+        <div class="interro-line interro-finale" data-role="interro-finale">
+          <div class="interro-payoff-turn">
+            <span class="interro-payoff-tag">ENG</span>
+            <span class="interro-payoff-text"><span class="strike">Probably.</span> <span class="interro-verdict">is not capacity evidence.</span></span>
+          </div>
+          <p class="interro-conclusion">The test passed. The conclusion didn&rsquo;t.</p>
+        </div>
+      </div>
     </section>
 
     <div class="statement breakout" data-reveal>
@@ -81,6 +193,8 @@
         experiment.</p>
       <p>Vortex brings the context around the test together so the result can answer more than
         whether requests succeeded.</p>
+      <p>Local-first by design: it runs on your machine, against your services. Your experiments
+        and evidence stay with you.</p>
     </section>
 
     <section id="in-action" class="breakout">
@@ -94,14 +208,20 @@
               <p>Turn traffic expectations, objectives, operations, and load into an explicit
                 experiment.</p>
             </figcaption>
-            <div class="window-frame">
+            <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Define what you're trying to learn">
               <div class="window-chrome"><span></span><span></span><span></span></div>
-              <img class="theme-shot theme-shot-light" src="images/showcase-define-light.webp" width="1400" height="729"
-                alt="Vortex's test composer for a flash-sale-surge test: the Spike intent selected, a recommended jump-and-return load shape, and a weighted operations mix"
-                loading="lazy" decoding="async">
-              <img class="theme-shot theme-shot-dark" src="images/showcase-define.webp" width="1400" height="729"
-                alt="Vortex's test composer for a flash-sale-surge test: the Spike intent selected, a recommended jump-and-return load shape, and a weighted operations mix"
-                loading="lazy" decoding="async">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset="images/showcase-define.webp">
+                <img class="theme-shot" src="images/showcase-define-light.webp" width="1400" height="729"
+                  alt="Vortex's test composer for a flash-sale-surge test: the Spike intent selected, a recommended jump-and-return load shape, and a weighted operations mix"
+                  loading="lazy" decoding="async">
+              </picture>
+              <span class="expand-hint" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                </svg>
+              </span>
             </div>
           </figure>
           <figure class="showcase-item" data-reveal>
@@ -109,14 +229,20 @@
               <strong>See whether the workload was actually delivered.</strong>
               <p>Follow throughput, latency, errors, and resources while the experiment runs.</p>
             </figcaption>
-            <div class="window-frame">
+            <div class="window-frame" role="button" tabindex="0" aria-label="View larger: See whether the workload was actually delivered">
               <div class="window-chrome"><span></span><span></span><span></span></div>
-              <img class="theme-shot theme-shot-light" src="images/showcase-run-light.webp" width="1400" height="519"
-                alt="A live flash-sale-surge run in progress, showing target versus actual throughput, p95 latency, and error rate"
-                loading="lazy" decoding="async">
-              <img class="theme-shot theme-shot-dark" src="images/showcase-run.webp" width="1400" height="519"
-                alt="A live flash-sale-surge run in progress, showing target versus actual throughput, p95 latency, and error rate"
-                loading="lazy" decoding="async">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset="images/showcase-run.webp">
+                <img class="theme-shot" src="images/showcase-run-light.webp" width="1400" height="519"
+                  alt="A live flash-sale-surge run in progress, showing target versus actual throughput, p95 latency, and error rate"
+                  loading="lazy" decoding="async">
+              </picture>
+              <span class="expand-hint" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                </svg>
+              </span>
             </div>
           </figure>
           <figure class="showcase-item" data-reveal>
@@ -125,14 +251,20 @@
               <p>Understand capacity, objective breakpoints, resource limits, and whether the
                 result itself is trustworthy.</p>
             </figcaption>
-            <div class="window-frame">
+            <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Get evidence, not just metrics">
               <div class="window-chrome"><span></span><span></span><span></span></div>
-              <img class="theme-shot theme-shot-light" src="images/showcase-evidence-light.webp" width="1400" height="875"
-                alt="Vortex's evidence view showing synced throughput, latency, CPU and memory timelines alongside the capacity conclusion"
-                loading="lazy" decoding="async">
-              <img class="theme-shot theme-shot-dark" src="images/showcase-evidence.webp" width="1400" height="875"
-                alt="Vortex's evidence view showing synced throughput, latency, CPU and memory timelines alongside the capacity conclusion"
-                loading="lazy" decoding="async">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset="images/showcase-evidence.webp">
+                <img class="theme-shot" src="images/showcase-evidence-light.webp" width="1400" height="875"
+                  alt="Vortex's evidence view showing synced throughput, latency, CPU and memory timelines alongside the capacity conclusion"
+                  loading="lazy" decoding="async">
+              </picture>
+              <span class="expand-hint" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                </svg>
+              </span>
             </div>
           </figure>
         </div>
@@ -170,28 +302,35 @@
     <section id="architecture">
       <h2>Today, and where it&rsquo;s going.</h2>
       <p>One experiment model. Different places to execute it.</p>
-      <div class="arch-diagram" data-reveal>
+      <div class="arch-diagram arch-diagram-sketch" data-reveal>
         <div class="arch-root">
-          <div class="arch-node arch-node-root">Vortex Workbench</div>
+          <div class="arch-node arch-node-root" style="--tilt: -1.6deg" data-tilt="-1.6">Vortex Workbench</div>
           <div class="arch-connector"></div>
-          <div class="arch-node arch-node-root">Experiment Plan</div>
+          <div class="arch-node arch-node-root" style="--tilt: 1.3deg" data-tilt="1.3">Experiment Plan</div>
         </div>
         <div class="arch-branches">
           <div class="arch-col">
             <div class="arch-label">Today</div>
             <div class="arch-connector"></div>
-            <div class="arch-node">Local Execution</div>
+            <div class="arch-node" style="--tilt: -1.1deg" data-tilt="-1.1">Local Execution</div>
             <div class="arch-connector"></div>
-            <div class="arch-node">Local / Dev Target</div>
+            <div class="arch-node" style="--tilt: 1.7deg" data-tilt="1.7">Local / Dev Target</div>
           </div>
           <div class="arch-col arch-col-vision">
-            <div class="arch-label">Vision <span class="badge arch-badge">Roadmap</span></div>
+            <div class="arch-label arch-label-vision">
+              Vision
+              <svg class="arch-vision-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 17 17 7 M10 7 H17 V14" />
+              </svg>
+            </div>
+            <div class="arch-label-note">pencil, not ink</div>
             <div class="arch-connector arch-connector-dashed"></div>
-            <div class="arch-node arch-node-vision">Vortex Coordinator</div>
+            <div class="arch-node arch-node-vision" style="--tilt: -1.4deg" data-tilt="-1.4">Vortex Coordinator</div>
             <div class="arch-connector arch-connector-dashed"></div>
-            <div class="arch-node arch-node-vision">Remote Runners</div>
+            <div class="arch-node arch-node-vision" style="--tilt: 1.2deg" data-tilt="1.2">Remote Runners</div>
             <div class="arch-connector arch-connector-dashed"></div>
-            <div class="arch-node arch-node-vision">Kubernetes / EKS</div>
+            <div class="arch-node arch-node-vision" style="--tilt: -1.8deg" data-tilt="-1.8">Kubernetes / EKS</div>
           </div>
         </div>
       </div>
@@ -209,7 +348,25 @@
           <a class="btn btn-primary" href="vortex.jar" download>Download vortex.jar</a>
         </div>
       </div>
-      <pre class="run-cmd"><code>java -jar vortex.jar</code></pre>
+      <div class="terminal-window" data-reveal>
+        <div class="terminal-chrome">
+          <span></span><span></span><span></span>
+          <span class="terminal-title">bash</span>
+        </div>
+        <div class="terminal-body">
+          <div class="terminal-line">
+            <span class="terminal-prompt">$</span>
+            <span class="terminal-cmd">java -jar vortex.jar</span>
+          </div>
+          <div class="terminal-out-line">Vortex — starting local workbench&hellip;</div>
+          <div class="terminal-out-line">Service catalog loaded.</div>
+          <div class="terminal-out-line terminal-out-success">Ready &rarr; http://127.0.0.1:7717</div>
+          <div class="terminal-line">
+            <span class="terminal-prompt">$</span>
+            <span class="terminal-caret" aria-hidden="true">&nbsp;</span>
+          </div>
+        </div>
+      </div>
       <p class="fineprint">Ships as a jar today, so Java 25+ is required. A native binary — no JVM
         needed — is on the roadmap.</p>
       <p class="fineprint">Early alpha. Vortex is actively evolving — see GitHub for current
@@ -222,135 +379,6 @@
       <p>© 2026 Alvin Cris Tabontabon.</p>
     </footer>
   </div>
-  <script>
-    (function () {
-      var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-      // Hero: cycle through the questions a load test doesn't answer by itself.
-      var cycleEl = document.querySelector('[data-role="cycle-text"]');
-      var cyclePhrases = [
-        'What load should I test?',
-        'Is 300 RPS enough?',
-        'What should p95 be?',
-        'How long should I run it?',
-        'Did the service break — or did my load generator?'
-      ];
-      if (cycleEl && !reduceMotion) {
-        var cycleIndex = 0;
-        setInterval(function () {
-          cycleEl.classList.add('cycle-out');
-          setTimeout(function () {
-            cycleIndex = (cycleIndex + 1) % cyclePhrases.length;
-            cycleEl.textContent = cyclePhrases[cycleIndex];
-            cycleEl.classList.remove('cycle-out');
-          }, 300);
-        }, 2600);
-      }
-
-      // Problem section: reveal the follow-up line once the statement scrolls into view.
-      var statement = document.querySelector('.statement');
-      if (statement) {
-        if (reduceMotion || !('IntersectionObserver' in window)) {
-          statement.classList.add('in-view');
-        } else {
-          var statementObserver = new IntersectionObserver(function (entries) {
-            entries.forEach(function (entry) {
-              if (entry.isIntersecting) {
-                statement.classList.add('in-view');
-                statementObserver.unobserve(statement);
-              }
-            });
-          }, { threshold: 0.5 });
-          statementObserver.observe(statement);
-        }
-      }
-
-      // How it works: light up each step as it's scrolled into view, filling the line behind it.
-      var flowSteps = document.querySelectorAll('.flow li');
-      if (flowSteps.length) {
-        if (reduceMotion || !('IntersectionObserver' in window)) {
-          flowSteps.forEach(function (li) { li.classList.add('active'); });
-        } else {
-          var flowObserver = new IntersectionObserver(function (entries) {
-            entries.forEach(function (entry) {
-              if (entry.isIntersecting) {
-                entry.target.classList.add('active');
-                var prev = entry.target.previousElementSibling;
-                while (prev) {
-                  prev.classList.add('passed');
-                  prev = prev.previousElementSibling;
-                }
-              }
-            });
-          }, { threshold: 0.6, rootMargin: '0px 0px -10% 0px' });
-          flowSteps.forEach(function (li) { flowObserver.observe(li); });
-        }
-      }
-
-      // Concept diagram, showcase cards, architecture diagram: same reveal-on-scroll idiom as
-      // the statement and flow sections above, generalized for anything marked data-reveal.
-      var revealEls = document.querySelectorAll('[data-reveal]:not(.statement)');
-      if (revealEls.length) {
-        if (reduceMotion || !('IntersectionObserver' in window)) {
-          revealEls.forEach(function (el) { el.classList.add('in-view'); });
-        } else {
-          var revealObserver = new IntersectionObserver(function (entries) {
-            entries.forEach(function (entry) {
-              if (entry.isIntersecting) {
-                entry.target.classList.add('in-view');
-                revealObserver.unobserve(entry.target);
-              }
-            });
-          }, { threshold: 0.2 });
-          revealEls.forEach(function (el) { revealObserver.observe(el); });
-        }
-      }
-
-      // Vortex spiral: its stroke-dashoffset "flow" is a real repaint on every frame (unlike the
-      // GPU-composited transform animations elsewhere on the page), so unlike the one-shot reveals
-      // above, keep tracking visibility for its whole lifetime and pause the animation whenever the
-      // diagram scrolls off-screen — no point repainting a diagram nobody can see.
-      var spiral = document.querySelector('.diagram-spiral');
-      if (spiral && !reduceMotion && 'IntersectionObserver' in window) {
-        var spiralObserver = new IntersectionObserver(function (entries) {
-          entries.forEach(function (entry) {
-            spiral.classList.toggle('is-flowing', entry.isIntersecting);
-          });
-        }, { threshold: 0 });
-        spiralObserver.observe(spiral);
-      }
-
-      // Background swirl: same story, worse — animating this masked, blurred layer measured
-      // ~29% of the main thread on its own regardless of scroll position, since it's fixed and
-      // was rendering behind every section, not just the hero it's actually framed around. Only
-      // spin it while the hero itself is in view.
-      var heroSection = document.querySelector('.hero');
-      var vortexBg = document.querySelector('.vortex-bg');
-      if (heroSection && vortexBg && !reduceMotion && 'IntersectionObserver' in window) {
-        var heroObserver = new IntersectionObserver(function (entries) {
-          entries.forEach(function (entry) {
-            vortexBg.classList.toggle('is-spinning', entry.isIntersecting);
-          });
-        }, { threshold: 0 });
-        heroObserver.observe(heroSection);
-      }
-
-      fetch('release.json', { cache: 'no-store' })
-        .then(function (res) {
-          if (!res.ok) throw new Error('release.json not found');
-          return res.json();
-        })
-        .then(function (release) {
-          document.querySelector('[data-role="version"]').textContent = release.name || release.tag;
-          document.querySelector('[data-role="meta"]').textContent =
-            'Requires Java 25+' + (release.prerelease ? ' · Early alpha build' : '');
-        })
-        .catch(function () {
-          // release.json is generated at deploy time; if it's missing (e.g. local
-          // preview without a build step) the download button still works since
-          // its href is a static file, only the version label stays generic.
-        });
-    })();
-  </script>
+  <script type="module" src="/interactions.js"></script>
 </body>
 </html>

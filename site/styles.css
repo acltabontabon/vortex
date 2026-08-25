@@ -40,70 +40,27 @@ body {
 }
 
 .vortex-bg {
-  position: fixed;
+  /* Scoped to .hero's own box (position: absolute, not fixed to the viewport) so it scrolls away
+     with the hero and can never bleed into the sections beneath it — a fixed, viewport-covering
+     canvas here was rendering (faintly, via its mask's outer falloff) behind every section on the
+     page, not just the hero it's framed around. z-index: -1 paints it behind .hero's own text
+     content without needing z-index on every sibling — see .hero below for the stacking context
+     that makes that safe. */
+  position: absolute;
   inset: 0;
-  z-index: 0;
-  overflow: hidden;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  display: block;
   pointer-events: none;
   mask-image: radial-gradient(circle at 50% 22%, black, transparent 65%);
   -webkit-mask-image: radial-gradient(circle at 50% 22%, black, transparent 65%);
-}
-
-.vortex-bg::before,
-.vortex-bg::after {
-  content: "";
-  position: absolute;
-  top: 22%;
-  left: 50%;
-  width: 130vmax;
-  height: 130vmax;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    var(--accent) 6deg,
-    transparent 34deg,
-    transparent 176deg,
-    var(--accent) 182deg,
-    transparent 210deg,
-    transparent 360deg
-  );
-  opacity: 0.14;
-  filter: blur(1px);
-  animation: vortex-spin 100s linear infinite;
-  will-change: transform;
-  /* Animating a blurred + masked layer is expensive on the main thread — measured ~29% CPU
-     sustained just from this element alone (browsers largely can't take the cheap GPU-only
-     transform path once filter/mask are in the mix). Paused by default; JS below runs it only
-     while the hero — the one section it's actually framed around — is in view. */
-  animation-play-state: paused;
-}
-
-.vortex-bg.is-spinning::before,
-.vortex-bg.is-spinning::after {
-  animation-play-state: running;
-}
-
-.vortex-bg::after {
-  width: 78vmax;
-  height: 78vmax;
-  opacity: 0.1;
-  animation-duration: 65s;
-  animation-direction: reverse;
-}
-
-@keyframes vortex-spin {
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vortex-bg::before,
-  .vortex-bg::after {
-    animation: none;
-  }
+  /* A <canvas> now, not a blurred/masked DOM layer — see interactions.js. Cost here scales with
+     particle count (a few dozen small circle fills per frame), not with viewport pixel area, which
+     is exactly the property the old conic-gradient + filter:blur layer lacked: that one measured
+     ~29% sustained CPU and got dramatically worse on wide screens because its paint cost grew with
+     the square of the viewport's larger dimension. Paused (rAF simply isn't running) unless the
+     hero is in view, same as before. */
 }
 
 .wrap {
@@ -138,18 +95,29 @@ h2 {
   margin: 0 0 20px;
 }
 
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 p {
   color: var(--fg-muted);
   margin: 0 0 16px;
 }
 
 .hero {
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
   padding-top: 96px;
 }
 
 .eyebrow {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   font-size: 0.8rem;
   font-weight: 600;
@@ -159,21 +127,57 @@ p {
   margin-bottom: 20px;
 }
 
-.strap {
-  font-size: 1.05rem;
-  font-style: italic;
-  color: var(--fg);
-  border-left: 3px solid var(--accent);
-  padding-left: 16px;
-  margin: 24px 0 32px;
+.eyebrow-divider {
+  color: var(--border);
+  font-weight: 400;
+}
+
+.eyebrow-sub {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: none;
+  color: var(--fg-muted);
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  width: 0;
+  /* content-box, overriding the page's global border-box: the animated width is JS-measured
+     against scrollWidth (pure content width), and border-box would eat this caret's 1.5px border
+     out of that same box, clipping the last sliver of text by exactly the border's width. */
+  box-sizing: content-box;
+  border-right: 1.5px solid var(--accent);
+  /* The width reveal itself is driven by motion's animate() in interactions.js, not a CSS
+     @keyframes width animation — neither a hardcoded `ch` count nor a JS-set custom property fed
+     into an already-scheduled keyframe reliably matched this text's actual rendered width across
+     browsers/fonts in testing. This blinking-caret animation is unaffected by that; it's a plain
+     color toggle with no font-metric dependency. */
+  animation: eyebrow-caret 0.8s step-end 0.5s 2;
+}
+
+@keyframes eyebrow-caret {
+  50% {
+    border-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eyebrow-sub {
+    width: auto;
+    animation: none;
+    border-right-color: transparent;
+  }
 }
 
 .hero-cycle {
   font-family: var(--mono);
-  font-size: 0.85rem;
-  color: var(--accent);
-  min-height: 1.4em;
-  margin: 0 0 20px;
+  font-size: clamp(1rem, 2.2vw, 1.15rem);
+  color: var(--fg-muted);
+  min-height: 1.6em;
+  margin: 36px 0 32px;
+  padding-left: 16px;
+  border-left: 2px solid var(--accent);
 }
 
 .hero-cycle span {
@@ -186,6 +190,7 @@ p {
 .hero-cycle span::before {
   content: "› ";
   opacity: 0.6;
+  color: var(--accent);
 }
 
 .hero-cycle span.cycle-out {
@@ -193,9 +198,23 @@ p {
   transform: translateY(4px);
 }
 
+.hero-explain {
+  font-size: 1rem;
+  margin: 0 0 10px;
+}
+
+.hero-payoff {
+  font-size: clamp(1.1rem, 2.5vw, 1.35rem);
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.01em;
+  margin: 0 0 28px;
+}
+
 .cta-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 12px;
   margin-top: 8px;
 }
@@ -225,16 +244,44 @@ p {
   display: none;
 }
 
-.badge {
-  display: inline-block;
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--fg-muted);
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 4px 12px;
-  margin-top: 28px;
+  padding: 6px 14px 6px 11px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5);
+  animation: status-pulse 2s ease-out infinite;
+}
+
+@keyframes status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot {
+    animation: none;
+  }
 }
 
 .flow {
@@ -316,20 +363,404 @@ p {
   }
 }
 
-.quip {
+.interrogation {
+  margin: 20px 0 4px;
+}
+
+.interro-context {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--fg-muted);
   margin: 0 0 8px;
 }
 
-.quip-q {
-  display: block;
-  color: var(--fg-muted);
+.interro-context::before {
+  content: "// ";
+  opacity: 0.5;
 }
 
-.quip-a {
-  display: block;
+.interro-num {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* Animated stage: two sketchnote figures with speech bubbles that step through the exchange
+   once the section scrolls into view. Hidden under reduced motion in favor of .interro-transcript
+   below, a plain always-visible rendering of the same exchange. */
+.interro-stage {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 420px;
+  margin: 28px auto 24px;
+  padding: 0 4px;
+}
+
+.interro-actor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+/* A fixed-height reserved slot the bubble sits at the bottom of, in normal flow — so a bubble
+   growing to two lines of text never pushes the figure underneath it around, and never overlaps
+   whatever sits above the stage either. Only the bubble grows within this fixed box. */
+.interro-bubble-slot {
+  height: 80px;
+  padding-bottom: 10px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.interro-bubble {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 34px;
+  min-width: 96px;
+  width: max-content;
+  max-width: 190px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  border-bottom-left-radius: 4px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  text-align: center;
+  opacity: 0;
+  transform: translateY(6px) scale(0.94);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.interro-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  transform: translateX(-50%);
+  border-width: 7px 6px 0 6px;
+  border-style: solid;
+  border-color: var(--bg-alt) transparent transparent transparent;
+}
+
+.interro-bubble.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.interro-actor-eng .interro-bubble {
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 4px;
+  background: rgba(var(--accent-rgb), 0.14);
+  border-color: rgba(var(--accent-rgb), 0.4);
+}
+
+.interro-actor-eng .interro-bubble::after {
+  border-color: rgba(var(--accent-rgb), 0.14) transparent transparent transparent;
+}
+
+.interro-bubble-text {
   color: var(--fg);
+  font-size: 0.85rem;
   font-weight: 600;
-  margin-top: 4px;
+}
+
+.interro-figure {
+  width: 62px;
+  height: 142px;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: url(#sketch-edge);
+  transform: rotate(var(--tilt, 0deg));
+}
+
+.interro-actor-lead .interro-figure {
+  --tilt: -1.5deg;
+  stroke: var(--fg-muted);
+}
+
+.interro-actor-eng .interro-figure {
+  --tilt: 1.5deg;
+  stroke: var(--accent);
+}
+
+/* A little emphatic wobble each time a figure's line lands — like they're actually gesturing
+   through the point rather than just standing there while text appears above their head. */
+.interro-figure.is-talking {
+  animation: interro-gesture 0.5s ease;
+}
+
+@keyframes interro-gesture {
+  0% {
+    transform: rotate(var(--tilt, 0deg));
+  }
+  35% {
+    transform: rotate(calc(var(--tilt, 0deg) + 6deg)) scale(1.05);
+  }
+  70% {
+    transform: rotate(calc(var(--tilt, 0deg) - 3deg));
+  }
+  100% {
+    transform: rotate(var(--tilt, 0deg));
+  }
+}
+
+.interro-actor-name {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-top: 6px;
+}
+
+.interro-actor-eng .interro-actor-name {
+  color: var(--accent);
+}
+
+.interro-stage-status {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-bottom: 60px;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.interro-stage-status.is-visible {
+  opacity: 1;
+  transform: scale(1);
+  animation: interro-pass-pop 0.4s ease;
+}
+
+@keyframes interro-pass-pop {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interro-stage {
+    display: none;
+  }
+
+  .interro-stage-status.is-visible {
+    animation: none;
+  }
+}
+
+.interro-pass {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.14);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  border-radius: 4px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.interro-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  color: var(--accent);
+  opacity: 0.4;
+  animation: interro-typing-bounce 1.1s ease-in-out infinite;
+}
+
+.interro-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.interro-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes interro-typing-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interro-dot {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* Static fallback transcript: always visible under reduced motion (JS never starts the stage
+   sequence in that case), hidden otherwise since the stage tells the same story. */
+.interro-transcript {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interro-transcript {
+    display: block;
+    margin-top: 8px;
+  }
+}
+
+.interro-transcript .interro-turn {
+  display: flex;
+  margin: 0 0 8px;
+}
+
+.interro-transcript .interro-lead {
+  justify-content: flex-start;
+}
+
+.interro-transcript .interro-eng {
+  justify-content: flex-end;
+}
+
+.interro-transcript .interro-bubble {
+  position: static;
+  opacity: 1;
+  transform: none;
+  min-height: auto;
+  min-width: auto;
+  max-width: 76%;
+  margin-bottom: 0;
+  display: block;
+}
+
+.interro-transcript .interro-bubble::after {
+  display: none;
+}
+
+.interro-transcript .interro-msg {
+  color: var(--fg);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.interro-status {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 16px;
+}
+
+.interro-line.interro-finale {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.interro-line.interro-finale.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interro-line.interro-finale {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+.interro-payoff-turn {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 26px 0 10px;
+}
+
+.interro-payoff-tag {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+.interro-payoff-text {
+  font-size: clamp(1.1rem, 2.6vw, 1.4rem);
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.interro-verdict {
+  color: var(--fg);
+}
+
+.interro-conclusion {
+  font-size: clamp(1.05rem, 2.4vw, 1.25rem);
+  color: var(--accent);
+  font-weight: 600;
+  margin: 22px 0 8px;
+}
+
+.interro-replay {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--fg-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity 0.3s ease, transform 0.3s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.interro-replay.is-visible {
+  opacity: 0.75;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.interro-replay:hover {
+  opacity: 1;
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interro-replay {
+    display: none;
+  }
 }
 
 .strike {
@@ -417,20 +848,170 @@ p {
   margin-top: 0;
 }
 
-.run-cmd {
-  margin: 0;
-  padding: 12px 16px;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 0.85rem;
-  color: var(--fg-muted);
-  overflow-x: auto;
+/* Run Vortex (#download): a mocked-up, always-dark terminal window (deliberately independent of
+   the page's own light/dark theme, like an editor's integrated terminal) that "boots" the product
+   when scrolled into view — types the command, then prints the same startup line Vortex actually
+   shows locally, ending on a blinking, waiting prompt. Reuses the existing [data-reveal]/.in-view
+   plumbing (see interactions.js's generic reveal loop) to trigger every animation below; nothing
+   here needed its own JS. */
+
+.terminal-window {
+  margin: 24px 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0d1117;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 48px -28px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
 }
 
-.run-cmd code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--fg);
+.terminal-window.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.terminal-chrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  background: #161b22;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.terminal-chrome span:not(.terminal-title) {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.terminal-chrome span:nth-child(1) {
+  background: #ff5f57;
+}
+
+.terminal-chrome span:nth-child(2) {
+  background: #febc2e;
+}
+
+.terminal-chrome span:nth-child(3) {
+  background: #28c840;
+}
+
+.terminal-title {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-body {
+  padding: 18px 20px 22px;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.9;
+  color: #c9d1d9;
+}
+
+.terminal-prompt {
+  color: #5fd6c9;
+  margin-right: 10px;
+}
+
+.terminal-cmd {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  width: 0;
+  border-right: 1.5px solid #5fd6c9;
+}
+
+.terminal-out-line {
+  padding-left: 24px;
+  color: rgba(201, 209, 217, 0.7);
+  opacity: 0;
+  transform: translateX(-4px);
+}
+
+.terminal-out-success {
+  color: #5fd6c9;
+}
+
+.terminal-caret {
+  display: inline-block;
+  width: 7px;
+  height: 15px;
+  background: #5fd6c9;
+  opacity: 0;
+}
+
+.terminal-window.in-view .terminal-cmd {
+  animation: terminal-type 0.9s steps(20, end) 0.4s forwards;
+}
+
+.terminal-window.in-view .terminal-out-line {
+  animation: terminal-out-in 0.4s ease forwards;
+}
+
+.terminal-window.in-view .terminal-out-line:nth-of-type(2) {
+  animation-delay: 1.5s;
+}
+
+.terminal-window.in-view .terminal-out-line:nth-of-type(3) {
+  animation-delay: 1.85s;
+}
+
+.terminal-window.in-view .terminal-out-line:nth-of-type(4) {
+  animation-delay: 2.2s;
+}
+
+.terminal-window.in-view .terminal-line:last-child .terminal-caret {
+  animation: terminal-caret-blink 0.9s step-end 2.6s infinite;
+}
+
+@keyframes terminal-type {
+  to {
+    width: 20ch;
+  }
+}
+
+@keyframes terminal-out-in {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes terminal-caret-blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  50.01%, 100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-cmd {
+    width: 20ch;
+    animation: none;
+    border-right-color: transparent;
+  }
+  .terminal-out-line {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+  .terminal-caret {
+    opacity: 1;
+    animation: none;
+  }
 }
 
 footer {
@@ -487,6 +1068,15 @@ a {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 4px 12px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.vortex-diagram.in-view .diagram-inputs li,
+.vortex-diagram.in-view .diagram-outputs li {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .diagram-outputs li {
@@ -604,17 +1194,46 @@ a {
 }
 
 .window-frame {
+  position: relative;
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg-alt);
   box-shadow: 0 1px 0 var(--border);
+  cursor: zoom-in;
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
 .showcase-item:hover .window-frame {
   transform: translateY(-3px);
   box-shadow: 0 16px 32px -20px rgba(var(--accent-rgb), 0.35);
+}
+
+.window-frame:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.expand-hint {
+  position: absolute;
+  top: 22px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.window-frame:hover .expand-hint {
+  opacity: 0.92;
+  transform: scale(1);
 }
 
 .window-chrome {
@@ -635,23 +1254,6 @@ a {
   display: block;
   width: 100%;
   height: auto;
-}
-
-/* Screenshots follow the visitor's own theme, same as the rest of the page — the light source
-   shows by default, the dark source takes over under prefers-color-scheme: dark. Selectors are
-   scoped to .window-frame img to out-specificity the base `.window-frame img { display: block }`
-   rule above, which a bare `.theme-shot-dark { display: none }` would otherwise lose to. */
-.window-frame img.theme-shot-dark {
-  display: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  .window-frame img.theme-shot-light {
-    display: none;
-  }
-  .window-frame img.theme-shot-dark {
-    display: block;
-  }
 }
 
 .showcase-item figcaption {
@@ -688,6 +1290,25 @@ a {
   transform: translateY(0);
 }
 
+.arch-diagram-sketch {
+  position: relative;
+  border-radius: 16px;
+  padding-top: 32px;
+  padding-bottom: 24px;
+}
+
+.arch-diagram-sketch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 18px 18px;
+  opacity: 0.4;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+}
+
 .arch-root {
   display: flex;
   flex-direction: column;
@@ -718,8 +1339,28 @@ a {
   margin-bottom: 4px;
 }
 
+.arch-label-vision {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 0;
+}
+
+.arch-vision-icon {
+  color: var(--accent);
+}
+
+.arch-label-note {
+  font-size: 0.68rem;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--fg-muted);
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+
 .arch-node {
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: 8px;
   padding: 9px 16px;
   background: var(--bg-alt);
@@ -727,6 +1368,20 @@ a {
   color: var(--fg);
   text-align: center;
   white-space: nowrap;
+  /* Sketchnote treatment: a roughened SVG-filter outline, a hand-placed tilt (varies per node
+     via the inline --tilt custom property), and a flat "drawn" offset shadow instead of a soft
+     realistic one — like sticky notes pinned to a whiteboard, not a corporate flowchart. Hovering
+     "picks the note up" (straightens + lifts); see interactions.js for the spring-driven version
+     of that, this transition is the non-JS/reduced-motion fallback. */
+  filter: url(#sketch-edge);
+  transform: rotate(var(--tilt, 0deg));
+  box-shadow: 3px 3px 0 rgba(var(--accent-rgb), 0.18);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.arch-node:hover {
+  transform: rotate(0deg) translateY(-3px);
+  box-shadow: 4px 5px 0 rgba(var(--accent-rgb), 0.28);
 }
 
 .arch-node-root {
@@ -744,6 +1399,7 @@ a {
   height: 16px;
   background: var(--border);
   margin: 0 auto;
+  transform: rotate(1.5deg);
 }
 
 .arch-connector-dashed {
@@ -752,12 +1408,155 @@ a {
   border-left: 2px dashed var(--border);
   background: none;
   margin: 0 auto;
+  transform: rotate(-1.5deg);
 }
 
-.arch-badge {
-  margin: 0 0 0 6px;
-  padding: 2px 8px;
-  font-size: 0.65rem;
+/* Screenshot lightbox (#in-action) — the enlarged image itself is animated by JS (motion's
+   animate(), FLIP-style from the clicked thumbnail's own screen position), so the CSS here only
+   covers the backdrop fade and static layout; see interactions.js. */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  /* The backdrop dim/blur transitions here, deliberately not the element's own opacity — the
+     enlarging image is a child of this element and needs to stay fully opaque throughout so it
+     reads as "growing from the real thumbnail", not fading in from nothing. */
+  background: rgba(10, 12, 14, 0);
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+  transition: background 0.3s ease, backdrop-filter 0.3s ease, -webkit-backdrop-filter 0.3s ease;
+}
+
+.lightbox.is-open {
+  display: flex;
+}
+
+.lightbox.is-visible {
+  background: rgba(10, 12, 14, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.lightbox-figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+}
+
+.lightbox-img {
+  display: block;
+  max-width: min(92vw, 1400px);
+  max-height: 70vh;
+  width: auto;
+  height: auto;
+  border-radius: 10px;
+  box-shadow: 0 24px 64px -24px rgba(0, 0, 0, 0.6);
+}
+
+.lightbox-figure figcaption {
+  max-width: 640px;
+  margin-top: 20px;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.3s ease 0.1s, transform 0.3s ease 0.1s;
+}
+
+.lightbox.is-visible .lightbox-figure figcaption {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.lightbox-figure figcaption strong {
+  display: block;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.lightbox-figure figcaption p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.9rem;
+}
+
+.lightbox-close,
+.lightbox-prev,
+.lightbox-next {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.lightbox-close:hover,
+.lightbox-prev:hover,
+.lightbox-next:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.lightbox-close {
+  top: 20px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.lightbox-prev,
+.lightbox-next {
+  top: 50%;
+  width: 48px;
+  height: 48px;
+  font-size: 1.8rem;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
+.lightbox-prev:hover,
+.lightbox-next:hover {
+  transform: translateY(-50%) scale(1.06);
+}
+
+.lightbox-prev {
+  left: 16px;
+}
+
+.lightbox-next {
+  right: 16px;
+}
+
+.lightbox-dots {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.lightbox-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.lightbox-dot.is-active {
+  background: var(--accent);
+  transform: scale(1.3);
 }
 
 /* Placed after every rule above that sets a transition, so this always wins the cascade
@@ -766,7 +1565,13 @@ a {
   .vortex-diagram,
   .showcase-item,
   .window-frame,
-  .arch-diagram {
+  .arch-diagram,
+  .diagram-inputs li,
+  .diagram-outputs li,
+  .lightbox,
+  .lightbox-figure figcaption,
+  .arch-node,
+  .terminal-window {
     transition: none;
   }
 }
@@ -777,5 +1582,24 @@ a {
   }
   .hero {
     padding-top: 56px;
+  }
+  .lightbox {
+    padding: 24px 16px;
+  }
+  .lightbox-prev,
+  .lightbox-next {
+    width: 38px;
+    height: 38px;
+    font-size: 1.4rem;
+  }
+  .lightbox-prev {
+    left: 6px;
+  }
+  .lightbox-next {
+    right: 6px;
+  }
+  .lightbox-close {
+    top: 10px;
+    right: 10px;
   }
 }
