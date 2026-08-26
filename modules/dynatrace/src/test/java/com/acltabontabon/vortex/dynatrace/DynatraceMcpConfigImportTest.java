@@ -34,11 +34,7 @@ class DynatraceMcpConfigImportTest {
                     "--header", "Authorization: Bearer ${DT_TOKEN}"]}}}""";
         var result = DynatraceMcpConfigImport.parse(pasted);
         assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
-                recognized -> {
-                    assertThat(recognized.endpoint()).isEqualTo("https://dt.example.com/mcp");
-                    assertThat(recognized.candidateHeaders())
-                            .containsEntry("Authorization", "Bearer ${DT_TOKEN}");
-                });
+                recognized -> assertThat(recognized.endpoint()).isEqualTo("https://dt.example.com/mcp"));
     }
 
     @Test
@@ -50,8 +46,6 @@ class DynatraceMcpConfigImportTest {
         assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
                 recognized -> {
                     assertThat(recognized.endpoint()).isEqualTo("https://dynatrace-mcp.internal/mcp");
-                    assertThat(recognized.candidateHeaders())
-                            .containsEntry("Authorization", "Bearer ${DT_TOKEN}");
                     assertThat(recognized.suggestedLabel()).isEqualTo("dynatrace-mcp");
                 });
     }
@@ -73,15 +67,6 @@ class DynatraceMcpConfigImportTest {
         assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
                 recognized -> assertThat(recognized.endpoint())
                         .isEqualTo("https://dynatrace-mcp.internal/mcp"));
-    }
-
-    @Test
-    void aBareUrlFieldWithNoHeadersIsRecognizedWithEmptyCandidateHeaders() {
-        String pasted = """
-                {"url": "https://dynatrace-mcp.internal/mcp"}""";
-        var result = DynatraceMcpConfigImport.parse(pasted);
-        assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
-                recognized -> assertThat(recognized.candidateHeaders()).isEmpty());
     }
 
     @Test

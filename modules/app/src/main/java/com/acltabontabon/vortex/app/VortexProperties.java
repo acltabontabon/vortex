@@ -32,9 +32,7 @@ public record VortexProperties(
         workspace = workspace == null ? new Workspace(null) : workspace;
         engine = engine == null ? new Engine(null, null, null, null, true, null) : engine;
         ai = ai == null ? new Ai(null, null, null, null, false) : ai;
-        dynatraceMcp = dynatraceMcp == null
-                ? new DynatraceMcp(false, null, null, null, null, null, null, null, null, null, null)
-                : dynatraceMcp;
+        dynatraceMcp = dynatraceMcp == null ? new DynatraceMcp(false, null, null, null) : dynatraceMcp;
         loadGenerator = loadGenerator == null ? new LoadGenerator(null, null, null) : loadGenerator;
         safety = safety == null ? new Safety(null, null, null) : safety;
         observability = observability == null ? new Observability(null, null, null) : observability;
@@ -146,57 +144,31 @@ public record VortexProperties(
     }
 
     /**
-     * The Dynatrace MCP connection: one endpoint, reached directly over HTTPS, shared by every
-     * project whose {@code observation.transport} is {@code mcp}.
+     * The Dynatrace MCP connection: one endpoint, reached through a locally-spawned
+     * {@code npx mcp-remote} bridge (see {@code docs/adr/adr-051-dynatrace-mcp-local-npx-bridge.adoc}),
+     * shared by every project whose {@code observation.transport} is {@code mcp}.
      *
      * <p>Static install-wide defaults only — the runtime-mutable value a call actually reads is
      * {@code com.acltabontabon.vortex.dynatrace.DynatraceMcpSettings}, seeded from this at startup
      * and then updatable from the Settings page without a restart, the same split {@link Ai} and
      * {@code AiSettings} already use.
      *
-     * @param enabled        whether Dynatrace MCP is available for use
-     * @param endpoint       the MCP server's base URL. Not a command by itself — see
-     *                       {@code connectionMode} for whether Vortex reaches it directly or through a
-     *                       locally-spawned bridge
-     * @param headers        request headers, whose values may be {@code ${NAME}} references — empty
-     *                       when the server needs no credential, the common case behind a VPN. Inert
-     *                       when {@code connectionMode} is {@code local_npx_bridge}
-     * @param defaultWindow  how far back a fetch looks when a service does not override it
-     * @param queryTimeout   how long a single MCP tool call may take before Vortex gives up on it
-     * @param authMode       {@code header} (default) or {@code oauth_client_credentials}. See
-     *                       {@code docs/adr/adr-050-dynatrace-mcp-oauth-client-credentials.adoc}.
-     *                       Inert when {@code connectionMode} is {@code local_npx_bridge}
-     * @param clientId       OAuth Client Credentials client id — only meaningful when {@code authMode}
-     *                       is {@code oauth_client_credentials}
-     * @param clientSecret   the client's secret, whose value may be a {@code ${NAME}} reference exactly
-     *                       like a header value — it is long-lived and externally managed, unlike the
-     *                       short-lived access token Vortex fetches with it
-     * @param scope          space-separated OAuth scopes to request, or empty to request none explicitly
-     * @param resource       the Dynatrace account URN the token is scoped to, e.g. {@code urn:dtaccount:...}
-     * @param connectionMode {@code direct_https} (default) or {@code local_npx_bridge}, which spawns
-     *                       {@code npx mcp-remote <endpoint>} and lets it perform Dynatrace's own
-     *                       interactive OAuth instead. See
-     *                       {@code docs/adr/adr-051-dynatrace-mcp-local-npx-bridge.adoc}
+     * <p>Nothing else to authenticate: the bridge performs Dynatrace's own interactive OAuth itself
+     * on first use, so there is no header or client credential to configure here.
+     *
+     * @param enabled       whether Dynatrace MCP is available for use
+     * @param endpoint      the MCP server's base URL
+     * @param defaultWindow how far back a fetch looks when a service does not override it
+     * @param queryTimeout  how long a single MCP tool call may take before Vortex gives up on it
      */
-    public record DynatraceMcp(boolean enabled, String endpoint, java.util.Map<String, String> headers,
-            Duration defaultWindow, Duration queryTimeout, String authMode, String clientId,
-            String clientSecret, String scope, String resource, String connectionMode) {
+    public record DynatraceMcp(boolean enabled, String endpoint, Duration defaultWindow, Duration queryTimeout) {
 
         public DynatraceMcp {
             endpoint = endpoint == null ? "" : endpoint.trim();
-            headers = headers == null ? java.util.Map.of() : java.util.Map.copyOf(headers);
             defaultWindow = defaultWindow == null || defaultWindow.isZero() || defaultWindow.isNegative()
                     ? Duration.ofDays(30) : defaultWindow;
             queryTimeout = queryTimeout == null || queryTimeout.isZero() || queryTimeout.isNegative()
                     ? Duration.ofSeconds(30) : queryTimeout;
-            authMode = authMode == null || authMode.isBlank()
-                    ? "header" : authMode.trim().toLowerCase(java.util.Locale.ROOT);
-            clientId = clientId == null ? "" : clientId.trim();
-            clientSecret = clientSecret == null ? "" : clientSecret.trim();
-            scope = scope == null ? "" : scope.trim();
-            resource = resource == null ? "" : resource.trim();
-            connectionMode = connectionMode == null || connectionMode.isBlank()
-                    ? "direct_https" : connectionMode.trim().toLowerCase(java.util.Locale.ROOT);
         }
     }
 

@@ -2,16 +2,17 @@ package com.acltabontabon.vortex.dynatrace;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
  * The transport-neutral boundary between Vortex's Dynatrace domain logic and however the telemetry
  * is actually fetched.
  *
- * <p>Today {@link DynatraceMcpTelemetryClient} is the only implementation, speaking MCP. Nothing
- * above this interface — {@link DynatraceMcpObservationSource}, the query definitions, the
- * normalizer — knows that; a future {@code DynatraceDqlApiTelemetryClient} could replace it without
- * touching any of them.
+ * <p>Today {@link DynatraceMcpBridgeTelemetryClient} is the only implementation, speaking MCP over
+ * a locally-spawned {@code npx mcp-remote} bridge. Nothing above this interface —
+ * {@link DynatraceMcpObservationSource}, the query definitions, the normalizer — knows that; a
+ * future implementation could replace it without touching any of them.
  *
  * <p>One client is opened per call and closed immediately after (see {@link DynatraceMcpClientFactory})
  * rather than held open, so implementations should treat {@link #close()} as final: no reconnect,
@@ -49,9 +50,23 @@ public interface DynatraceTelemetryClient extends AutoCloseable {
     sealed interface ToolsOutcome permits ToolsListed, ToolsFailed {
     }
 
-    record ToolsListed(List<String> toolNames) implements ToolsOutcome {
+    /** One MCP tool the server advertises, with its raw JSON-schema {@code inputSchema} — needed to
+     *  discover per-call arguments a tool requires that Vortex cannot hard-code, e.g. {@code
+     *  execute_dql}'s account-specific {@code organization} enum. */
+    record ToolInfo(String name, Map<String, Object> inputSchema) {
+        public ToolInfo {
+            Objects.requireNonNull(name, "name");
+            inputSchema = inputSchema == null ? Map.of() : Map.copyOf(inputSchema);
+        }
+    }
+
+    record ToolsListed(List<ToolInfo> tools) implements ToolsOutcome {
         public ToolsListed {
-            toolNames = toolNames == null ? List.of() : List.copyOf(toolNames);
+            tools = tools == null ? List.of() : List.copyOf(tools);
+        }
+
+        public List<String> toolNames() {
+            return tools.stream().map(ToolInfo::name).toList();
         }
     }
 

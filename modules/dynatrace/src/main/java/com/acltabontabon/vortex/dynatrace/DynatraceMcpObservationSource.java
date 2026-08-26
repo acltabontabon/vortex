@@ -9,6 +9,7 @@ import com.acltabontabon.vortex.core.shared.RequestsPerSecond;
 import com.acltabontabon.vortex.core.workload.Observation;
 import com.acltabontabon.vortex.dynatrace.normalize.NormalizedTelemetry;
 import com.acltabontabon.vortex.dynatrace.normalize.TelemetryNormalizer;
+import com.acltabontabon.vortex.dynatrace.query.DqlToolSchema;
 import com.acltabontabon.vortex.dynatrace.query.DynatraceQueries;
 import com.acltabontabon.vortex.dynatrace.query.DynatraceQueryDefinition;
 import java.time.Duration;
@@ -62,8 +63,14 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
         }
 
         try (DynatraceTelemetryClient client = clients.openIfConfigured()) {
+            var organization = resolveOrganization(client);
+            if (organization instanceof OrganizationResult.Failure failure) {
+                return failure.notRetrieved();
+            }
+            String organizationValue = ((OrganizationResult.Success) organization).organization();
+
             var query = DynatraceQueries.THROUGHPUT_V1.queryFor(source.serviceIdentifier(),
-                    request.window(), request.resolution());
+                    request.window(), request.resolution(), organizationValue);
             var outcome = client.call(query, settings.queryTimeout());
 
             var rates = ratesFrom(outcome, DynatraceQueries.THROUGHPUT_V1, request.window(),
@@ -99,7 +106,14 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
         }
 
         try (DynatraceTelemetryClient client = clients.openIfConfigured()) {
-            var query = DynatraceQueries.THROUGHPUT_V1.queryFor(source.serviceIdentifier(), window, resolution);
+            var organization = resolveOrganization(client);
+            if (organization instanceof OrganizationResult.Failure failure) {
+                return failure.notRetrieved();
+            }
+            String organizationValue = ((OrganizationResult.Success) organization).organization();
+
+            var query = DynatraceQueries.THROUGHPUT_V1.queryFor(source.serviceIdentifier(), window, resolution,
+                    organizationValue);
             var outcome = client.call(query, settings.queryTimeout());
 
             var rates = ratesFrom(outcome, DynatraceQueries.THROUGHPUT_V1, window,
@@ -137,14 +151,46 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
                     "Set the endpoint under Settings, either by pasting the provided config or "
                             + "entering the URL directly.");
         }
-        String missing = DynatraceMcpSecretResolution.missingSecret(settings.headers());
-        if (missing != null) {
-            return new NotRetrieved("Cannot reach Dynatrace over MCP",
-                    "the environment variable " + missing + ", referenced by the Dynatrace MCP "
-                            + "headers, is not set in this shell.",
-                    "Export it and restart Vortex, then try again.");
-        }
         return null;
+    }
+
+    // ------------------------------------------------------------------ organization resolution
+
+    private sealed interface OrganizationResult permits OrganizationResult.Success, OrganizationResult.Failure {
+        record Success(String organization) implements OrganizationResult {
+        }
+
+        record Failure(NotRetrieved notRetrieved) implements OrganizationResult {
+        }
+    }
+
+    /** Resolves {@code execute_dql}'s required {@code organization} argument from the server's own
+     *  tool schema, once per opened connection — never hard-coded, never guessed. See
+     *  {@link DqlToolSchema}. */
+    private OrganizationResult resolveOrganization(DynatraceTelemetryClient client) {
+        var tools = client.listTools(settings.queryTimeout());
+        if (tools instanceof DynatraceTelemetryClient.ToolsFailed failed) {
+            return new OrganizationResult.Failure(new NotRetrieved(
+                    "Could not read production traffic from Dynatrace MCP",
+                    describe(failed.category()) + ": " + failed.detail(), remedyFor(failed.category())));
+        }
+        var listed = (DynatraceTelemetryClient.ToolsListed) tools;
+        var executeDql = listed.tools().stream()
+                .filter(tool -> tool.name().equals(DynatraceQueryDefinition.EXECUTE_DQL_TOOL))
+                .findFirst();
+        if (executeDql.isEmpty()) {
+            return new OrganizationResult.Failure(new NotRetrieved(
+                    "Could not read production traffic from Dynatrace MCP",
+                    "the server does not advertise '" + DynatraceQueryDefinition.EXECUTE_DQL_TOOL + "'.",
+                    remedyFor(DynatraceMcpFailureCategory.MCP_TOOL_UNAVAILABLE)));
+        }
+        var resolution = DqlToolSchema.resolveOrganization(executeDql.get().inputSchema());
+        return switch (resolution) {
+            case DqlToolSchema.Resolved resolved -> new OrganizationResult.Success(resolved.organization());
+            case DqlToolSchema.Failed failed -> new OrganizationResult.Failure(new NotRetrieved(
+                    "Could not read production traffic from Dynatrace MCP", failed.detail(),
+                    remedyFor(DynatraceMcpFailureCategory.AMBIGUOUS_ORGANIZATION)));
+        };
     }
 
     // ------------------------------------------------------------------ shaping the answer
@@ -216,6 +262,7 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             case SERVICE_NOT_FOUND -> "the entity was not found";
             case NO_DATA -> "no data was returned";
             case MCP_TOOL_UNAVAILABLE -> "the server does not offer the tool Vortex needs";
+            case AMBIGUOUS_ORGANIZATION -> "Vortex could not choose which Dynatrace organization to query";
         };
     }
 
@@ -227,6 +274,8 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             case QUERY_TIMEOUT -> "A thirty-day range can be slow to evaluate. Try a shorter window.";
             case SERVICE_NOT_FOUND -> "Check the entity id is this service's (it starts with SERVICE-).";
             case MCP_TOOL_UNAVAILABLE -> "The Dynatrace MCP server does not expose execute_dql yet.";
+            case AMBIGUOUS_ORGANIZATION ->
+                    "Check the Dynatrace MCP server's execute_dql tool advertises exactly one organization.";
             default -> "Try Test Connection under Settings for more detail.";
         };
     }

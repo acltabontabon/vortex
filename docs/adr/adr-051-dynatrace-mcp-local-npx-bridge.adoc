@@ -3,7 +3,9 @@ narrow exception to "never spawns a process"
 
 == Status
 
-Accepted, implemented.
+Accepted, implemented. As of xref:adr-052-dynatrace-mcp-bridge-only.adoc[ADR-052], this is no longer
+one of two connection modes — Direct HTTPS was removed, so the bridge described here is the only way
+Vortex reaches a Dynatrace MCP endpoint.
 
 == Context
 

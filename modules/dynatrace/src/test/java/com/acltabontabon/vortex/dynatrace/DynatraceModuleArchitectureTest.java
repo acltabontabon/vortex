@@ -17,15 +17,13 @@ import io.modelcontextprotocol.client.transport.StdioClientTransport;
  *
  * <p>{@link DynatraceMcpConfigImport} parses a provided MCP config and extracts a remote URL from
  * it — never a command. {@link DynatraceMcpBridgeTelemetryClient} is the sole, deliberate exception:
- * when a user explicitly selects the local npx/mcp-remote bridge connection mode under Settings, it
- * is the one class permitted to launch {@code npx mcp-remote <url>} and speak MCP over its stdio —
+ * it is the one class permitted to launch {@code npx mcp-remote <url>} and speak MCP over its stdio —
  * see docs/adr/adr-051-dynatrace-mcp-local-npx-bridge.adoc. Every other class in this module —
- * config import, the direct-HTTP client, settings, the connection test's own orchestration — must
- * stay provably unable to spawn anything. {@link StdioClientTransport}/{@link ServerParameters} are
- * named explicitly (not just {@link ProcessBuilder}/{@link Runtime}) because the SDK builds its
- * {@code ProcessBuilder} inside its own class, invisible to a dependency check against Vortex's
- * classes otherwise — a class could reference only the SDK's transport and still evade the intent
- * of this rule.
+ * config import, settings, the connection test's own orchestration — must stay provably unable to
+ * spawn anything. {@link StdioClientTransport}/{@link ServerParameters} are named explicitly (not
+ * just {@link ProcessBuilder}/{@link Runtime}) because the SDK builds its {@code ProcessBuilder}
+ * inside its own class, invisible to a dependency check against Vortex's classes otherwise — a class
+ * could reference only the SDK's transport and still evade the intent of this rule.
  */
 @AnalyzeClasses(
         packages = "com.acltabontabon.vortex.dynatrace",

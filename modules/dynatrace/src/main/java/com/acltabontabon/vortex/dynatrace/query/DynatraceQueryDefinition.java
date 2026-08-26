@@ -33,8 +33,10 @@ public sealed interface DynatraceQueryDefinition
     /** The DQL column alias(es) the normalizer should collect numeric samples from. */
     java.util.List<String> valueFields();
 
-    /** Builds the deterministic MCP tool call for one entity over one window. */
-    DynatraceTelemetryQuery queryFor(String entityId, TimeWindow window, Duration resolution);
+    /** Builds the deterministic MCP tool call for one entity over one window, against the given
+     *  Dynatrace {@code organization} — resolved per connection from the server's own tool schema,
+     *  see {@link DqlToolSchema}, never guessed. */
+    DynatraceTelemetryQuery queryFor(String entityId, TimeWindow window, Duration resolution, String organization);
 
     /** Requests per second, summed across the window and split by resolution bucket. */
     record Throughput() implements DynatraceQueryDefinition {
@@ -54,8 +56,9 @@ public sealed interface DynatraceQueryDefinition
         }
 
         @Override
-        public DynatraceTelemetryQuery queryFor(String entityId, TimeWindow window, Duration resolution) {
-            return Dql.query(id(), Dql.throughput(entityId, window, resolution));
+        public DynatraceTelemetryQuery queryFor(String entityId, TimeWindow window, Duration resolution,
+                String organization) {
+            return Dql.query(id(), Dql.throughput(entityId, window, resolution), organization);
         }
     }
 
@@ -77,8 +80,9 @@ public sealed interface DynatraceQueryDefinition
         }
 
         @Override
-        public DynatraceTelemetryQuery queryFor(String entityId, TimeWindow window, Duration resolution) {
-            return Dql.query(id(), Dql.requestLatency(entityId, window, resolution));
+        public DynatraceTelemetryQuery queryFor(String entityId, TimeWindow window, Duration resolution,
+                String organization) {
+            return Dql.query(id(), Dql.requestLatency(entityId, window, resolution), organization);
         }
     }
 
@@ -100,8 +104,9 @@ public sealed interface DynatraceQueryDefinition
         }
 
         @Override
-        public DynatraceTelemetryQuery queryFor(String entityId, TimeWindow window, Duration resolution) {
-            return Dql.query(id(), Dql.failureRate(entityId, window, resolution));
+        public DynatraceTelemetryQuery queryFor(String entityId, TimeWindow window, Duration resolution,
+                String organization) {
+            return Dql.query(id(), Dql.failureRate(entityId, window, resolution), organization);
         }
     }
 }

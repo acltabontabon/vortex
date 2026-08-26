@@ -31,14 +31,10 @@ import {
 } from '../api/settings';
 import type {
   ChooseLoadGeneratorBudgetRequest,
-  DynatraceMcpAuthMode,
   DynatraceMcpAvailability,
-  DynatraceMcpConnectionMode,
   DynatraceMcpSettings,
 } from '../api/settings';
 import { Fact, Facts } from '../components/Fact';
-import { HeaderRows } from '../features/service/configuration/HeaderRows';
-import { rowsFromMasked, SECRET_MASK, type HeaderRow } from '../features/service/configuration/headerRowUtils';
 import { errorFallback, extractErrorMessage } from '../lib/queryFallback';
 import classes from './SettingsPage.module.css';
 
@@ -472,39 +468,16 @@ function DynatraceMcpCard({
   const [enabled, setEnabled] = useState(settings.enabled);
   const [endpoint, setEndpoint] = useState(settings.endpoint);
   const [defaultWindow, setDefaultWindow] = useState(settings.defaultWindowDisplay);
-  const [headerRows, setHeaderRows] = useState<HeaderRow[]>(rowsFromMasked(settings.maskedHeaders));
-  const [authMode, setAuthMode] = useState<DynatraceMcpAuthMode>(settings.authMode);
-  const [clientId, setClientId] = useState(settings.clientId);
-  const [clientSecret, setClientSecret] = useState(settings.maskedClientSecret);
-  const [clientSecretMasked, setClientSecretMasked] = useState(Boolean(settings.maskedClientSecret));
-  const [scope, setScope] = useState(settings.scope);
-  const [resource, setResource] = useState(settings.resource);
-  const [connectionMode, setConnectionMode] = useState<DynatraceMcpConnectionMode>(settings.connectionMode);
-
-  function headerArrays() {
-    const named = headerRows.filter((row) => row.name.trim());
-    return { headerName: named.map((row) => row.name), headerValue: named.map((row) => row.value) };
-  }
 
   function payload() {
-    return {
-      enabled, endpoint, defaultWindow, ...headerArrays(), authMode, clientId, clientSecret, scope,
-      resource, connectionMode,
-    };
+    return { enabled, endpoint, defaultWindow };
   }
-
-  const usingBridge = connectionMode === 'local_npx_bridge';
-  const usingOAuth = authMode === 'oauth_client_credentials';
-  const oauthCredentialsIncomplete = !usingBridge && usingOAuth && (!clientId.trim() || !clientSecret.trim());
 
   function onImport() {
     doImport.mutate(pasted, {
       onSuccess: (r) => {
         if (r.recognized && r.endpoint) {
           setEndpoint(r.endpoint);
-          setHeaderRows(
-            r.headerName.map((name, i) => ({ id: `${name}-${i}`, name, value: r.headerValue[i] ?? '', masked: false }))
-          );
           setMode('manual');
           notifications.show({
             message: 'Recognized the endpoint below. Review it, then Save.',
@@ -565,17 +538,6 @@ function DynatraceMcpCard({
       <SegmentedControl
         mt="md"
         size="xs"
-        value={connectionMode}
-        onChange={(v) => setConnectionMode(v as DynatraceMcpConnectionMode)}
-        data={[
-          { label: 'Direct HTTPS', value: 'direct_https' },
-          { label: 'Local bridge (npx mcp-remote)', value: 'local_npx_bridge' },
-        ]}
-      />
-
-      <SegmentedControl
-        mt="md"
-        size="xs"
         value={mode}
         onChange={(v) => setMode(v as 'manual' | 'paste')}
         data={[
@@ -624,85 +586,17 @@ function DynatraceMcpCard({
             value={defaultWindow}
             onChange={(e) => setDefaultWindow(e.currentTarget.value)}
           />
-          <HeaderRows rows={headerRows} onChange={setHeaderRows} />
         </Stack>
       )}
 
-      {usingBridge ? (
-        <Alert color="neutral" title="Local bridge mode" mt="md">
-          <Text size="sm">
-            Vortex spawns <code>npx mcp-remote</code> locally and lets it sign in to Dynatrace itself
-            — the first connection opens a browser to complete that login, and the session is reused
-            after. This needs Node.js and a browser on the same machine as Vortex, so it only makes
-            sense for a local, single-machine install. The authentication method and headers below
-            aren&apos;t used in this mode.
-          </Text>
-        </Alert>
-      ) : (
-        <>
-          <SegmentedControl
-            mt="md"
-            size="xs"
-            value={authMode}
-            onChange={(v) => setAuthMode(v as DynatraceMcpAuthMode)}
-            data={[
-              { label: 'Bearer header', value: 'header' },
-              { label: 'OAuth client credentials', value: 'oauth_client_credentials' },
-            ]}
-          />
-
-          {usingOAuth && (
-            <Stack gap="sm" mt="sm">
-              <TextInput
-                label="Client ID"
-                value={clientId}
-                onChange={(e) => setClientId(e.currentTarget.value)}
-              />
-              {clientSecretMasked ? (
-                <div>
-                  <Text size="sm" fw={600} mb={4}>
-                    Client secret
-                  </Text>
-                  <Group gap={6} wrap="nowrap">
-                    <Text size="sm" c="dimmed" ff="monospace">
-                      {SECRET_MASK}
-                    </Text>
-                    <Button
-                      size="compact-xs"
-                      variant="subtle"
-                      onClick={() => {
-                        setClientSecret('');
-                        setClientSecretMasked(false);
-                      }}
-                    >
-                      Replace
-                    </Button>
-                  </Group>
-                </div>
-              ) : (
-                <TextInput
-                  label="Client secret"
-                  placeholder={'Secret value, or ${NAME} for a secret'}
-                  value={clientSecret}
-                  onChange={(e) => setClientSecret(e.currentTarget.value)}
-                />
-              )}
-              <TextInput
-                label="Scope"
-                placeholder="storage:events:read storage:logs:read ..."
-                value={scope}
-                onChange={(e) => setScope(e.currentTarget.value)}
-              />
-              <TextInput
-                label="Resource"
-                placeholder="https://your-environment.apps.dynatrace.com"
-                value={resource}
-                onChange={(e) => setResource(e.currentTarget.value)}
-              />
-            </Stack>
-          )}
-        </>
-      )}
+      <Alert color="neutral" title="Local bridge mode" mt="md">
+        <Text size="sm">
+          Vortex spawns <code>npx mcp-remote</code> locally and lets it sign in to Dynatrace itself —
+          the first connection opens a browser to complete that login, and the session is reused
+          after. This needs Node.js and a browser on the same machine as Vortex, so it only makes
+          sense for a local, single-machine install.
+        </Text>
+      </Alert>
 
       {test.data && (
         <div style={{ marginTop: 'var(--mantine-spacing-md)' }}>
@@ -747,7 +641,7 @@ function DynatraceMcpCard({
           variant="default"
           onClick={() => test.mutate(payload())}
           loading={test.isPending}
-          disabled={mode === 'paste' || !endpoint.trim() || oauthCredentialsIncomplete}
+          disabled={mode === 'paste' || !endpoint.trim()}
         >
           Test connection
         </Button>
@@ -757,19 +651,14 @@ function DynatraceMcpCard({
         <summary>What Vortex sends</summary>
         <div className={classes.advancedBody}>
           <p>
-            Vortex connects directly to the endpoint above over HTTPS. It never runs the
-            <code> npx mcp-remote</code> command a provided config may describe — that bridge
-            exists for MCP clients that only support stdio, and Vortex is not one.
+            Vortex reaches the endpoint above through a locally-spawned <code>npx mcp-remote</code>{' '}
+            bridge, which performs Dynatrace&apos;s own interactive OAuth itself — see the note above.
           </p>
           <p>
             Only the deterministic queries below travel to Dynatrace: throughput, request latency
             and failure rate for the entity mapped from a service&apos;s Configuration page. Vortex
             never asks Dynatrace or any AI tool to interpret, summarise or decide what a baseline
             means.
-          </p>
-          <p>
-            Header values may reference environment variables as <code>${'{NAME}'}</code>. The
-            reference is stored; the resolved secret is never sent back to this browser.
           </p>
         </div>
       </details>

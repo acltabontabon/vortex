@@ -24,17 +24,15 @@ import java.util.regex.Pattern;
  *
  * <p>The one deliberate, narrow exception to this module's "never spawns a process" rule — see
  * {@code DynatraceModuleArchitectureTest} and docs/adr/adr-051-dynatrace-mcp-local-npx-bridge.adoc.
- * A user opts into this by explicitly selecting {@link DynatraceMcpSettings.ConnectionMode#LOCAL_NPX_BRIDGE}
- * under Settings — it is never inferred from a pasted config or any other input. Only the endpoint
- * URL, already validated as an absolute {@code https://} URL by {@link DynatraceMcpEndpoint}, ever
- * reaches the child process's argument list; the command is always the literal {@code "npx"} and the
- * package is always the fixed, version-pinned {@link #MCP_REMOTE_PACKAGE} constant — nothing from
- * headers, auth mode, or any other setting can reach it.
+ * Only the endpoint URL, already validated as an absolute {@code https://} URL by
+ * {@link DynatraceMcpEndpoint}, ever reaches the child process's argument list; the command is
+ * always the literal {@code "npx"} and the package is always the fixed, version-pinned
+ * {@link #MCP_REMOTE_PACKAGE} constant.
  *
  * <p>{@code mcp-remote} performs Dynatrace's own interactive OAuth itself: on first use it opens a
  * system browser for the user to sign in, then caches the resulting session (typically under
- * {@code ~/.mcp-auth}) and refreshes it headlessly afterward. That means Vortex's own
- * {@link DynatraceMcpSettings.AuthMode}, headers, and OAuth fields are never consulted here.
+ * {@code ~/.mcp-auth}) and refreshes it headlessly afterward. Vortex has no header or client
+ * credential of its own to consult here — see ADR-052.
  */
 final class DynatraceMcpBridgeTelemetryClient implements DynatraceTelemetryClient {
 
@@ -147,9 +145,9 @@ final class DynatraceMcpBridgeTelemetryClient implements DynatraceTelemetryClien
     public ToolsOutcome listTools(Duration timeout) {
         try {
             McpSchema.ListToolsResult tools = client.listTools();
-            List<String> names = new ArrayList<>();
-            tools.tools().forEach(tool -> names.add(tool.name()));
-            return new ToolsListed(names);
+            List<ToolInfo> infos = new ArrayList<>();
+            tools.tools().forEach(tool -> infos.add(new ToolInfo(tool.name(), tool.inputSchema())));
+            return new ToolsListed(infos);
         } catch (RuntimeException e) {
             return new ToolsFailed(DynatraceMcpFailureClassifier.classify(e), messageOf(e));
         }
@@ -161,8 +159,6 @@ final class DynatraceMcpBridgeTelemetryClient implements DynatraceTelemetryClien
     }
 
     // ------------------------------------------------------------------ result shaping
-    // Identical to DynatraceMcpTelemetryClient's — the MCP tool-call response shape does not depend
-    // on how the connection to the server was made.
 
     private DynatraceTelemetryResult toResult(McpSchema.CallToolResult result) {
         if (result.structuredContent() != null) {

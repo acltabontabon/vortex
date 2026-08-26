@@ -20,12 +20,25 @@ class DynatraceMcpObservationSourceTest {
     private static final Instant NOW = Instant.parse("2026-08-26T00:00:00Z");
     private static final TimeWindow WINDOW = new TimeWindow(NOW.minus(Duration.ofDays(30)), NOW);
 
+    private static final Map<String, Object> EXECUTE_DQL_SCHEMA_WITH_ONE_ORGANIZATION = Map.of(
+            "properties", Map.of("organization", Map.of("enum", List.of("my-org"))));
+
+    private static final DynatraceTelemetryClient.ToolsListed TOOLS_LISTED_ONE_ORGANIZATION =
+            new DynatraceTelemetryClient.ToolsListed(List.of(new DynatraceTelemetryClient.ToolInfo(
+                    "execute_dql", EXECUTE_DQL_SCHEMA_WITH_ONE_ORGANIZATION)));
+
     /** A stub that answers every {@code call} with a fixed outcome, never touching the network. */
     private static final class FakeClient implements DynatraceTelemetryClient {
         private final TelemetryOutcome outcome;
+        private final ToolsOutcome tools;
 
         FakeClient(TelemetryOutcome outcome) {
+            this(outcome, TOOLS_LISTED_ONE_ORGANIZATION);
+        }
+
+        FakeClient(TelemetryOutcome outcome, ToolsOutcome tools) {
             this.outcome = outcome;
+            this.tools = tools;
         }
 
         @Override
@@ -35,7 +48,7 @@ class DynatraceMcpObservationSourceTest {
 
         @Override
         public ToolsOutcome listTools(Duration timeout) {
-            return new ToolsListed(List.of("execute_dql"));
+            return tools;
         }
 
         @Override
@@ -59,7 +72,7 @@ class DynatraceMcpObservationSourceTest {
     }
 
     private static DynatraceMcpSettings enabledSettings() {
-        return new DynatraceMcpSettings(true, "https://dynatrace-mcp.internal/mcp", Map.of(), null, null);
+        return new DynatraceMcpSettings(true, "https://dynatrace-mcp.internal/mcp", null, null);
     }
 
     @Test
@@ -110,7 +123,7 @@ class DynatraceMcpObservationSourceTest {
 
     @Test
     void disabledSettingsRefuseCleanlyWithoutOpeningAConnection() {
-        DynatraceMcpSettings disabled = new DynatraceMcpSettings(false, "", Map.of(), null, null);
+        DynatraceMcpSettings disabled = new DynatraceMcpSettings(false, "", null, null);
         var source = new DynatraceMcpObservationSource(fakeFactory(disabled, null), disabled);
 
         var retrieval = source.verify(mcpSource("SERVICE-1"), WINDOW, Duration.ofMinutes(1));
@@ -121,7 +134,7 @@ class DynatraceMcpObservationSourceTest {
 
     @Test
     void anEmptyEndpointRefusesCleanlyEvenWhenEnabled() {
-        DynatraceMcpSettings noEndpoint = new DynatraceMcpSettings(true, "", Map.of(), null, null);
+        DynatraceMcpSettings noEndpoint = new DynatraceMcpSettings(true, "", null, null);
         var source = new DynatraceMcpObservationSource(fakeFactory(noEndpoint, null), noEndpoint);
 
         var retrieval = source.verify(mcpSource("SERVICE-1"), WINDOW, Duration.ofMinutes(1));
@@ -131,15 +144,23 @@ class DynatraceMcpObservationSourceTest {
     }
 
     @Test
-    void aMissingSecretRefusesCleanlyBeforeOpeningAConnection() {
-        DynatraceMcpSettings missingSecret = new DynatraceMcpSettings(true,
-                "https://dynatrace-mcp.internal/mcp",
-                Map.of("Authorization", "Bearer ${DT_TOKEN_THAT_DOES_NOT_EXIST}"), null, null);
-        var source = new DynatraceMcpObservationSource(fakeFactory(missingSecret, null), missingSecret);
+    void anAmbiguousOrganizationRefusesCleanlyRatherThanGuessing() {
+        var multiOrgSchema = Map.<String, Object>of(
+                "properties", Map.of("organization", Map.of("enum", List.of("org-a", "org-b"))));
+        var toolsWithAmbiguousOrganization = new DynatraceTelemetryClient.ToolsListed(
+                List.of(new DynatraceTelemetryClient.ToolInfo("execute_dql", multiOrgSchema)));
+        DynatraceMcpSettings settings = enabledSettings();
+        var factory = new DynatraceMcpClientFactory(settings) {
+            @Override
+            public DynatraceTelemetryClient openIfConfigured() {
+                return new FakeClient(null, toolsWithAmbiguousOrganization);
+            }
+        };
+        var source = new DynatraceMcpObservationSource(factory, settings);
 
         var retrieval = source.verify(mcpSource("SERVICE-1"), WINDOW, Duration.ofMinutes(1));
 
         assertThat(retrieval).isInstanceOfSatisfying(NotRetrieved.class,
-                notRetrieved -> assertThat(notRetrieved.why()).contains("DT_TOKEN_THAT_DOES_NOT_EXIST"));
+                notRetrieved -> assertThat(notRetrieved.why()).contains("cannot choose one automatically"));
     }
 }

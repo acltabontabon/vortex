@@ -1,0 +1,71 @@
+= ADR-052: Dynatrace MCP drops Direct HTTPS and OAuth Client Credentials; the local
+npx/mcp-remote bridge is the only connection mode
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+ADR-049 and ADR-050 gave Vortex a direct-HTTPS connection to a Dynatrace MCP endpoint, authenticated
+by a static header or an OAuth Client Credentials grant. ADR-051 added a second, narrower mode: a
+locally-spawned `npx mcp-remote <url>` bridge that performs Dynatrace's own interactive OAuth.
+
+In practice, only the bridge mode has ever been proven against a real Dynatrace MCP endpoint — Test
+Connection succeeds and discovers `execute_dql`. Direct HTTPS has not been exercised against a real
+server by anyone using Vortex, and carries meaningfully more surface to maintain: a second telemetry
+client, an `AuthMode` axis, and an OAuth Client Credentials token fetcher with its own SSO round trip.
+Keeping an unproven, unused path "just in case" is exactly the kind of code this project's own
+standards say to delete rather than carry.
+
+Separately, exercising the bridge against a real endpoint surfaced two more problems, fixed alongside
+this removal because they only matter for the mode that is now the only one left:
+
+* `execute_dql` calls failed with a JSON-RPC `-32602 Invalid arguments` error: the real tool requires
+  `dqlStatement` and an account-specific `organization` (an enum of the caller's accessible
+  organizations), but `Dql.query()` sent only `{"query": "<dql>"}`. `DynatraceMcpConnectionTest` only
+  ever listed tool *names*, so nothing had exercised a real call against the real schema.
+* `DynatraceMcpAvailability`'s passive Settings-page badge always reported bridge mode as
+  "unavailable — not checked automatically," by design (see ADR-051) — a doc comment a person on
+  Settings has no reason to read, so a user who had just run a successful Test Connection still saw
+  a permanent "Unavailable" badge with no way to reach "Connected" for that mode at all.
+
+== Decision
+
+* Remove `DynatraceMcpSettings.ConnectionMode`, `AuthMode`, and every header/OAuth field
+  (`headers`, `clientId`, `clientSecret`, `scope`, `resource`). Delete
+  `DynatraceMcpTelemetryClient` (the direct-HTTPS client), `DynatraceMcpSecretResolution`, and the
+  `oauth` package (`DynatraceOAuthTokenProvider`, `DynatraceOAuthException`) — all dead once the
+  bridge is the only path. `DynatraceMcpClientFactory.openIfConfigured()` always opens the bridge.
+  `DynatraceMcpEndpoint` drops its now-always-empty `headers` field.
+* `DqlToolSchema` (new, in `dynatrace.query`) reads `execute_dql`'s real `inputSchema` — fetched by
+  extending `DynatraceTelemetryClient.ToolsListed` to carry each tool's raw JSON-schema map, not just
+  its name — and resolves `organization` to its single enumerated value. Zero or multiple values are
+  refused with a stated reason (a new `AMBIGUOUS_ORGANIZATION` failure category) rather than guessed:
+  a multi-organization Dynatrace account is out of scope, the same way ADR-050 left interactive OAuth
+  out of scope, rather than silently querying the wrong tenant. `Dql.query()` now sends
+  `{"dqlStatement": ..., "organization": ...}`. `DynatraceMcpObservationSource` resolves the
+  organization once per opened connection, before issuing the query; `DynatraceMcpConnectionTest`
+  resolves and reports it as its own Test Connection stage, so a multi-org account fails there with a
+  clear reason, not on the first real calibration.
+* `DynatraceMcpAvailability` no longer hard-codes a permanent "not checked automatically" state. It
+  exposes `recordTestResult(succeeded, problem, remedy)`, called by
+  `SettingsApiController.testDynatraceMcp` after every Test Connection click, and `invalidate()`,
+  called on Save (a changed endpoint invalidates whatever a prior test proved). The passive badge
+  reports the last recorded test result, or "Not checked yet" with a prompt to run one, until a test
+  actually runs — never a probe triggered by a page view, preserving ADR-051's "never pop a browser
+  window as a side effect of Settings loading."
+* `VortexProperties.DynatraceMcp`, `DynatraceMcpPreferenceStore`, `SettingsApiController`'s DTOs, and
+  the Settings page's Dynatrace card all drop the connection-mode selector, the auth-mode selector,
+  and the header/client-credential fields — Endpoint, Default window, and Enabled are what remain to
+  configure; the local-bridge explanation is now shown unconditionally instead of behind a toggle.
+
+== Consequences
+
+Simpler to reason about and maintain: one client, one settings shape, one thing Test Connection
+proves. A deployment that genuinely needs direct HTTPS (headless, no local browser) has no path
+today — the same limitation ADR-051 already stated for the bridge, now unavoidable rather than one of
+two choices. Reversible at low cost, symmetric with ADR-051: reintroducing `DIRECT_HTTPS` and
+`AuthMode` is restoring code this ADR deletes, not a redesign, should a headless deployment need it
+later. A multi-organization Dynatrace account cannot use Vortex's Dynatrace MCP integration until an
+explicit choice mechanism is added — stated here as a known gap, not silently worked around.

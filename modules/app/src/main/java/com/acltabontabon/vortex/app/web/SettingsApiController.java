@@ -8,7 +8,6 @@ import com.acltabontabon.vortex.app.config.DynatraceMcpPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetSettings;
 import com.acltabontabon.vortex.app.service.LocalLabRunner;
-import com.acltabontabon.vortex.core.environment.SecretReferences;
 import com.acltabontabon.vortex.core.evidence.HostShape;
 import com.acltabontabon.vortex.core.port.PerformanceAssistant;
 import com.acltabontabon.vortex.core.port.PerformanceEngine;
@@ -26,10 +25,8 @@ import com.acltabontabon.vortex.dynatrace.DynatraceMcpConnectionTest;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpSettings;
 import com.acltabontabon.vortex.persistence.VortexWorkspace;
 import java.time.Duration;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -121,10 +118,7 @@ public class SettingsApiController {
             String workspacePath, LoadGeneratorSettingsDto loadGenerator,
             DynatraceMcpSettingsDto dynatraceMcp, DynatraceMcpAvailabilityDto dynatraceMcpAvailability) {}
 
-    public record DynatraceMcpSettingsDto(boolean enabled, String endpoint,
-            Map<String, String> maskedHeaders, String defaultWindowDisplay, String authMode,
-            String clientId, String maskedClientSecret, String scope, String resource,
-            String connectionMode) {}
+    public record DynatraceMcpSettingsDto(boolean enabled, String endpoint, String defaultWindowDisplay) {}
 
     public record DynatraceMcpAvailabilityDto(boolean available, String problem, String remedy) {}
 
@@ -171,19 +165,7 @@ public class SettingsApiController {
 
     private DynatraceMcpSettingsDto toDto(DynatraceMcpSettings settings) {
         return new DynatraceMcpSettingsDto(settings.enabled(), settings.endpoint(),
-                settings.maskedHeaders(), Durations.display(settings.defaultWindow()),
-                authModeWire(settings.authMode()), settings.clientId(), settings.maskedClientSecret(),
-                settings.scope(), settings.resource(), connectionModeWire(settings.connectionMode()));
-    }
-
-    private static String authModeWire(DynatraceMcpSettings.AuthMode authMode) {
-        return authMode == DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
-                ? "oauth_client_credentials" : "header";
-    }
-
-    private static String connectionModeWire(DynatraceMcpSettings.ConnectionMode connectionMode) {
-        return connectionMode == DynatraceMcpSettings.ConnectionMode.LOCAL_NPX_BRIDGE
-                ? "local_npx_bridge" : "direct_https";
+                Durations.display(settings.defaultWindow()));
     }
 
     private DynatraceMcpAvailabilityDto toDto(DynatraceMcpAvailability.Availability availability) {
@@ -342,57 +324,29 @@ public class SettingsApiController {
 
     // ==================================================================== Dynatrace MCP
 
-    public record SaveDynatraceMcpRequest(boolean enabled, String endpoint, String defaultWindow,
-            List<String> headerName, List<String> headerValue, String authMode, String clientId,
-            String clientSecret, String scope, String resource, String connectionMode) {
-        public SaveDynatraceMcpRequest {
-            clientId = clientId == null ? "" : clientId;
-            scope = scope == null ? "" : scope;
-            resource = resource == null ? "" : resource;
-        }
-    }
+    public record SaveDynatraceMcpRequest(boolean enabled, String endpoint, String defaultWindow) {}
 
     public record SaveDynatraceMcpResponse(String message) {}
 
     /**
      * Saves the Dynatrace MCP connection, effective immediately, and writes it to
      * {@code ~/.vortex/config.yaml} so it survives a restart — the same pattern as
-     * {@link #chooseModel}.
+     * {@link #chooseModel}. Invalidates any recorded Test Connection result: a prior success no
+     * longer speaks for the endpoint that just changed.
      */
     @PostMapping("/dynatrace-mcp")
     public SaveDynatraceMcpResponse saveDynatraceMcp(@RequestBody SaveDynatraceMcpRequest request) {
         try {
-            Map<String, String> headers = resolveHeaders(
-                    parseHeaders(request.headerName(), request.headerValue()), dynatraceMcpSettings.headers());
-            String clientSecret = resolveSecretField(request.clientSecret(), dynatraceMcpSettings.clientSecret());
-            DynatraceMcpSettings.AuthMode authMode = parseAuthMode(request.authMode());
-            DynatraceMcpSettings.ConnectionMode connectionMode = parseConnectionMode(request.connectionMode());
             Duration window = parseWindow(request.defaultWindow());
-            dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), headers, window,
-                    authMode, request.clientId(), clientSecret, request.scope(), request.resource(),
-                    connectionMode);
-            dynatraceMcpPreferences.save(request.enabled(), request.endpoint(), headers,
-                    Durations.display(window), authModeWire(authMode), request.clientId(), clientSecret,
-                    request.scope(), request.resource(), connectionModeWire(connectionMode));
-            dynatraceMcpAvailability.refresh();
+            dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), window);
+            dynatraceMcpPreferences.save(request.enabled(), request.endpoint(), Durations.display(window));
+            dynatraceMcpAvailability.invalidate();
             return new SaveDynatraceMcpResponse(request.enabled()
                     ? "Saved. Test the connection, then map a service to a Dynatrace entity."
                     : "Saved. Dynatrace MCP is disabled.");
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
-    }
-
-    private DynatraceMcpSettings.AuthMode parseAuthMode(String value) {
-        return "oauth_client_credentials".equals(value)
-                ? DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
-                : DynatraceMcpSettings.AuthMode.HEADER;
-    }
-
-    private DynatraceMcpSettings.ConnectionMode parseConnectionMode(String value) {
-        return "local_npx_bridge".equals(value)
-                ? DynatraceMcpSettings.ConnectionMode.LOCAL_NPX_BRIDGE
-                : DynatraceMcpSettings.ConnectionMode.DIRECT_HTTPS;
     }
 
     public record DynatraceMcpStageDto(String stage, boolean succeeded, String category, String detail) {}
@@ -403,8 +357,9 @@ public class SettingsApiController {
      * Tests what is in the form, not what has been saved — the same contract
      * {@code ConfigurationApiController.testObservationSource} already has, and for the same reason:
      * testing only a saved configuration would make the button useless for the case it exists to
-     * serve. OAuth Client Credentials in {@code request} are tested directly against Dynatrace's SSO
-     * token endpoint too, so an unsaved client id/secret can be proven before Save without a round trip.
+     * serve. A successful or failed result is recorded on {@link #dynatraceMcpAvailability}, so the
+     * passive Settings-page badge reflects what this click actually found instead of a permanent
+     * "not checked automatically" placeholder.
      */
     @PostMapping("/dynatrace-mcp/test")
     public TestDynatraceMcpResponse testDynatraceMcp(@RequestBody SaveDynatraceMcpRequest request) {
@@ -412,108 +367,45 @@ public class SettingsApiController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Enter the Dynatrace MCP endpoint before testing the connection.");
         }
-        try {
-            var report = "local_npx_bridge".equals(request.connectionMode())
-                    ? dynatraceMcpConnectionTest.runBridge(request.endpoint(), dynatraceMcpSettings.queryTimeout())
-                    : testDirectHttps(request);
-            List<DynatraceMcpStageDto> stages = report.stages().stream()
-                    .map(stage -> new DynatraceMcpStageDto(stage.stage(), stage.succeeded(),
-                            stage.category() == null ? null : stage.category().name(), stage.detail()))
-                    .toList();
-            return new TestDynatraceMcpResponse(report.succeeded(), stages);
-        } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
-        }
+        var report = dynatraceMcpConnectionTest.runBridge(request.endpoint(), dynatraceMcpSettings.queryTimeout());
+        List<DynatraceMcpStageDto> stages = report.stages().stream()
+                .map(stage -> new DynatraceMcpStageDto(stage.stage(), stage.succeeded(),
+                        stage.category() == null ? null : stage.category().name(), stage.detail()))
+                .toList();
+        recordTestResult(report);
+        return new TestDynatraceMcpResponse(report.succeeded(), stages);
     }
 
-    private DynatraceMcpConnectionTest.Report testDirectHttps(SaveDynatraceMcpRequest request) {
-        Map<String, String> headers = resolveHeaders(
-                parseHeaders(request.headerName(), request.headerValue()), dynatraceMcpSettings.headers());
-        DynatraceMcpConnectionTest.OAuthCredentials oauth = null;
-        if ("oauth_client_credentials".equals(request.authMode())) {
-            String clientSecret = resolveSecretField(request.clientSecret(), dynatraceMcpSettings.clientSecret());
-            oauth = new DynatraceMcpConnectionTest.OAuthCredentials(request.clientId(), clientSecret,
-                    request.scope(), request.resource());
+    private void recordTestResult(DynatraceMcpConnectionTest.Report report) {
+        if (report.succeeded()) {
+            dynatraceMcpAvailability.recordTestResult(true, "", "");
+            return;
         }
-        return dynatraceMcpConnectionTest.run(request.endpoint(), headers,
-                dynatraceMcpSettings.queryTimeout(), oauth);
+        var failedStage = report.stages().stream().filter(stage -> !stage.succeeded()).findFirst();
+        String problem = failedStage.map(stage -> stage.stage() + ": " + stage.detail())
+                .orElse("The Dynatrace MCP connection test failed.");
+        dynatraceMcpAvailability.recordTestResult(false, problem,
+                "Use Test Connection under Settings for the full detail.");
     }
 
     public record ImportDynatraceMcpRequest(String pastedConfig) {}
 
-    public record ImportDynatraceMcpResponse(boolean recognized, String endpoint,
-            List<String> headerName, List<String> headerValue, String reason) {}
+    public record ImportDynatraceMcpResponse(boolean recognized, String endpoint, String reason) {}
 
     /**
      * Parses a pasted MCP configuration and extracts a remote endpoint from it. Never executes
-     * anything the pasted text describes; never saves anything — the resolved fields are returned for
-     * review, and only {@link #saveDynatraceMcp} persists them.
+     * anything the pasted text describes; never saves anything — the resolved endpoint is returned
+     * for review, and only {@link #saveDynatraceMcp} persists it.
      */
     @PostMapping("/dynatrace-mcp/import")
     public ImportDynatraceMcpResponse importDynatraceMcp(@RequestBody ImportDynatraceMcpRequest request) {
         var result = DynatraceMcpConfigImport.parse(request.pastedConfig());
         return switch (result) {
-            case DynatraceMcpConfigImport.Recognized recognized -> new ImportDynatraceMcpResponse(
-                    true, recognized.endpoint(), List.copyOf(recognized.candidateHeaders().keySet()),
-                    List.copyOf(recognized.candidateHeaders().values()), null);
+            case DynatraceMcpConfigImport.Recognized recognized ->
+                    new ImportDynatraceMcpResponse(true, recognized.endpoint(), null);
             case DynatraceMcpConfigImport.Unrecognized unrecognized ->
-                    new ImportDynatraceMcpResponse(false, null, List.of(), List.of(), unrecognized.reason());
+                    new ImportDynatraceMcpResponse(false, null, unrecognized.reason());
         };
-    }
-
-    private Map<String, String> parseHeaders(List<String> names, List<String> values) {
-        Map<String, String> headers = new LinkedHashMap<>();
-        if (names == null || values == null) {
-            return headers;
-        }
-        for (int i = 0; i < Math.min(names.size(), values.size()); i++) {
-            String name = names.get(i) == null ? "" : names.get(i).trim();
-            String value = values.get(i) == null ? "" : values.get(i).trim();
-            if (!name.isEmpty() && !value.isEmpty()) {
-                headers.put(name, value);
-            }
-        }
-        return headers;
-    }
-
-    /**
-     * Resolves a masked placeholder ({@link SecretReferences#MASK}) in {@code parsed} back to the
-     * real value already stored under that header name, so leaving a masked header untouched on save
-     * doesn't overwrite it with the literal placeholder string — {@link #toDto(DynatraceMcpSettings)}
-     * always masks a literal header value on the way out, so the browser never has the real value to
-     * resubmit. A masked value with nothing to recover it from (a new header, or a renamed one) is
-     * rejected: Vortex never writes the placeholder as a real header value. Mirrors
-     * {@code ConfigurationApiController.resolveHeaders}.
-     */
-    private Map<String, String> resolveHeaders(Map<String, String> parsed, Map<String, String> existing) {
-        Map<String, String> resolved = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : parsed.entrySet()) {
-            String value = entry.getValue();
-            if (SecretReferences.MASK.equals(value)) {
-                String real = existing.get(entry.getKey());
-                if (real == null) {
-                    throw new IllegalArgumentException("Header '" + entry.getKey() + "' shows "
-                            + SecretReferences.MASK + " — retype its value to change it. Vortex never "
-                            + "writes a masked placeholder as a real header value.");
-                }
-                value = real;
-            }
-            resolved.put(entry.getKey(), value);
-        }
-        return resolved;
-    }
-
-    /** Single-value variant of {@link #resolveHeaders} for one scalar secret field (the OAuth client secret). */
-    private String resolveSecretField(String parsed, String existing) {
-        if (!SecretReferences.MASK.equals(parsed)) {
-            return parsed == null ? "" : parsed;
-        }
-        if (existing == null || existing.isBlank()) {
-            throw new IllegalArgumentException("The client secret shows " + SecretReferences.MASK
-                    + " — retype its value to change it. Vortex never writes a masked placeholder as a "
-                    + "real secret value.");
-        }
-        return existing;
     }
 
     private Duration parseWindow(String display) {

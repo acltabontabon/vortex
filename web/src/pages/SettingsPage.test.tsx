@@ -108,9 +108,7 @@ function aSettings(overrides: Partial<Settings> = {}): Settings {
       },
     },
     dynatraceMcp: {
-      enabled: false, endpoint: '', maskedHeaders: {}, defaultWindowDisplay: '30d',
-      authMode: 'header', clientId: '', maskedClientSecret: '', scope: '', resource: '',
-      connectionMode: 'direct_https',
+      enabled: false, endpoint: '', defaultWindowDisplay: '30d',
     },
     dynatraceMcpAvailability: {
       available: false,
@@ -242,14 +240,7 @@ describe('the settings page', () => {
           dynatraceMcp: {
             enabled: true,
             endpoint: 'https://dynatrace-mcp.internal/mcp',
-            maskedHeaders: {},
             defaultWindowDisplay: '30d',
-            authMode: 'header',
-            clientId: '',
-            maskedClientSecret: '',
-            scope: '',
-            resource: '',
-            connectionMode: 'direct_https',
           },
           dynatraceMcpAvailability: { available: true, problem: '', remedy: '' },
         }),
@@ -288,10 +279,7 @@ describe('the settings page', () => {
 
     it('can still be disabled while pasting a config, not only in manual entry mode', async () => {
       queryResult = { data: aSettings({ dynatraceMcp: {
-        enabled: true, endpoint: 'https://dynatrace-mcp.internal/mcp', maskedHeaders: {},
-        defaultWindowDisplay: '30d',
-        authMode: 'header', clientId: '', maskedClientSecret: '', scope: '', resource: '',
-        connectionMode: 'direct_https',
+        enabled: true, endpoint: 'https://dynatrace-mcp.internal/mcp', defaultWindowDisplay: '30d',
       } }), isError: false };
       renderWithProviders(<SettingsPage />);
 
@@ -324,32 +312,12 @@ describe('the settings page', () => {
           .toBeInTheDocument();
     });
 
-    it('selecting the local bridge connection mode hides the authentication method control', async () => {
+    it('always shows the local bridge mode explanation', () => {
       queryResult = { data: aSettings(), isError: false };
       renderWithProviders(<SettingsPage />);
 
       const card = withinCard('Dynatrace');
-      expect(card.getByText('Bearer header')).toBeInTheDocument();
-
-      await userEvent.click(card.getByText('Local bridge (npx mcp-remote)'));
-
-      expect(card.queryByText('Bearer header')).not.toBeInTheDocument();
       expect(card.getByText('Local bridge mode')).toBeInTheDocument();
-    });
-
-    it('saves the selected connection mode', async () => {
-      queryResult = { data: aSettings(), isError: false };
-      renderWithProviders(<SettingsPage />);
-
-      const card = withinCard('Dynatrace');
-      await userEvent.click(card.getByText('Local bridge (npx mcp-remote)'));
-      await userEvent.type(card.getByLabelText('Endpoint'), 'https://dynatrace-mcp.internal/mcp');
-      await userEvent.click(card.getByRole('button', { name: 'Save' }));
-
-      expect(saveDynatraceMcpMutate).toHaveBeenCalledWith(
-        expect.objectContaining({ connectionMode: 'local_npx_bridge' }),
-        expect.anything(),
-      );
     });
   });
 });

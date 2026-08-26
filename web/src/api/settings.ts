@@ -83,20 +83,10 @@ export interface LoadGeneratorSettings {
   automaticPreview: ResolvedLoadGeneratorBudget;
 }
 
-export type DynatraceMcpAuthMode = 'header' | 'oauth_client_credentials';
-export type DynatraceMcpConnectionMode = 'direct_https' | 'local_npx_bridge';
-
 export interface DynatraceMcpSettings {
   enabled: boolean;
   endpoint: string;
-  maskedHeaders: Record<string, string>;
   defaultWindowDisplay: string;
-  authMode: DynatraceMcpAuthMode;
-  clientId: string;
-  maskedClientSecret: string;
-  scope: string;
-  resource: string;
-  connectionMode: DynatraceMcpConnectionMode;
 }
 
 export interface DynatraceMcpAvailability {
@@ -176,14 +166,6 @@ export interface SaveDynatraceMcpRequest {
   enabled: boolean;
   endpoint: string;
   defaultWindow: string;
-  headerName: string[];
-  headerValue: string[];
-  authMode: DynatraceMcpAuthMode;
-  clientId: string;
-  clientSecret: string;
-  scope: string;
-  resource: string;
-  connectionMode: DynatraceMcpConnectionMode;
 }
 
 export interface SaveDynatraceMcpResponse {
@@ -222,8 +204,6 @@ export function useTestDynatraceMcpMutation() {
 export interface ImportDynatraceMcpResponse {
   recognized: boolean;
   endpoint: string | null;
-  headerName: string[];
-  headerValue: string[];
   reason: string | null;
 }
 

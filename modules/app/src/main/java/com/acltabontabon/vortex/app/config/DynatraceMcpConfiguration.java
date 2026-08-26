@@ -27,22 +27,8 @@ public class DynatraceMcpConfiguration {
     @Bean
     DynatraceMcpSettings dynatraceMcpSettings(VortexProperties properties) {
         VortexProperties.DynatraceMcp config = properties.dynatraceMcp();
-        return new DynatraceMcpSettings(config.enabled(), config.endpoint(), config.headers(),
-                config.defaultWindow(), config.queryTimeout(), parseAuthMode(config.authMode()),
-                config.clientId(), config.clientSecret(), config.scope(), config.resource(),
-                parseConnectionMode(config.connectionMode()));
-    }
-
-    private static DynatraceMcpSettings.AuthMode parseAuthMode(String value) {
-        return "oauth_client_credentials".equals(value)
-                ? DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
-                : DynatraceMcpSettings.AuthMode.HEADER;
-    }
-
-    private static DynatraceMcpSettings.ConnectionMode parseConnectionMode(String value) {
-        return "local_npx_bridge".equals(value)
-                ? DynatraceMcpSettings.ConnectionMode.LOCAL_NPX_BRIDGE
-                : DynatraceMcpSettings.ConnectionMode.DIRECT_HTTPS;
+        return new DynatraceMcpSettings(config.enabled(), config.endpoint(), config.defaultWindow(),
+                config.queryTimeout());
     }
 
     @Bean
@@ -51,9 +37,8 @@ public class DynatraceMcpConfiguration {
     }
 
     @Bean
-    DynatraceMcpAvailability dynatraceMcpAvailability(DynatraceMcpSettings settings,
-            DynatraceMcpClientFactory clients) {
-        return new DynatraceMcpAvailability(settings, clients);
+    DynatraceMcpAvailability dynatraceMcpAvailability(DynatraceMcpSettings settings) {
+        return new DynatraceMcpAvailability(settings);
     }
 
     @Bean

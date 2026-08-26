@@ -2,9 +2,7 @@ package com.acltabontabon.vortex.dynatrace;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -12,10 +10,10 @@ import java.util.Objects;
  * what it describes.
  *
  * <p>The configuration most teams are given is shaped like {@code {"command": "npx", "args":
- * ["-y", "mcp-remote", "https://mcp-server.example/mcp"]}}: a local stdio bridge ({@code mcp-remote})
- * that exists so MCP clients which only speak stdio can reach a remote HTTP(S) server. Vortex is not
- * such a client — it speaks MCP Streamable-HTTP directly — so this class's only job is to find the
- * URL that command would have connected to, and discard the command itself.
+ * ["-y", "mcp-remote", "https://mcp-server.example/mcp"]}}: the same local stdio bridge Vortex itself
+ * spawns to reach it — see {@code DynatraceMcpBridgeTelemetryClient}. This class's only job is to find
+ * the URL that command connects to, and discard the command itself; Vortex never runs a pasted
+ * command verbatim, even one it would otherwise run itself.
  *
  * <p>Anything this class cannot confidently reduce to "here is the remote URL" is refused with an
  * explanation, never silently accepted. There is no code path here that constructs a
@@ -29,11 +27,9 @@ public final class DynatraceMcpConfigImport {
     }
 
     /** What Vortex would configure, for the caller to show for review — nothing is saved yet. */
-    public record Recognized(String endpoint, Map<String, String> candidateHeaders, String suggestedLabel)
-            implements Result {
+    public record Recognized(String endpoint, String suggestedLabel) implements Result {
         public Recognized {
             Objects.requireNonNull(endpoint, "endpoint");
-            candidateHeaders = candidateHeaders == null ? Map.of() : Map.copyOf(candidateHeaders);
             suggestedLabel = suggestedLabel == null ? "" : suggestedLabel;
         }
     }
@@ -55,7 +51,7 @@ public final class DynatraceMcpConfigImport {
         String trimmed = pasted.trim();
 
         if (looksLikeBareUrl(trimmed)) {
-            return new Recognized(trimmed, Map.of(), "");
+            return new Recognized(trimmed, "");
         }
 
         JsonNode root;
@@ -139,8 +135,7 @@ public final class DynatraceMcpConfigImport {
                             + "check the configuration is complete.");
         }
 
-        Map<String, String> headers = extractHeaderFlags(args);
-        return new Recognized(url, headers, keyHint);
+        return new Recognized(url, keyHint);
     }
 
     /**
@@ -178,7 +173,9 @@ public final class DynatraceMcpConfigImport {
         return null;
     }
 
-    /** A {@code "type"} field (e.g. {@code "http"}) may be present but is not diagnostic — ignored. */
+    /** A {@code "type"} field (e.g. {@code "http"}) may be present but is not diagnostic — ignored.
+     *  Any accompanying {@code "headers"} are discarded too: Vortex's bridge performs its own OAuth
+     *  and never sends a header from a pasted config. */
     private static Result tryAsBareUrlEntry(JsonNode candidate, String keyHint) {
         JsonNode urlNode = candidate.path("url");
         if (!urlNode.isTextual()) {
@@ -188,30 +185,6 @@ public final class DynatraceMcpConfigImport {
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             return null;
         }
-        Map<String, String> headers = new LinkedHashMap<>();
-        JsonNode headersNode = candidate.path("headers");
-        if (headersNode.isObject()) {
-            headersNode.fields().forEachRemaining(field -> {
-                if (field.getValue().isTextual()) {
-                    headers.put(field.getKey(), field.getValue().asText());
-                }
-            });
-        }
-        return new Recognized(url, headers, keyHint);
-    }
-
-    /** {@code mcp-remote} accepts repeated {@code --header "Name: Value"} arguments. */
-    private static Map<String, String> extractHeaderFlags(List<String> args) {
-        Map<String, String> headers = new LinkedHashMap<>();
-        for (int i = 0; i < args.size() - 1; i++) {
-            if ("--header".equals(args.get(i))) {
-                String pair = args.get(i + 1);
-                int colon = pair.indexOf(':');
-                if (colon > 0) {
-                    headers.put(pair.substring(0, colon).trim(), pair.substring(colon + 1).trim());
-                }
-            }
-        }
-        return headers;
+        return new Recognized(url, keyHint);
     }
 }

@@ -18,9 +18,9 @@ final class Dql {
     private Dql() {
     }
 
-    static DynatraceTelemetryQuery query(String id, String statement) {
+    static DynatraceTelemetryQuery query(String id, String statement, String organization) {
         return new DynatraceTelemetryQuery(id, DynatraceQueryDefinition.EXECUTE_DQL_TOOL,
-                Map.of("query", statement));
+                Map.of("dqlStatement", statement, "organization", organization));
     }
 
     static String throughput(String entityId, TimeWindow window, Duration resolution) {

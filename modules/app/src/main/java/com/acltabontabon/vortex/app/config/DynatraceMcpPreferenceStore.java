@@ -9,12 +9,11 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * Persists what a user changes from Settings → Dynatrace: whether it is enabled, its endpoint,
- * headers, and default observation window.
+ * Persists what a user changes from Settings → Dynatrace: whether it is enabled, its endpoint, and
+ * the default observation window.
  *
  * <p>Written to {@code ~/.vortex/config.yaml} under {@code /vortex/dynatrace-mcp}, exactly like
  * {@link AiModelPreferenceStore} writes {@code /vortex/ai} — a fixed, home-relative path that
@@ -38,26 +37,12 @@ public class DynatraceMcpPreferenceStore {
     }
 
     /** Rewrites {@code vortex.dynatrace-mcp} in the file, leaving every other key untouched. */
-    public void save(boolean enabled, String endpoint, Map<String, String> headers, String defaultWindow,
-            String authMode, String clientId, String clientSecret, String scope, String resource,
-            String connectionMode) {
+    public void save(boolean enabled, String endpoint, String defaultWindow) {
         ObjectNode root = load();
         ObjectNode node = root.withObject("/vortex/dynatrace-mcp");
         node.put("enabled", enabled);
         node.put("endpoint", endpoint == null ? "" : endpoint);
         node.put("defaultWindow", defaultWindow == null || defaultWindow.isBlank() ? "30d" : defaultWindow);
-        node.put("authMode", authMode == null || authMode.isBlank() ? "header" : authMode);
-        node.put("clientId", clientId == null ? "" : clientId);
-        node.put("clientSecret", clientSecret == null ? "" : clientSecret);
-        node.put("scope", scope == null ? "" : scope);
-        node.put("resource", resource == null ? "" : resource);
-        node.put("connectionMode", connectionMode == null || connectionMode.isBlank()
-                ? "direct_https" : connectionMode);
-        ObjectNode headerNode = node.withObject("/headers");
-        headerNode.removeAll();
-        if (headers != null) {
-            headers.forEach(headerNode::put);
-        }
         write(root);
     }
 
