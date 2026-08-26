@@ -40,11 +40,11 @@ jobs:
         run: ./mvnw -B -pl modules/k6,modules/app -am clean verify
 
       - name: Publish test results
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: Docker/k6 integration test results
-          # Comma-separated, not brace-expanded and not one-per-line: dorny/test-reporter@v1
+          # Comma-separated, not brace-expanded and not one-per-line: dorny/test-reporter@v3
           # splits `path` on commas only. A `{k6,app}` brace pattern isn't expanded (it isn't a
           # shell), and a YAML `|` block is passed through as one literal string with an embedded
           # newline rather than being split into separate globs — both silently matched nothing.
