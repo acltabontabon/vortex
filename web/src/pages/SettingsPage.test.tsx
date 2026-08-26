@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/renderWithProviders';
 import type { Settings } from '../api/settings';
+import { ApiError } from '../api/client';
 
 /** Scopes queries to the card titled `heading` — several cards share button labels like "Save". */
 function withinCard(heading: string) {
@@ -23,6 +24,12 @@ const saveDynatraceMcpMutate = vi.fn();
 const testDynatraceMcpMutate = vi.fn();
 const importDynatraceMcpMutate = vi.fn();
 
+let testDynatraceMcpResult: { isError: boolean; error: unknown; data: unknown } = {
+  isError: false,
+  error: undefined,
+  data: undefined,
+};
+
 vi.mock('../api/settings', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/settings')>();
   return {
@@ -35,7 +42,7 @@ vi.mock('../api/settings', async (importOriginal) => {
       isPending: false,
     }),
     useSaveDynatraceMcpMutation: () => ({ mutate: saveDynatraceMcpMutate, isPending: false }),
-    useTestDynatraceMcpMutation: () => ({ mutate: testDynatraceMcpMutate, isPending: false, data: undefined }),
+    useTestDynatraceMcpMutation: () => ({ mutate: testDynatraceMcpMutate, isPending: false, ...testDynatraceMcpResult }),
     useImportDynatraceMcpMutation: () => ({ mutate: importDynatraceMcpMutate, isPending: false, data: undefined }),
   };
 });
@@ -212,6 +219,10 @@ describe('the settings page', () => {
   });
 
   describe('Dynatrace', () => {
+    beforeEach(() => {
+      testDynatraceMcpResult = { isError: false, error: undefined, data: undefined };
+    });
+
     it('shows the unconfigured state with its remedy', () => {
       queryResult = { data: aSettings(), isError: false };
       renderWithProviders(<SettingsPage />);
@@ -263,6 +274,42 @@ describe('the settings page', () => {
       await userEvent.click(card.getByText('MCP configuration'));
 
       expect(card.getByRole('button', { name: 'Test connection' })).toBeDisabled();
+    });
+
+    it('can still be disabled while pasting a config, not only in manual entry mode', async () => {
+      queryResult = { data: aSettings({ dynatraceMcp: {
+        enabled: true, endpoint: 'https://dynatrace-mcp.internal/mcp', maskedHeaders: {},
+        defaultWindowDisplay: '30d',
+      } }), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Dynatrace');
+      await userEvent.click(card.getByText('MCP configuration'));
+
+      expect(card.getByLabelText('Enabled')).toBeInTheDocument();
+    });
+
+    it('the test connection button is disabled with a blank endpoint', () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Dynatrace');
+      expect(card.getByRole('button', { name: 'Test connection' })).toBeDisabled();
+    });
+
+    it('shows the server-supplied reason when testing the connection fails', () => {
+      queryResult = { data: aSettings(), isError: false };
+      testDynatraceMcpResult = {
+        isError: true,
+        error: new ApiError('POST', '/api/settings/dynatrace-mcp/test', 400,
+          'Enter the Dynatrace MCP endpoint before testing the connection.'),
+        data: undefined,
+      };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Dynatrace');
+      expect(card.getByText('Enter the Dynatrace MCP endpoint before testing the connection.'))
+          .toBeInTheDocument();
     });
   });
 });

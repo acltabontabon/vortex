@@ -28,6 +28,13 @@ vi.mock('../../../api/tests', async (importOriginal) => {
   return { ...actual, useApplyProductionMutation: () => ({ mutate: applyMutate, isPending: false }) };
 });
 
+let settingsQueryData: { dynatraceMcp: { enabled: boolean } } | undefined = undefined;
+
+vi.mock('../../../api/settings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/settings')>();
+  return { ...actual, useSettingsQuery: () => ({ data: settingsQueryData, isError: false }) };
+});
+
 const CATALOG: Catalog = { imported: true, title: 't', sourceRef: null, operationCount: 0, mutatingCount: 0, operations: [] };
 
 function aProduction(overrides: Partial<Production> = {}): Production {
@@ -65,6 +72,7 @@ function render(props: Partial<Parameters<typeof ProductionRealitySection>[0]> =
   saveSourceMutate.mockReset();
   testSourceMutate.mockReset();
   applyMutate.mockReset();
+  settingsQueryData = undefined;
   return renderWithProviders(
     <ProductionRealitySection
       serviceId="checkout"
@@ -134,5 +142,54 @@ describe('ProductionRealitySection', () => {
     await user.click(screen.getByRole('button', { name: 'Test connection' }));
 
     expect(testSourceMutate).toHaveBeenCalled();
+  });
+
+  function aDynatraceMcpSource(overrides: Partial<ObservationSource> = {}): ObservationSource {
+    return anObservationSource({
+      kind: 'DYNATRACE',
+      transport: 'MCP',
+      endpoint: '',
+      serviceIdentifier: 'SERVICE-1A2B3C4D5E6F7890',
+      maskedHeaders: {},
+      ...overrides,
+    });
+  }
+
+  it('hides the endpoint and header fields for a Dynatrace MCP source', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: aDynatraceMcpSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+
+    expect(screen.queryByLabelText('Endpoint')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add header/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Dynatrace MCP is not enabled yet\./)).toBeInTheDocument();
+  });
+
+  it('confirms the global connection will be used once Dynatrace MCP is enabled', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: aDynatraceMcpSource() });
+    settingsQueryData = { dynatraceMcp: { enabled: true } };
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+
+    expect(
+      screen.getByText('Vortex will reach Dynatrace through the endpoint configured under Settings.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Dynatrace MCP is not enabled yet\./)).not.toBeInTheDocument();
+  });
+
+  it('omits endpoint and headers from the saved payload when using MCP transport', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: aDynatraceMcpSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+    await user.click(screen.getByRole('button', { name: 'Save source' }));
+
+    expect(saveSourceMutate).toHaveBeenCalled();
+    const payload = saveSourceMutate.mock.calls[0][0];
+    expect(payload).toMatchObject({ source: 'dynatrace', transport: 'mcp', endpoint: '' });
+    expect(payload.headerName).toBeUndefined();
+    expect(payload.headerValue).toBeUndefined();
   });
 });

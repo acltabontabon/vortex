@@ -17,6 +17,7 @@ import com.acltabontabon.vortex.app.config.AiModelPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetSettings;
 import com.acltabontabon.vortex.app.service.LocalLabRunner;
+import com.acltabontabon.vortex.core.environment.SecretReferences;
 import com.acltabontabon.vortex.core.evidence.HostShape;
 import com.acltabontabon.vortex.core.port.LocalLab;
 import com.acltabontabon.vortex.core.port.PerformanceAssistant;
@@ -139,6 +140,7 @@ class SettingsApiControllerTest {
 
     @BeforeEach
     void wiring() {
+        dynatraceMcpSettings.reconfigure(false, "", Map.of(), null);
         when(properties.version()).thenReturn("0.1.0-SNAPSHOT");
         when(properties.engine()).thenReturn(
                 new VortexProperties.Engine("local", "k6", "docker", "grafana/k6:1.3.0", true, null));
@@ -311,6 +313,57 @@ class SettingsApiControllerTest {
         assertThat(dynatraceMcpSettings.endpoint()).isEqualTo("https://dynatrace-mcp.internal/mcp");
         verify(dynatraceMcpPreferences).save(true, "https://dynatrace-mcp.internal/mcp", Map.of(), "30d");
         verify(dynatraceMcpAvailability).refresh();
+    }
+
+    @Test
+    void savingWithAMaskedHeaderResolvesToThePreviouslyStoredValue() throws Exception {
+        mockMvc.perform(post("/api/settings/dynatrace-mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","headerName":["Authorization"],
+                                 "headerValue":["Api-Token abc123"]}
+                                """))
+                .andExpect(status().isOk());
+        assertThat(dynatraceMcpSettings.headers()).containsEntry("Authorization", "Api-Token abc123");
+
+        mockMvc.perform(post("/api/settings/dynatrace-mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","headerName":["Authorization"],
+                                 "headerValue":["%s"]}
+                                """.formatted(SecretReferences.MASK)))
+                .andExpect(status().isOk());
+
+        assertThat(dynatraceMcpSettings.headers()).containsEntry("Authorization", "Api-Token abc123");
+        verify(dynatraceMcpPreferences, org.mockito.Mockito.times(2)).save(true,
+                "https://dynatrace-mcp.internal/mcp", Map.of("Authorization", "Api-Token abc123"), "30d");
+    }
+
+    @Test
+    void savingAMaskedHeaderWithNothingToResolveAgainstIsRejected() throws Exception {
+        mockMvc.perform(post("/api/settings/dynatrace-mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","headerName":["Authorization"],
+                                 "headerValue":["%s"]}
+                                """.formatted(SecretReferences.MASK)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(dynatraceMcpSettings.headers()).isEmpty();
+    }
+
+    @Test
+    void testingWithABlankEndpointIsRejected() throws Exception {
+        mockMvc.perform(post("/api/settings/dynatrace-mcp/test")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"","defaultWindow":"30d",
+                                 "headerName":[],"headerValue":[]}
+                                """))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

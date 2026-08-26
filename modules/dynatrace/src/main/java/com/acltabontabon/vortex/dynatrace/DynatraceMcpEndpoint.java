@@ -26,9 +26,11 @@ public record DynatraceMcpEndpoint(String uri, Map<String, String> headers, Dura
         if (uri.isBlank()) {
             throw new IllegalArgumentException("a Dynatrace MCP endpoint needs a URL");
         }
-        if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
+        if (!uri.startsWith("https://")) {
             throw new IllegalArgumentException(
-                    "the Dynatrace MCP endpoint must be an absolute http or https URL but was: " + uri);
+                    "the Dynatrace MCP endpoint must be an absolute https URL but was: " + uri
+                            + " — headers may carry a credential, so Vortex refuses to send them "
+                            + "over a plaintext connection");
         }
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("a query timeout of " + timeout + " covers no request");

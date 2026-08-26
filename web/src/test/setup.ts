@@ -30,3 +30,7 @@ class ResizeObserverStub {
   disconnect() {}
 }
 vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+
+// jsdom doesn't implement scrollIntoView either; Mantine's Combobox (Select and friends) calls it
+// when keyboard/pointer interaction moves the active option into view.
+Element.prototype.scrollIntoView = vi.fn();

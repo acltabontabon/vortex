@@ -1,20 +1,19 @@
 package com.acltabontabon.vortex.dynatrace;
 
-import com.acltabontabon.vortex.core.metrics.TimeWindow;
-import com.acltabontabon.vortex.dynatrace.query.DynatraceQueries;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 /**
- * Validates the whole Dynatrace MCP path without changing anything, one independent stage at a time.
+ * Validates the Dynatrace MCP connection itself, without changing anything, one independent stage
+ * at a time.
  *
- * <p>A single boolean answers "did it work" but not "which of the four things that can be wrong
- * independently is the one that's wrong here" — so each stage is reported on its own, and a stage
- * that cannot run (no entity to test a real query against yet) says so rather than silently passing.
+ * <p>A single boolean answers "did it work" but not "which of the three things that can be wrong
+ * independently is the one that's wrong here" — so each stage is reported on its own. This is a
+ * connection-level check, run from Settings before any service is mapped to a Dynatrace entity, so
+ * it stops at tool discovery rather than exercising a real telemetry query.
  */
 public final class DynatraceMcpConnectionTest {
 
@@ -27,10 +26,6 @@ public final class DynatraceMcpConnectionTest {
         static StageResult fail(String stage, DynatraceMcpFailureCategory category, String detail) {
             return new StageResult(stage, false, category, detail);
         }
-
-        static StageResult skipped(String stage, String reason) {
-            return new StageResult(stage, true, null, reason);
-        }
     }
 
     public record Report(boolean succeeded, List<StageResult> stages) {
@@ -39,11 +34,8 @@ public final class DynatraceMcpConnectionTest {
         }
     }
 
-    /**
-     * Runs every stage the given inputs allow. {@code entityId} may be blank — the minimum-query
-     * stage is then reported as skipped rather than attempted against nothing.
-     */
-    public Report run(String uri, Map<String, String> headers, Duration timeout, String entityId) {
+    /** Runs every stage the given inputs allow. */
+    public Report run(String uri, Map<String, String> headers, Duration timeout) {
         Objects.requireNonNull(uri, "uri");
         Objects.requireNonNull(timeout, "timeout");
         List<StageResult> stages = new ArrayList<>();
@@ -86,22 +78,6 @@ public final class DynatraceMcpConnectionTest {
                     stages.add(StageResult.fail("Dynatrace tool discovered", failed.category(), failed.detail()));
                     return new Report(false, stages);
                 }
-            }
-
-            if (entityId == null || entityId.isBlank()) {
-                stages.add(StageResult.skipped("Telemetry access",
-                        "no service is mapped to a Dynatrace entity yet — this stage runs once one is"));
-                return new Report(true, stages);
-            }
-
-            Instant now = Instant.now();
-            var query = DynatraceQueries.THROUGHPUT_V1.queryFor(entityId,
-                    new TimeWindow(now.minus(Duration.ofHours(1)), now), Duration.ofMinutes(5));
-            var outcome = client.call(query, timeout);
-            switch (outcome) {
-                case DynatraceTelemetryClient.Answered ignored -> stages.add(StageResult.pass("Telemetry access"));
-                case DynatraceTelemetryClient.Failed failed ->
-                        stages.add(StageResult.fail("Telemetry access", failed.category(), failed.detail()));
             }
         } finally {
             client.close();

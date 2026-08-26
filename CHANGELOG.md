@@ -10,14 +10,10 @@ Vortex has not made a release yet, so everything to date is recorded under
 
 ### Added
 
-- Dynatrace production observation can now be fetched over MCP instead of Dynatrace's REST API, for
-  teams whose only access to Dynatrace is an internally-managed MCP server (typically reachable only
-  over a VPN). Configure the connection under Settings → Dynatrace — either by pasting the provided
-  config or entering the endpoint URL directly — then set a service's observation source to
-  Dynatrace with transport `mcp`. Vortex connects to the endpoint directly over HTTPS and never
-  executes a pasted config's command. Only deterministic, versioned queries (throughput, request
-  latency, failure rate) are issued; no AI interpretation participates in the resulting baseline.
-  Operation mix is not yet available over this transport.
+- Dynatrace production observation can now be fetched over MCP as well as Dynatrace's REST API, for
+  teams whose only access to Dynatrace is an internal MCP server (typically reachable only over
+  VPN). Configure it under Settings → Dynatrace, then set a service's observation source to
+  Dynatrace with transport `mcp`. Operation mix isn't available over this transport yet.
 
 ### Changed
 

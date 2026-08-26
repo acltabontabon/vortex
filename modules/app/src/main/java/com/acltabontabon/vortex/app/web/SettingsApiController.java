@@ -337,15 +337,20 @@ public class SettingsApiController {
      */
     @PostMapping("/dynatrace-mcp")
     public SaveDynatraceMcpResponse saveDynatraceMcp(@RequestBody SaveDynatraceMcpRequest request) {
-        Map<String, String> headers = parseHeaders(request.headerName(), request.headerValue());
-        Duration window = parseWindow(request.defaultWindow());
-        dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), headers, window);
-        dynatraceMcpPreferences.save(request.enabled(), request.endpoint(), headers,
-                Durations.display(window));
-        dynatraceMcpAvailability.refresh();
-        return new SaveDynatraceMcpResponse(request.enabled()
-                ? "Saved. Test the connection, then map a service to a Dynatrace entity."
-                : "Saved. Dynatrace MCP is disabled.");
+        try {
+            Map<String, String> headers = resolveHeaders(
+                    parseHeaders(request.headerName(), request.headerValue()), dynatraceMcpSettings.headers());
+            Duration window = parseWindow(request.defaultWindow());
+            dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), headers, window);
+            dynatraceMcpPreferences.save(request.enabled(), request.endpoint(), headers,
+                    Durations.display(window));
+            dynatraceMcpAvailability.refresh();
+            return new SaveDynatraceMcpResponse(request.enabled()
+                    ? "Saved. Test the connection, then map a service to a Dynatrace entity."
+                    : "Saved. Dynatrace MCP is disabled.");
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
     }
 
     public record DynatraceMcpStageDto(String stage, boolean succeeded, String category, String detail) {}
@@ -364,14 +369,19 @@ public class SettingsApiController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Enter the Dynatrace MCP endpoint before testing the connection.");
         }
-        Map<String, String> headers = parseHeaders(request.headerName(), request.headerValue());
-        var report = dynatraceMcpConnectionTest.run(request.endpoint(), headers,
-                dynatraceMcpSettings.queryTimeout(), null);
-        List<DynatraceMcpStageDto> stages = report.stages().stream()
-                .map(stage -> new DynatraceMcpStageDto(stage.stage(), stage.succeeded(),
-                        stage.category() == null ? null : stage.category().name(), stage.detail()))
-                .toList();
-        return new TestDynatraceMcpResponse(report.succeeded(), stages);
+        try {
+            Map<String, String> headers = resolveHeaders(
+                    parseHeaders(request.headerName(), request.headerValue()), dynatraceMcpSettings.headers());
+            var report = dynatraceMcpConnectionTest.run(request.endpoint(), headers,
+                    dynatraceMcpSettings.queryTimeout());
+            List<DynatraceMcpStageDto> stages = report.stages().stream()
+                    .map(stage -> new DynatraceMcpStageDto(stage.stage(), stage.succeeded(),
+                            stage.category() == null ? null : stage.category().name(), stage.detail()))
+                    .toList();
+            return new TestDynatraceMcpResponse(report.succeeded(), stages);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
     }
 
     public record ImportDynatraceMcpRequest(String pastedConfig) {}
@@ -404,11 +414,38 @@ public class SettingsApiController {
         for (int i = 0; i < Math.min(names.size(), values.size()); i++) {
             String name = names.get(i) == null ? "" : names.get(i).trim();
             String value = values.get(i) == null ? "" : values.get(i).trim();
-            if (!name.isEmpty() && !value.isEmpty() && !SecretReferences.MASK.equals(value)) {
+            if (!name.isEmpty() && !value.isEmpty()) {
                 headers.put(name, value);
             }
         }
         return headers;
+    }
+
+    /**
+     * Resolves a masked placeholder ({@link SecretReferences#MASK}) in {@code parsed} back to the
+     * real value already stored under that header name, so leaving a masked header untouched on save
+     * doesn't overwrite it with the literal placeholder string — {@link #toDto(DynatraceMcpSettings)}
+     * always masks a literal header value on the way out, so the browser never has the real value to
+     * resubmit. A masked value with nothing to recover it from (a new header, or a renamed one) is
+     * rejected: Vortex never writes the placeholder as a real header value. Mirrors
+     * {@code ConfigurationApiController.resolveHeaders}.
+     */
+    private Map<String, String> resolveHeaders(Map<String, String> parsed, Map<String, String> existing) {
+        Map<String, String> resolved = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : parsed.entrySet()) {
+            String value = entry.getValue();
+            if (SecretReferences.MASK.equals(value)) {
+                String real = existing.get(entry.getKey());
+                if (real == null) {
+                    throw new IllegalArgumentException("Header '" + entry.getKey() + "' shows "
+                            + SecretReferences.MASK + " — retype its value to change it. Vortex never "
+                            + "writes a masked placeholder as a real header value.");
+                }
+                value = real;
+            }
+            resolved.put(entry.getKey(), value);
+        }
+        return resolved;
     }
 
     private Duration parseWindow(String display) {

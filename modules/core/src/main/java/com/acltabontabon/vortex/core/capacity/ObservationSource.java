@@ -115,6 +115,17 @@ public record ObservationSource(
                         "observation source endpoint must be an absolute http or https URL but was: "
                                 + endpoint);
             }
+        } else {
+            if (!endpoint.isBlank()) {
+                throw new IllegalArgumentException(
+                        "an MCP-transport Dynatrace source takes no endpoint of its own — configure "
+                                + "the shared connection under Settings → Dynatrace instead");
+            }
+            if (!headers.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "an MCP-transport Dynatrace source takes no headers of its own — configure the "
+                                + "shared connection's headers under Settings → Dynatrace instead");
+            }
         }
         if (serviceIdentifier.isBlank()) {
             throw new IllegalArgumentException(

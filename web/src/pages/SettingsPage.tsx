@@ -33,7 +33,7 @@ import type { ChooseLoadGeneratorBudgetRequest, DynatraceMcpAvailability, Dynatr
 import { Fact, Facts } from '../components/Fact';
 import { HeaderRows } from '../features/service/configuration/HeaderRows';
 import { rowsFromMasked, type HeaderRow } from '../features/service/configuration/headerRowUtils';
-import { errorFallback } from '../lib/queryFallback';
+import { errorFallback, extractErrorMessage } from '../lib/queryFallback';
 import classes from './SettingsPage.module.css';
 
 /** "4 cores", "0.5 cores" — never a bare "4000" a reader has to convert. */
@@ -501,6 +501,10 @@ function DynatraceMcpCard({
     });
   }
 
+  const saveError = extractErrorMessage(save, 'Something went wrong saving Dynatrace MCP settings.');
+  const testError = extractErrorMessage(test, 'Something went wrong testing the connection.');
+  const importError = extractErrorMessage(doImport, 'Something went wrong parsing that configuration.');
+
   return (
     <Card withBorder radius="md">
       <Group justify="space-between" align="flex-start" mb="sm">
@@ -529,6 +533,14 @@ function DynatraceMcpCard({
           <Text size="sm">{availability.remedy}</Text>
         </Alert>
       )}
+
+      <Select
+        mt="md"
+        label="Enabled"
+        data={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
+        value={enabled ? 'yes' : 'no'}
+        onChange={(v) => setEnabled(v === 'yes')}
+      />
 
       <SegmentedControl
         mt="md"
@@ -561,6 +573,11 @@ function DynatraceMcpCard({
               {doImport.data.reason}
             </Alert>
           )}
+          {importError && (
+            <Alert color="fail" title="Could not parse that configuration">
+              {importError}
+            </Alert>
+          )}
         </Stack>
       ) : (
         <Stack gap="sm" mt="sm">
@@ -570,20 +587,12 @@ function DynatraceMcpCard({
             value={endpoint}
             onChange={(e) => setEndpoint(e.currentTarget.value)}
           />
-          <Group grow>
-            <TextInput
-              label="Default observation window"
-              placeholder="30d"
-              value={defaultWindow}
-              onChange={(e) => setDefaultWindow(e.currentTarget.value)}
-            />
-            <Select
-              label="Enabled"
-              data={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
-              value={enabled ? 'yes' : 'no'}
-              onChange={(v) => setEnabled(v !== 'no')}
-            />
-          </Group>
+          <TextInput
+            label="Default observation window"
+            placeholder="30d"
+            value={defaultWindow}
+            onChange={(e) => setDefaultWindow(e.currentTarget.value)}
+          />
           <HeaderRows rows={headerRows} onChange={setHeaderRows} />
         </Stack>
       )}
@@ -611,6 +620,16 @@ function DynatraceMcpCard({
           </List>
         </div>
       )}
+      {saveError && (
+        <Text size="sm" c="fail" mt="md">
+          {saveError}
+        </Text>
+      )}
+      {testError && (
+        <Text size="sm" c="fail" mt="md">
+          {testError}
+        </Text>
+      )}
 
       <Group mt="md">
         <Button size="sm" onClick={onSave} loading={save.isPending}>
@@ -621,7 +640,7 @@ function DynatraceMcpCard({
           variant="default"
           onClick={() => test.mutate(payload())}
           loading={test.isPending}
-          disabled={mode === 'paste'}
+          disabled={mode === 'paste' || !endpoint.trim()}
         >
           Test connection
         </Button>

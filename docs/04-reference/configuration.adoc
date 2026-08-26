@@ -699,8 +699,11 @@ a REST-sourced one Dynatrace could not attribute.
 | MCP server reachable | Not on the VPN, or the endpoint URL is wrong
 | Authentication | The credential referenced under Settings is unset or wrong
 | Dynatrace tool discovered | The server does not offer `execute_dql` — check with whoever manages it
-| Telemetry access | The entity id is wrong, or there is no traffic in the requested window
 |===
+
+A passing *Test connection* only confirms the shared MCP connection works — it does not check a
+specific service's entity id or whether Dynatrace has traffic for it. If a run reports no data once
+a service is mapped, check the entity id and the observation window instead.
 
 === What each number means
 
