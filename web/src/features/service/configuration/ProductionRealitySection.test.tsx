@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/renderWithProviders';
@@ -7,16 +7,28 @@ import type { Production } from '../../../api/workspace';
 import { ProductionRealitySection } from './ProductionRealitySection';
 
 const fetchMutate = vi.fn();
+const fetchAndSaveMutate = vi.fn();
 const recordMutate = vi.fn();
 const saveSourceMutate = vi.fn();
 const testSourceMutate = vi.fn();
 const applyMutate = vi.fn();
 
+let fetchResultData: { succeeded: boolean; error: string | null; preview: Production | null } | undefined =
+  undefined;
+
 vi.mock('../../../api/configuration', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../api/configuration')>();
   return {
     ...actual,
-    useFetchProductionMutation: () => ({ mutate: fetchMutate, isPending: false, data: undefined }),
+    useFetchProductionMutation: () => ({
+      mutate: fetchMutate,
+      reset: () => {
+        fetchResultData = undefined;
+      },
+      isPending: false,
+      data: fetchResultData,
+    }),
+    useFetchAndSaveProductionMutation: () => ({ mutate: fetchAndSaveMutate, isPending: false, data: undefined }),
     useRecordProductionMutation: () => ({ mutate: recordMutate, isPending: false, isError: false }),
     useSaveObservationSourceMutation: () => ({ mutate: saveSourceMutate, isPending: false, isError: false }),
     useTestObservationSourceMutation: () => ({ mutate: testSourceMutate, isPending: false, data: undefined }),
@@ -68,6 +80,7 @@ function anObservationSource(overrides: Partial<ObservationSource> = {}): Observ
 
 function render(props: Partial<Parameters<typeof ProductionRealitySection>[0]> = {}) {
   fetchMutate.mockReset();
+  fetchAndSaveMutate.mockReset();
   recordMutate.mockReset();
   saveSourceMutate.mockReset();
   testSourceMutate.mockReset();
@@ -86,6 +99,10 @@ function render(props: Partial<Parameters<typeof ProductionRealitySection>[0]> =
 }
 
 describe('ProductionRealitySection', () => {
+  beforeEach(() => {
+    fetchResultData = undefined;
+  });
+
   it('says plainly that nothing is recorded yet', () => {
     render();
 
@@ -113,6 +130,24 @@ describe('ProductionRealitySection', () => {
   it('does not offer Fetch when no observation source is configured', () => {
     render();
     expect(screen.queryByRole('button', { name: 'Fetch from observation source' })).not.toBeInTheDocument();
+  });
+
+  it('offers to save a fetched preview, and saving calls the fetch-and-save mutation', async () => {
+    const user = userEvent.setup();
+    fetchResultData = { succeeded: true, error: null, preview: aProduction({ peakRate: '10 req/s' }) };
+    render({ observationSource: anObservationSource() });
+
+    expect(screen.getByText('Fetched — nothing saved yet')).toBeInTheDocument();
+    const saveButton = screen.getByRole('button', { name: 'Save this observation' });
+
+    await user.click(saveButton);
+
+    expect(fetchAndSaveMutate).toHaveBeenCalled();
+  });
+
+  it('does not offer to save when nothing has been fetched yet', () => {
+    render({ observationSource: anObservationSource() });
+    expect(screen.queryByRole('button', { name: 'Save this observation' })).not.toBeInTheDocument();
   });
 
   it('records manual traffic behind a secondary action, not an always-open form', async () => {

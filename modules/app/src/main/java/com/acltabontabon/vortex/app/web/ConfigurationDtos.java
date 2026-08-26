@@ -81,6 +81,11 @@ public final class ConfigurationDtos {
     public record FetchProductionResponse(boolean succeeded, String error, ProductionDto preview) {
     }
 
+    /** Distinct from {@link FetchProductionResponse}: {@code production} here is what was actually
+     *  persisted, not a preview — see {@code ConfigurationApiController#fetchAndSaveProductionObservation}. */
+    public record FetchAndSaveProductionResponse(boolean succeeded, String error, ProductionDto production) {
+    }
+
     // ---------------------------------------------------------------- observation
 
     public record ObservationSourceDto(String kind, String transport, String endpoint,

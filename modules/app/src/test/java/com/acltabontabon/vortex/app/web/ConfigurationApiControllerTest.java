@@ -26,6 +26,7 @@ import com.acltabontabon.vortex.core.environment.EnvironmentType;
 import com.acltabontabon.vortex.core.environment.SecretReferences;
 import com.acltabontabon.vortex.core.environment.TargetUrl;
 import com.acltabontabon.vortex.core.fixtures.Fixtures;
+import com.acltabontabon.vortex.core.metrics.ObservationProvenance;
 import com.acltabontabon.vortex.core.port.LocalLab;
 import com.acltabontabon.vortex.core.port.ProductionObservationSource.NotRetrieved;
 import com.acltabontabon.vortex.core.port.ProductionObservationSource.Retrieved;
@@ -36,6 +37,7 @@ import com.acltabontabon.vortex.core.shared.RequestsPerSecond;
 import com.acltabontabon.vortex.core.target.ExternalEndpointTarget;
 import com.acltabontabon.vortex.core.workload.Observation;
 import com.acltabontabon.vortex.core.workload.RateAllocator;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -582,6 +584,39 @@ class ConfigurationApiControllerTest {
                     "Add an 'observation:' section to vortex.yaml."));
 
             mvc.perform(post("/api/services/" + SERVICE + "/production/fetch"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.succeeded").value(false));
+
+            verify(projects, org.mockito.Mockito.never()).saveConfiguration(any(), any());
+        }
+
+        @Test
+        @DisplayName("fetch-and-save persists exactly what was fetched, provenance included")
+        void fetchAndSavePersistsWhatWasFetched() throws Exception {
+            var observation = new ProductionObservation(
+                    RequestsPerSecond.of(120), RequestsPerSecond.of(150), RequestsPerSecond.of(200),
+                    null, null, Duration.ofHours(1), "Dynatrace MCP (SERVICE-1)", Observation.unknown(),
+                    new ObservationProvenance("dynatrace-mcp", "dynatrace.throughput.v1", "SERVICE-1", ""),
+                    "");
+            when(calibrationService.fetch(any(), any(), any())).thenReturn(new Retrieved(observation));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/production/fetch-and-save"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.succeeded").value(true));
+
+            var savedObservation = saved().productionObservation();
+            assertThat(savedObservation.peakRate().display()).isEqualTo("200");
+            assertThat(savedObservation.wasFetched()).isTrue();
+        }
+
+        @Test
+        @DisplayName("fetch-and-save never persists when there is nothing to fetch")
+        void fetchAndSaveNeverPersistsOnFailure() throws Exception {
+            when(calibrationService.fetch(any(), any(), any())).thenReturn(new NotRetrieved(
+                    "Cannot fetch production traffic", "no observation source is configured for this service.",
+                    "Add an 'observation:' section to vortex.yaml."));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/production/fetch-and-save"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.succeeded").value(false));
 

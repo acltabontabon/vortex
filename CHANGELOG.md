@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- Production reality's "Fetch from observation source" now offers a "Save this observation" action
+  that re-fetches and persists exactly what was retrieved — provenance, sample resolution and mix
+  coverage included. Previously Fetch only ever showed a preview; the only way to actually record a
+  production baseline was to type the numbers in by hand, which silently discarded the fact that they
+  came from Dynatrace/Prometheus at all.
+
 ## [0.1.0-alpha.14] - 2026-08-27
 
 ### Fixed

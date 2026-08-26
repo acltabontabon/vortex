@@ -8,6 +8,7 @@ import com.acltabontabon.vortex.app.web.ConfigurationDtos.DependencyModeOptionDt
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.EnvironmentDto;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.EnvironmentTypeOptionDto;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.ExecutionTargetSummaryDto;
+import com.acltabontabon.vortex.app.web.ConfigurationDtos.FetchAndSaveProductionResponse;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.FetchProductionResponse;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.LabActivityDto;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.LabStatusDto;
@@ -744,6 +745,36 @@ public class ConfigurationApiController {
             case Retrieved retrieved ->
                     new FetchProductionResponse(true, null, assembler.production(retrieved.observation(), catalog));
             case NotRetrieved notRetrieved -> new FetchProductionResponse(false, notRetrieved.describe(), null);
+        };
+    }
+
+    /**
+     * Fetches from the configured observation source and, only on success, persists exactly what it
+     * retrieved. Deliberately re-fetches rather than accepting a previously-shown preview to save:
+     * the saved observation must be evidence Vortex just verified, never one that quietly aged between
+     * the moment a preview was shown and the moment somebody clicked to keep it.
+     *
+     * <p>Persists the adapter's own {@link ProductionObservation} directly — carrying its real {@code
+     * provenance}, {@code mixCoverage} and {@code sampleResolution} — rather than routing through
+     * {@link #setProductionObservation}'s hand-entry constructor, which nulls all three. That is what
+     * lets the Configuration page tell a fetched observation from a typed-in one ({@code
+     * ProductionObservation#wasFetched()}).
+     */
+    @PostMapping("/production/fetch-and-save")
+    public FetchAndSaveProductionResponse fetchAndSaveProductionObservation(@PathVariable String id) {
+        ProjectId projectId = ProjectId.of(id);
+        ProjectConfiguration configuration = projects.configuration(projectId);
+        ServiceCatalog catalog = projects.catalog(projectId).orElse(null);
+
+        var retrieval = calibrationService.fetch(configuration, catalog, null);
+        return switch (retrieval) {
+            case Retrieved retrieved -> {
+                projects.saveConfiguration(projectId,
+                        configuration.withProductionObservation(retrieved.observation()));
+                yield new FetchAndSaveProductionResponse(true, null,
+                        assembler.production(retrieved.observation(), catalog));
+            }
+            case NotRetrieved notRetrieved -> new FetchAndSaveProductionResponse(false, notRetrieved.describe(), null);
         };
     }
 

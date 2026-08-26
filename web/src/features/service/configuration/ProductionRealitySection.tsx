@@ -4,6 +4,7 @@ import { notifications } from '@mantine/notifications';
 import { Link } from 'react-router-dom';
 import type { Catalog, ObservationSource, WorkloadSuggestion } from '../../../api/configuration';
 import {
+  useFetchAndSaveProductionMutation,
   useFetchProductionMutation,
   useRecordProductionMutation,
   useSaveObservationSourceMutation,
@@ -43,6 +44,7 @@ export function ProductionRealitySection({
   catalog: Catalog;
 }) {
   const fetchMutation = useFetchProductionMutation(serviceId);
+  const fetchAndSaveMutation = useFetchAndSaveProductionMutation(serviceId);
   const applyMutation = useApplyProductionMutation(serviceId);
 
   const [recording, setRecording] = useState(false);
@@ -50,6 +52,17 @@ export function ProductionRealitySection({
 
   function onFetch() {
     fetchMutation.mutate();
+  }
+
+  function onSaveFetched() {
+    fetchAndSaveMutation.mutate(undefined, {
+      onSuccess: (r) => {
+        if (r.succeeded) {
+          notifications.show({ message: 'Saved the observation Vortex just fetched.', color: 'pass' });
+          fetchMutation.reset();
+        }
+      },
+    });
   }
 
   function onApply() {
@@ -127,6 +140,14 @@ export function ProductionRealitySection({
               <Fact label="Average">{fetchMutation.data.preview.averageRate}</Fact>
             )}
           </Facts>
+          <Button mt="sm" size="xs" onClick={onSaveFetched} loading={fetchAndSaveMutation.isPending}>
+            Save this observation
+          </Button>
+        </Alert>
+      )}
+      {fetchAndSaveMutation.data && !fetchAndSaveMutation.data.succeeded && (
+        <Alert color="warn" title="Could not save">
+          {fetchAndSaveMutation.data.error}
         </Alert>
       )}
 
