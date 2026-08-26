@@ -51,6 +51,21 @@ class ToolResultJsonTest {
     }
 
     @Test
+    void jsonWithBackslashEscapedQuotesInsteadOfRealOnesIsUnescapedAndExtracted() {
+        // Also observed against a real Dynatrace endpoint: the embedded JSON's quotes come through
+        // backslash-escaped (\") rather than bare ("), as if the whole thing had once been a JSON
+        // string value and lost its own surrounding quotes. Written here as a raw (non-text-block)
+        // literal so the source itself contains the literal backslash-quote sequences under test.
+        var found = ToolResultJson.extractStructured("DQL Response: [{\\\"dt.entity.service\\\":"
+                + "\\\"SERVICE-1\\\",\\\"peak\\\":0.335555555555555,\\\"average\\\":0.301351517953,"
+                + "\\\"p95\\\":0.331386887698}]");
+
+        assertThat(found).isPresent();
+        assertThat(found.get().at("/0/dt.entity.service").asText()).isEqualTo("SERVICE-1");
+        assertThat(found.get().at("/0/peak").asDouble()).isEqualTo(0.335555555555555);
+    }
+
+    @Test
     void aStringValueContainingBracesDoesNotConfuseTheBoundaryScan() {
         var found = ToolResultJson.extractStructured(
                 "Result: {\"filter\":\"dt.entity.service == \\\"has [brackets] and {braces}\\\"\",\"requests\":7}");

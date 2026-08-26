@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- Dynatrace MCP's `execute_dql` extraction now recovers when the embedded JSON's quotes come through
+  backslash-escaped (`\"`) instead of bare (`"`) — observed against a real endpoint, as if the whole
+  response had once been a JSON string value that lost its own surrounding quotes. The extractor
+  retries once against an unescaped copy of the text before giving up.
+
 ## [0.1.0-alpha.13] - 2026-08-27
 
 ### Changed
