@@ -1,0 +1,51 @@
+= ADR-053: Vortex owns its own startup console output — a Vortex banner, quieted framework
+chatter, and a real ready line
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+Every launch of Vortex — `java -jar vortex.jar` or `./mvnw -pl modules/app spring-boot:run` — printed
+Spring Boot's own generic ASCII-art banner, followed by a wall of framework startup chatter: Spring's
+own "Starting VortexApplication using Java..." announcement, embedded Tomcat/Coyote initialization,
+HikariCP pool naming, and Flyway repeating its per-migration line on every start even when nothing
+migrates. Nothing in that output was Vortex's own voice, and there was no line anywhere that actually
+told a terminal user "Vortex is ready, here's the URL" — `README.md` states what the URL *should* be,
+but nothing printed confirmed it. For a tool whose primary interaction mode is a terminal, this read
+as an unconfigured framework app rather than a finished CLI tool.
+
+== Decision
+
+* A custom `modules/app/src/main/resources/banner.txt` (Spring Boot's standard, zero-config
+  classpath-root mechanism) replaces the default banner with a compact "VORTEX" wordmark and version
+  line. `VortexApplication.main()`'s own pre-banner log line is removed as a redundant duplicate of
+  what the banner already says.
+* `application.yaml`'s `logging.level` block explicitly quiets the specific noisy namespaces actually
+  active in this app to `WARN`: `org.springframework.boot`, `org.apache.catalina`/`tomcat`/`coyote`,
+  `com.zaxxer.hikari`, `org.flywaydb` — plus, as a one-off wrinkle, the main application class's own
+  logger (`com.acltabontabon.vortex.app.VortexApplication`), because `SpringApplication` logs its
+  "Starting..."/"No active profile set" lines under the *main class's* logger category, not under
+  `org.springframework.boot`, so they would otherwise slip through under the (intentionally verbose)
+  `com.acltabontabon.vortex` namespace. `com.acltabontabon.vortex` itself stays at `INFO` — every
+  line Vortex's own code decides is worth printing. Nothing here touches `WARN`/`ERROR`: a real
+  Tomcat bind failure or Flyway migration error still surfaces in full.
+* `WorkspaceReconciler` (already an `ApplicationReadyEvent` listener doing real start-up reconciliation
+  work — interrupted-run cleanup, orphaned-target release, experiment-identity re-indexing) gains two
+  more lines rather than a second, competing listener class: the workspace path, logged synchronously
+  right after its existing "Ready → http://..." line, and an environment-capability summary (k6/
+  Docker/Local AI detected or not) on a detached virtual thread. The probe must be async:
+  `PerformanceAssistant.availability()` (backed by `OllamaAvailability`) does a real few-second HTTP
+  probe and `LocalLab.status()` shells out to `docker`, and neither installed is a normal,
+  fully-supported state for Vortex — blocking the ready line on either would make exactly that common
+  case wait several seconds for a line whose whole point is "you can use Vortex now."
+
+== Consequences
+
+Someone debugging a cold-start issue six months from now who expects to see Tomcat/Flyway/Hikari INFO
+output needs to know it's deliberately quieted, not broken — this ADR is that record; `--debug`
+(or raising the specific logger back to `INFO`) restores it. Nothing about failure visibility changed:
+every quieted namespace still logs in full at `WARN`/`ERROR`. Two listeners on the same event were
+deliberately avoided in favor of extending the one that already reconciles start-up state, keeping
+"what prints when Vortex becomes ready" in one place.

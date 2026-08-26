@@ -31,9 +31,17 @@ public final class DynatraceMcpConnectionTest {
         }
     }
 
-    public record Report(boolean succeeded, List<StageResult> stages) {
+    /** {@code organizationOptions} is non-empty only when the account has more than one Dynatrace
+     *  organization and none — or a now-invalid one — was configured, so a caller can offer them for
+     *  the user to pick (e.g. as a Settings dropdown) rather than parse a stage's free-text detail. */
+    public record Report(boolean succeeded, List<StageResult> stages, List<String> organizationOptions) {
         public Report {
             stages = stages == null ? List.of() : List.copyOf(stages);
+            organizationOptions = organizationOptions == null ? List.of() : List.copyOf(organizationOptions);
+        }
+
+        public Report(boolean succeeded, List<StageResult> stages) {
+            this(succeeded, stages, List.of());
         }
     }
 
@@ -43,9 +51,11 @@ public final class DynatraceMcpConnectionTest {
     /**
      * Runs every stage local-bridge mode allows: spawning {@code npx mcp-remote <uri>}, discovering
      * {@code execute_dql}, and resolving the {@code organization} argument it requires from the
-     * server's own tool schema — see {@code DynatraceMcpBridgeTelemetryClient}.
+     * server's own tool schema — see {@code DynatraceMcpBridgeTelemetryClient}. {@code organization}
+     * is what's in the form (tests what's typed, not what's saved, same contract as the endpoint) —
+     * blank if nothing has been picked yet.
      */
-    public Report runBridge(String uri, Duration timeout) {
+    public Report runBridge(String uri, Duration timeout, String organization) {
         Objects.requireNonNull(uri, "uri");
         Objects.requireNonNull(timeout, "timeout");
         List<StageResult> stages = new ArrayList<>();
@@ -66,10 +76,11 @@ public final class DynatraceMcpConnectionTest {
         // that path attaches it above instead.
         stages.add(StageResult.pass("Local bridge started"));
 
-        return discoverToolAndFinish(client, timeout, stages);
+        return discoverToolAndFinish(client, timeout, organization, stages);
     }
 
-    private Report discoverToolAndFinish(DynatraceTelemetryClient client, Duration timeout, List<StageResult> stages) {
+    private Report discoverToolAndFinish(DynatraceTelemetryClient client, Duration timeout, String organization,
+            List<StageResult> stages) {
         try {
             var tools = client.listTools(timeout);
             switch (tools) {
@@ -86,10 +97,17 @@ public final class DynatraceMcpConnectionTest {
                     }
                     stages.add(StageResult.pass("Dynatrace tool discovered"));
 
-                    var resolution = DqlToolSchema.resolveOrganization(executeDql.get().inputSchema());
+                    var resolution = DqlToolSchema.resolveOrganization(executeDql.get().inputSchema(), organization);
                     switch (resolution) {
                         case DqlToolSchema.Resolved resolved ->
                                 stages.add(StageResult.pass("Resolved organization: " + resolved.organization()));
+                        case DqlToolSchema.Ambiguous ambiguous -> {
+                            stages.add(StageResult.fail("Resolved organization",
+                                    DynatraceMcpFailureCategory.AMBIGUOUS_ORGANIZATION,
+                                    "this account has " + ambiguous.options().size()
+                                            + " organizations — pick one below."));
+                            return new Report(false, stages, ambiguous.options());
+                        }
                         case DqlToolSchema.Failed failed -> {
                             stages.add(StageResult.fail("Resolved organization",
                                     DynatraceMcpFailureCategory.AMBIGUOUS_ORGANIZATION, failed.detail()));

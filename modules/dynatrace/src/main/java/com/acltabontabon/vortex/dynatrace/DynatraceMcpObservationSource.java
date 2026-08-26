@@ -184,9 +184,14 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
                     "the server does not advertise '" + DynatraceQueryDefinition.EXECUTE_DQL_TOOL + "'.",
                     remedyFor(DynatraceMcpFailureCategory.MCP_TOOL_UNAVAILABLE)));
         }
-        var resolution = DqlToolSchema.resolveOrganization(executeDql.get().inputSchema());
+        var resolution = DqlToolSchema.resolveOrganization(executeDql.get().inputSchema(), settings.organization());
         return switch (resolution) {
             case DqlToolSchema.Resolved resolved -> new OrganizationResult.Success(resolved.organization());
+            case DqlToolSchema.Ambiguous ambiguous -> new OrganizationResult.Failure(new NotRetrieved(
+                    "Could not read production traffic from Dynatrace MCP",
+                    "this Dynatrace account has " + ambiguous.options().size() + " organizations and none is "
+                            + "configured (" + ambiguous.options() + ").",
+                    "Pick a Dynatrace organization under Settings → Dynatrace, then Save."));
             case DqlToolSchema.Failed failed -> new OrganizationResult.Failure(new NotRetrieved(
                     "Could not read production traffic from Dynatrace MCP", failed.detail(),
                     remedyFor(DynatraceMcpFailureCategory.AMBIGUOUS_ORGANIZATION)));

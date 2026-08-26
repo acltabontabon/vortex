@@ -13,7 +13,6 @@ import {
   Skeleton,
   Stack,
   Text,
-  Textarea,
   TextInput,
   ThemeIcon,
   Title,
@@ -23,7 +22,6 @@ import { IconCheck, IconX } from '@tabler/icons-react';
 import {
   useChooseLoadGeneratorBudgetMutation,
   useChooseModelMutation,
-  useImportDynatraceMcpMutation,
   useRetryAiMutation,
   useSaveDynatraceMcpMutation,
   useSettingsQuery,
@@ -461,32 +459,17 @@ function DynatraceMcpCard({
 }) {
   const save = useSaveDynatraceMcpMutation();
   const test = useTestDynatraceMcpMutation();
-  const doImport = useImportDynatraceMcpMutation();
 
-  const [mode, setMode] = useState<'manual' | 'paste'>('manual');
-  const [pasted, setPasted] = useState('');
   const [enabled, setEnabled] = useState(settings.enabled);
   const [endpoint, setEndpoint] = useState(settings.endpoint);
   const [defaultWindow, setDefaultWindow] = useState(settings.defaultWindowDisplay);
+  const [organization, setOrganization] = useState(settings.organization);
 
   function payload() {
-    return { enabled, endpoint, defaultWindow };
+    return { enabled, endpoint, defaultWindow, organization };
   }
 
-  function onImport() {
-    doImport.mutate(pasted, {
-      onSuccess: (r) => {
-        if (r.recognized && r.endpoint) {
-          setEndpoint(r.endpoint);
-          setMode('manual');
-          notifications.show({
-            message: 'Recognized the endpoint below. Review it, then Save.',
-            color: 'pass',
-          });
-        }
-      },
-    });
-  }
+  const organizationOptions = test.data?.organizationOptions ?? [];
 
   function onSave() {
     save.mutate(payload(), {
@@ -496,7 +479,6 @@ function DynatraceMcpCard({
 
   const saveError = extractErrorMessage(save, 'Something went wrong saving Dynatrace MCP settings.');
   const testError = extractErrorMessage(test, 'Something went wrong testing the connection.');
-  const importError = extractErrorMessage(doImport, 'Something went wrong parsing that configuration.');
 
   return (
     <Card withBorder radius="md">
@@ -519,6 +501,9 @@ function DynatraceMcpCard({
           <span className={classes.mono}>{settings.endpoint || 'not configured'}</span>
         </Fact>
         <Fact label="Default window">{settings.defaultWindowDisplay}</Fact>
+        <Fact label="Organization">
+          <span className={classes.mono}>{settings.organization || 'auto-detect'}</span>
+        </Fact>
       </Facts>
 
       {!availability.available && (
@@ -535,59 +520,20 @@ function DynatraceMcpCard({
         onChange={(v) => setEnabled(v === 'yes')}
       />
 
-      <SegmentedControl
-        mt="md"
-        size="xs"
-        value={mode}
-        onChange={(v) => setMode(v as 'manual' | 'paste')}
-        data={[
-          { label: 'Endpoint URL', value: 'manual' },
-          { label: 'MCP configuration', value: 'paste' },
-        ]}
-      />
-
-      {mode === 'paste' ? (
-        <Stack gap="xs" mt="sm">
-          <Textarea
-            label="MCP configuration"
-            description={'Paste an MCP server entry — e.g. {"command": "npx", "args": ["mcp-remote", "https://..."]} — or just the endpoint URL. Vortex only reads the URL out of it; it never runs the command.'}
-            placeholder='{"command": "npx", "args": ["mcp-remote", "https://your-endpoint/mcp"]}'
-            minRows={3}
-            value={pasted}
-            onChange={(e) => setPasted(e.currentTarget.value)}
-          />
-          <Group>
-            <Button size="xs" variant="default" onClick={onImport} loading={doImport.isPending}>
-              Parse
-            </Button>
-          </Group>
-          {doImport.data && !doImport.data.recognized && (
-            <Alert color="warn" title="Not recognized">
-              {doImport.data.reason}
-            </Alert>
-          )}
-          {importError && (
-            <Alert color="fail" title="Could not parse that configuration">
-              {importError}
-            </Alert>
-          )}
-        </Stack>
-      ) : (
-        <Stack gap="sm" mt="sm">
-          <TextInput
-            label="Endpoint"
-            placeholder="https://dynatrace-mcp.internal/mcp"
-            value={endpoint}
-            onChange={(e) => setEndpoint(e.currentTarget.value)}
-          />
-          <TextInput
-            label="Default observation window"
-            placeholder="30d"
-            value={defaultWindow}
-            onChange={(e) => setDefaultWindow(e.currentTarget.value)}
-          />
-        </Stack>
-      )}
+      <Stack gap="sm" mt="md">
+        <TextInput
+          label="Endpoint"
+          placeholder="https://dynatrace-mcp.internal/mcp"
+          value={endpoint}
+          onChange={(e) => setEndpoint(e.currentTarget.value)}
+        />
+        <TextInput
+          label="Default observation window"
+          placeholder="30d"
+          value={defaultWindow}
+          onChange={(e) => setDefaultWindow(e.currentTarget.value)}
+        />
+      </Stack>
 
       <Alert color="neutral" title="Local bridge mode" mt="md">
         <Text size="sm">
@@ -621,6 +567,18 @@ function DynatraceMcpCard({
           </List>
         </div>
       )}
+
+      {organizationOptions.length > 0 && (
+        <Select
+          mt="md"
+          label="Organization"
+          description="Dynatrace found multiple organizations for this endpoint — choose which one Vortex should query, then Save."
+          placeholder="Pick an organization"
+          data={organizationOptions}
+          value={organization || null}
+          onChange={(v) => setOrganization(v ?? '')}
+        />
+      )}
       {saveError && (
         <Text size="sm" c="fail" mt="md">
           {saveError}
@@ -641,7 +599,7 @@ function DynatraceMcpCard({
           variant="default"
           onClick={() => test.mutate(payload())}
           loading={test.isPending}
-          disabled={mode === 'paste' || !endpoint.trim()}
+          disabled={!endpoint.trim()}
         >
           Test connection
         </Button>

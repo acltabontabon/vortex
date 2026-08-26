@@ -14,7 +14,7 @@ class DynatraceMcpConnectionTestTest {
         // which the rest of this connection mode genuinely needs (see docs/adr/adr-051-...).
         var connectionTest = new DynatraceMcpConnectionTest();
 
-        var report = connectionTest.runBridge("http://dynatrace-mcp.internal/mcp", Duration.ofSeconds(2));
+        var report = connectionTest.runBridge("http://dynatrace-mcp.internal/mcp", Duration.ofSeconds(2), "");
 
         assertThat(report.succeeded()).isFalse();
         assertThat(report.stages()).hasSize(1);

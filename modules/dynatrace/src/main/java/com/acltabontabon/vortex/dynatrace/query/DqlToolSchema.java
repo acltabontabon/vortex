@@ -17,17 +17,29 @@ public final class DqlToolSchema {
     private DqlToolSchema() {
     }
 
-    /** Either the one organization value to use, or why none could be chosen automatically. */
-    public sealed interface Resolution permits Resolved, Failed {
+    /** Either the one organization value to use, the several it could be (pick one under Settings),
+     *  or why none could be chosen at all. */
+    public sealed interface Resolution permits Resolved, Ambiguous, Failed {
     }
 
     public record Resolved(String organization) implements Resolution {
     }
 
+    /** More than one organization is advertised and none — or an out-of-date one — is configured. */
+    public record Ambiguous(List<String> options) implements Resolution {
+        public Ambiguous {
+            options = List.copyOf(options);
+        }
+    }
+
     public record Failed(String detail) implements Resolution {
     }
 
-    public static Resolution resolveOrganization(Map<String, Object> inputSchema) {
+    /**
+     * @param configuredOrganization the value saved under Settings → Dynatrace → Organization, or
+     *                                blank if none has been picked yet
+     */
+    public static Resolution resolveOrganization(Map<String, Object> inputSchema, String configuredOrganization) {
         Object propertiesValue = inputSchema.get("properties");
         if (!(propertiesValue instanceof Map<?, ?> properties)) {
             return new Failed("execute_dql's input schema has no 'properties' — cannot find 'organization'.");
@@ -37,15 +49,23 @@ public final class DqlToolSchema {
             return new Failed("execute_dql's input schema has no 'organization' property.");
         }
         Object enumValue = organizationSchema.get("enum");
-        if (!(enumValue instanceof List<?> values) || values.isEmpty()) {
+        if (!(enumValue instanceof List<?> rawValues) || rawValues.isEmpty()) {
             return new Failed(
                     "execute_dql's 'organization' property has no enumerated values to choose from.");
         }
-        if (values.size() > 1) {
-            return new Failed("execute_dql's 'organization' property advertises " + values.size()
-                    + " possible values (" + values + ") — Vortex cannot choose one automatically. "
-                    + "Multi-organization Dynatrace accounts are not supported yet.");
+        List<String> values = rawValues.stream().map(String::valueOf).toList();
+        if (values.size() == 1) {
+            return new Resolved(values.get(0));
         }
-        return new Resolved(String.valueOf(values.get(0)));
+        String configured = configuredOrganization == null ? "" : configuredOrganization.trim();
+        if (configured.isEmpty()) {
+            return new Ambiguous(values);
+        }
+        if (values.contains(configured)) {
+            return new Resolved(configured);
+        }
+        return new Failed("the configured organization '" + configured + "' is not one of the "
+                + values.size() + " this account currently has access to (" + values + "). "
+                + "Pick again under Settings → Dynatrace → Organization.");
     }
 }

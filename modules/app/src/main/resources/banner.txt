@@ -1,0 +1,6 @@
+ __   _____  ___ _____ _____  __
+ \ \ / / _ \| _ \_   _| __\ \/ /
+  \ V / (_) |   / | | | _| >  <
+   \_/ \___/|_|_\ |_| |___/_/\_\
+ Local-first performance workbench v${application.version}
+

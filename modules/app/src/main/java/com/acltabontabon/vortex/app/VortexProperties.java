@@ -32,7 +32,7 @@ public record VortexProperties(
         workspace = workspace == null ? new Workspace(null) : workspace;
         engine = engine == null ? new Engine(null, null, null, null, true, null) : engine;
         ai = ai == null ? new Ai(null, null, null, null, false) : ai;
-        dynatraceMcp = dynatraceMcp == null ? new DynatraceMcp(false, null, null, null) : dynatraceMcp;
+        dynatraceMcp = dynatraceMcp == null ? new DynatraceMcp(false, null, null, null, null) : dynatraceMcp;
         loadGenerator = loadGenerator == null ? new LoadGenerator(null, null, null) : loadGenerator;
         safety = safety == null ? new Safety(null, null, null) : safety;
         observability = observability == null ? new Observability(null, null, null) : observability;
@@ -160,8 +160,12 @@ public record VortexProperties(
      * @param endpoint      the MCP server's base URL
      * @param defaultWindow how far back a fetch looks when a service does not override it
      * @param queryTimeout  how long a single MCP tool call may take before Vortex gives up on it
+     * @param organization  the Dynatrace organization to query, picked under Settings when the
+     *                      account has more than one; blank when there's nothing to pick or nothing
+     *                      chosen yet — see {@code com.acltabontabon.vortex.dynatrace.query.DqlToolSchema}
      */
-    public record DynatraceMcp(boolean enabled, String endpoint, Duration defaultWindow, Duration queryTimeout) {
+    public record DynatraceMcp(boolean enabled, String endpoint, Duration defaultWindow, Duration queryTimeout,
+            String organization) {
 
         public DynatraceMcp {
             endpoint = endpoint == null ? "" : endpoint.trim();
@@ -169,6 +173,7 @@ public record VortexProperties(
                     ? Duration.ofDays(30) : defaultWindow;
             queryTimeout = queryTimeout == null || queryTimeout.isZero() || queryTimeout.isNegative()
                     ? Duration.ofSeconds(30) : queryTimeout;
+            organization = organization == null ? "" : organization.trim();
         }
     }
 

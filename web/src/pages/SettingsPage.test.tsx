@@ -22,7 +22,6 @@ const chooseModelMutate = vi.fn();
 const chooseLoadGeneratorBudgetMutate = vi.fn();
 const saveDynatraceMcpMutate = vi.fn();
 const testDynatraceMcpMutate = vi.fn();
-const importDynatraceMcpMutate = vi.fn();
 
 let testDynatraceMcpResult: { isError: boolean; error: unknown; data: unknown } = {
   isError: false,
@@ -43,7 +42,6 @@ vi.mock('../api/settings', async (importOriginal) => {
     }),
     useSaveDynatraceMcpMutation: () => ({ mutate: saveDynatraceMcpMutate, isPending: false }),
     useTestDynatraceMcpMutation: () => ({ mutate: testDynatraceMcpMutate, isPending: false, ...testDynatraceMcpResult }),
-    useImportDynatraceMcpMutation: () => ({ mutate: importDynatraceMcpMutate, isPending: false, data: undefined }),
   };
 });
 
@@ -108,7 +106,7 @@ function aSettings(overrides: Partial<Settings> = {}): Settings {
       },
     },
     dynatraceMcp: {
-      enabled: false, endpoint: '', defaultWindowDisplay: '30d',
+      enabled: false, endpoint: '', defaultWindowDisplay: '30d', organization: '',
     },
     dynatraceMcpAvailability: {
       available: false,
@@ -241,6 +239,7 @@ describe('the settings page', () => {
             enabled: true,
             endpoint: 'https://dynatrace-mcp.internal/mcp',
             defaultWindowDisplay: '30d',
+            organization: '',
           },
           dynatraceMcpAvailability: { available: true, problem: '', remedy: '' },
         }),
@@ -265,28 +264,6 @@ describe('the settings page', () => {
         expect.objectContaining({ endpoint: 'https://dynatrace-mcp.internal/mcp' }),
         expect.anything(),
       );
-    });
-
-    it('the test connection button is disabled while pasting a config', async () => {
-      queryResult = { data: aSettings(), isError: false };
-      renderWithProviders(<SettingsPage />);
-
-      const card = withinCard('Dynatrace');
-      await userEvent.click(card.getByText('MCP configuration'));
-
-      expect(card.getByRole('button', { name: 'Test connection' })).toBeDisabled();
-    });
-
-    it('can still be disabled while pasting a config, not only in manual entry mode', async () => {
-      queryResult = { data: aSettings({ dynatraceMcp: {
-        enabled: true, endpoint: 'https://dynatrace-mcp.internal/mcp', defaultWindowDisplay: '30d',
-      } }), isError: false };
-      renderWithProviders(<SettingsPage />);
-
-      const card = withinCard('Dynatrace');
-      await userEvent.click(card.getByText('MCP configuration'));
-
-      expect(card.getByLabelText('Enabled')).toBeInTheDocument();
     });
 
     it('the test connection button is disabled with a blank endpoint', () => {
@@ -318,6 +295,40 @@ describe('the settings page', () => {
 
       const card = withinCard('Dynatrace');
       expect(card.getByText('Local bridge mode')).toBeInTheDocument();
+    });
+
+    it('offers a dropdown to pick an organization when the test finds more than one', () => {
+      queryResult = { data: aSettings(), isError: false };
+      testDynatraceMcpResult = {
+        isError: false,
+        error: undefined,
+        data: {
+          succeeded: false,
+          stages: [
+            { stage: 'Local bridge started', succeeded: true, category: null, detail: '' },
+            { stage: 'Dynatrace tool discovered', succeeded: true, category: null, detail: '' },
+            {
+              stage: 'Resolved organization',
+              succeeded: false,
+              category: 'AMBIGUOUS_ORGANIZATION',
+              detail: 'this account has 2 organizations — pick one below.',
+            },
+          ],
+          organizationOptions: ['org-a', 'org-b'],
+        },
+      };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Dynatrace');
+      expect(card.getByLabelText('Organization', { selector: 'input' })).toBeInTheDocument();
+    });
+
+    it('shows no organization dropdown when nothing has been tested yet', () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Dynatrace');
+      expect(card.queryByLabelText('Organization', { selector: 'input' })).not.toBeInTheDocument();
     });
   });
 });

@@ -2,7 +2,12 @@
 
 == Status
 
-Accepted, implemented.
+Accepted, implemented. Two details below no longer hold, per later ADRs: the direct-HTTPS connection
+is gone (xref:adr-052-dynatrace-mcp-bridge-only.adoc[ADR-052] — the local bridge is now the only
+mode), and the paste-import feature (`DynatraceMcpConfigImport`) was removed
+(xref:adr-055-dynatrace-mcp-endpoint-url-only.adoc[ADR-055] — a user enters the endpoint URL
+directly). The core decision this ADR records — Dynatrace-over-MCP is a second transport on the
+existing observation model, not a new domain concept — is unaffected and still stands.
 
 == Context
 

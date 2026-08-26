@@ -12,18 +12,17 @@ import io.modelcontextprotocol.client.transport.ServerParameters;
 import io.modelcontextprotocol.client.transport.StdioClientTransport;
 
 /**
- * Guards the security property this module exists to uphold: nothing here spawns a process from a
- * pasted MCP config, or any other input, except the one class the user explicitly opted into.
+ * Guards the security property this module exists to uphold: nothing here spawns a process from any
+ * input except the one class the user explicitly opted into.
  *
- * <p>{@link DynatraceMcpConfigImport} parses a provided MCP config and extracts a remote URL from
- * it — never a command. {@link DynatraceMcpBridgeTelemetryClient} is the sole, deliberate exception:
- * it is the one class permitted to launch {@code npx mcp-remote <url>} and speak MCP over its stdio —
- * see docs/adr/adr-051-dynatrace-mcp-local-npx-bridge.adoc. Every other class in this module —
- * config import, settings, the connection test's own orchestration — must stay provably unable to
- * spawn anything. {@link StdioClientTransport}/{@link ServerParameters} are named explicitly (not
- * just {@link ProcessBuilder}/{@link Runtime}) because the SDK builds its {@code ProcessBuilder}
- * inside its own class, invisible to a dependency check against Vortex's classes otherwise — a class
- * could reference only the SDK's transport and still evade the intent of this rule.
+ * <p>{@link DynatraceMcpBridgeTelemetryClient} is the sole, deliberate exception: it is the one
+ * class permitted to launch {@code npx mcp-remote <url>} and speak MCP over its stdio — see
+ * docs/adr/adr-051-dynatrace-mcp-local-npx-bridge.adoc. Every other class in this module — settings,
+ * the connection test's own orchestration — must stay provably unable to spawn anything.
+ * {@link StdioClientTransport}/{@link ServerParameters} are named explicitly (not just
+ * {@link ProcessBuilder}/{@link Runtime}) because the SDK builds its {@code ProcessBuilder} inside
+ * its own class, invisible to a dependency check against Vortex's classes otherwise — a class could
+ * reference only the SDK's transport and still evade the intent of this rule.
  */
 @AnalyzeClasses(
         packages = "com.acltabontabon.vortex.dynatrace",

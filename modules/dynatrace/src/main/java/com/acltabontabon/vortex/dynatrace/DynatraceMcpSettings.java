@@ -17,15 +17,20 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class DynatraceMcpSettings {
 
-    private record State(boolean enabled, String endpoint, Duration defaultWindow) {
+    private record State(boolean enabled, String endpoint, Duration defaultWindow, String organization) {
     }
 
     private final AtomicReference<State> state;
     private final Duration queryTimeout;
 
     public DynatraceMcpSettings(boolean enabled, String endpoint, Duration defaultWindow, Duration queryTimeout) {
+        this(enabled, endpoint, defaultWindow, queryTimeout, "");
+    }
+
+    public DynatraceMcpSettings(boolean enabled, String endpoint, Duration defaultWindow, Duration queryTimeout,
+            String organization) {
         this.state = new AtomicReference<>(new State(enabled, normalize(endpoint),
-                defaultWindow == null ? Duration.ofDays(30) : defaultWindow));
+                defaultWindow == null ? Duration.ofDays(30) : defaultWindow, normalize(organization)));
         this.queryTimeout = queryTimeout == null ? Duration.ofSeconds(30) : queryTimeout;
     }
 
@@ -41,17 +46,25 @@ public final class DynatraceMcpSettings {
         return state.get().defaultWindow();
     }
 
+    /** The Dynatrace organization to query, picked under Settings when the account has more than
+     *  one — blank when there's nothing to pick (a single-organization account resolves on its
+     *  own) or nothing has been chosen yet. See {@code DqlToolSchema}. */
+    public String organization() {
+        return state.get().organization();
+    }
+
     /** Fixed at startup, unlike the other fields — a mid-flight timeout change has no safe moment to apply. */
     public Duration queryTimeout() {
         return queryTimeout;
     }
 
     /** Takes effect on the next call. Does not itself persist anything — the caller's job. */
-    public void reconfigure(boolean enabled, String endpoint, Duration defaultWindow) {
-        state.set(new State(enabled, normalize(endpoint), defaultWindow == null ? Duration.ofDays(30) : defaultWindow));
+    public void reconfigure(boolean enabled, String endpoint, Duration defaultWindow, String organization) {
+        state.set(new State(enabled, normalize(endpoint),
+                defaultWindow == null ? Duration.ofDays(30) : defaultWindow, normalize(organization)));
     }
 
-    private static String normalize(String endpoint) {
-        return endpoint == null ? "" : endpoint.trim();
+    private static String normalize(String value) {
+        return value == null ? "" : value.trim();
     }
 }

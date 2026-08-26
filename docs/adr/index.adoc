@@ -165,6 +165,15 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-052-dynatrace-mcp-bridge-only.adoc[052]
 | Dynatrace MCP drops Direct HTTPS and OAuth Client Credentials; the local npx/mcp-remote bridge is the only connection mode
+
+| xref:adr-053-startup-console-output.adoc[053]
+| Vortex owns its own startup console output — a Vortex banner, quieted framework chatter, and a real ready line
+
+| xref:adr-054-dynatrace-mcp-multi-organization-selection.adoc[054]
+| Dynatrace MCP: a multi-organization account picks its organization under Settings, never automatically
+
+| xref:adr-055-dynatrace-mcp-endpoint-url-only.adoc[055]
+| Dynatrace MCP Settings takes the endpoint URL directly; the paste-import feature is removed
 |===
 
 == Format

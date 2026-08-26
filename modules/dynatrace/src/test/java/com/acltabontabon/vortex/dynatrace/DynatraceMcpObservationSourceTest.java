@@ -66,6 +66,16 @@ class DynatraceMcpObservationSourceTest {
         };
     }
 
+    private static DynatraceMcpClientFactory fakeFactory(DynatraceMcpSettings settings,
+            DynatraceTelemetryClient.TelemetryOutcome outcome, DynatraceTelemetryClient.ToolsOutcome tools) {
+        return new DynatraceMcpClientFactory(settings) {
+            @Override
+            public DynatraceTelemetryClient openIfConfigured() {
+                return new FakeClient(outcome, tools);
+            }
+        };
+    }
+
     private static ObservationSource mcpSource(String entityId) {
         return new ObservationSource(ObservationSource.Kind.DYNATRACE, ObservationSource.Transport.MCP,
                 "", entityId, Duration.ofDays(30), Map.of(), Map.of());
@@ -144,23 +154,40 @@ class DynatraceMcpObservationSourceTest {
     }
 
     @Test
-    void anAmbiguousOrganizationRefusesCleanlyRatherThanGuessing() {
+    void anUnconfiguredAmbiguousOrganizationRefusesCleanlyAndPointsAtSettings() {
         var multiOrgSchema = Map.<String, Object>of(
                 "properties", Map.of("organization", Map.of("enum", List.of("org-a", "org-b"))));
         var toolsWithAmbiguousOrganization = new DynatraceTelemetryClient.ToolsListed(
                 List.of(new DynatraceTelemetryClient.ToolInfo("execute_dql", multiOrgSchema)));
         DynatraceMcpSettings settings = enabledSettings();
-        var factory = new DynatraceMcpClientFactory(settings) {
-            @Override
-            public DynatraceTelemetryClient openIfConfigured() {
-                return new FakeClient(null, toolsWithAmbiguousOrganization);
-            }
-        };
-        var source = new DynatraceMcpObservationSource(factory, settings);
+        var source = new DynatraceMcpObservationSource(
+                fakeFactory(settings, null, toolsWithAmbiguousOrganization), settings);
 
         var retrieval = source.verify(mcpSource("SERVICE-1"), WINDOW, Duration.ofMinutes(1));
 
-        assertThat(retrieval).isInstanceOfSatisfying(NotRetrieved.class,
-                notRetrieved -> assertThat(notRetrieved.why()).contains("cannot choose one automatically"));
+        assertThat(retrieval).isInstanceOfSatisfying(NotRetrieved.class, notRetrieved -> {
+            assertThat(notRetrieved.why()).contains("2 organizations");
+            assertThat(notRetrieved.remedy()).contains("Settings");
+        });
+    }
+
+    @Test
+    void aConfiguredOrganizationResolvesCleanlyAmongSeveral() throws Exception {
+        var multiOrgSchema = Map.<String, Object>of(
+                "properties", Map.of("organization", Map.of("enum", List.of("org-a", "org-b"))));
+        var toolsWithMultipleOrganizations = new DynatraceTelemetryClient.ToolsListed(
+                List.of(new DynatraceTelemetryClient.ToolInfo("execute_dql", multiOrgSchema)));
+        var payload = JSON.readTree("""
+                {"records": [{"requests": [60, 120, 90], "dt.entity.service": "SERVICE-1"}]}""");
+        var outcome = new DynatraceTelemetryClient.Answered(new DynatraceTelemetryResult(payload, true));
+        DynatraceMcpSettings settings = new DynatraceMcpSettings(true, "https://dynatrace-mcp.internal/mcp",
+                null, null, "org-b");
+        var source = new DynatraceMcpObservationSource(
+                fakeFactory(settings, outcome, toolsWithMultipleOrganizations), settings);
+
+        var request = new ObservationRequest(mcpSource("SERVICE-1"), WINDOW, Duration.ofMinutes(1), List.of());
+        var retrieval = source.retrieve(request);
+
+        assertThat(retrieval).isInstanceOf(Retrieved.class);
     }
 }

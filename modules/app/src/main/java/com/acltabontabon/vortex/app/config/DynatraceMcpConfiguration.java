@@ -28,7 +28,7 @@ public class DynatraceMcpConfiguration {
     DynatraceMcpSettings dynatraceMcpSettings(VortexProperties properties) {
         VortexProperties.DynatraceMcp config = properties.dynatraceMcp();
         return new DynatraceMcpSettings(config.enabled(), config.endpoint(), config.defaultWindow(),
-                config.queryTimeout());
+                config.queryTimeout(), config.organization());
     }
 
     @Bean

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- Dynatrace MCP now supports multi-organization accounts: when Dynatrace advertises more than one
+  organization, Test Connection surfaces them and Settings → Dynatrace offers a dropdown to pick
+  which one to query. Single-organization accounts are unaffected — nothing new to configure.
+
+### Changed
+
+- Startup now shows a Vortex banner and a real "ready" summary (URL, workspace path, and whether
+  k6/Docker/Local AI were detected) instead of the generic Spring Boot banner and framework startup
+  chatter (auto-config announcements, embedded Tomcat/Flyway/Hikari noise). Failures still surface in
+  full at WARN/ERROR — only routine, expected startup noise was quieted.
+- The Settings page now shows the actual released Vortex version instead of a hand-maintained string
+  that had drifted out of date.
+- Dynatrace MCP Settings no longer offers a separate "paste an MCP configuration" tab — there is now
+  one way to set the endpoint: type or paste the URL directly into the Endpoint field.
+
 ## [0.1.0-alpha.7] - 2026-08-27
 
 ### Fixed

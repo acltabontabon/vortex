@@ -20,7 +20,6 @@ import com.acltabontabon.vortex.core.target.ResourceEnvelopeRequest;
 import com.acltabontabon.vortex.core.threshold.Durations;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpAvailability;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpClientFactory;
-import com.acltabontabon.vortex.dynatrace.DynatraceMcpConfigImport;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpConnectionTest;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpSettings;
 import com.acltabontabon.vortex.persistence.VortexWorkspace;
@@ -118,7 +117,8 @@ public class SettingsApiController {
             String workspacePath, LoadGeneratorSettingsDto loadGenerator,
             DynatraceMcpSettingsDto dynatraceMcp, DynatraceMcpAvailabilityDto dynatraceMcpAvailability) {}
 
-    public record DynatraceMcpSettingsDto(boolean enabled, String endpoint, String defaultWindowDisplay) {}
+    public record DynatraceMcpSettingsDto(boolean enabled, String endpoint, String defaultWindowDisplay,
+            String organization) {}
 
     public record DynatraceMcpAvailabilityDto(boolean available, String problem, String remedy) {}
 
@@ -165,7 +165,7 @@ public class SettingsApiController {
 
     private DynatraceMcpSettingsDto toDto(DynatraceMcpSettings settings) {
         return new DynatraceMcpSettingsDto(settings.enabled(), settings.endpoint(),
-                Durations.display(settings.defaultWindow()));
+                Durations.display(settings.defaultWindow()), settings.organization());
     }
 
     private DynatraceMcpAvailabilityDto toDto(DynatraceMcpAvailability.Availability availability) {
@@ -324,7 +324,12 @@ public class SettingsApiController {
 
     // ==================================================================== Dynatrace MCP
 
-    public record SaveDynatraceMcpRequest(boolean enabled, String endpoint, String defaultWindow) {}
+    public record SaveDynatraceMcpRequest(boolean enabled, String endpoint, String defaultWindow,
+            String organization) {
+        public SaveDynatraceMcpRequest {
+            organization = organization == null ? "" : organization;
+        }
+    }
 
     public record SaveDynatraceMcpResponse(String message) {}
 
@@ -338,8 +343,9 @@ public class SettingsApiController {
     public SaveDynatraceMcpResponse saveDynatraceMcp(@RequestBody SaveDynatraceMcpRequest request) {
         try {
             Duration window = parseWindow(request.defaultWindow());
-            dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), window);
-            dynatraceMcpPreferences.save(request.enabled(), request.endpoint(), Durations.display(window));
+            dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), window, request.organization());
+            dynatraceMcpPreferences.save(request.enabled(), request.endpoint(), Durations.display(window),
+                    request.organization());
             dynatraceMcpAvailability.invalidate();
             return new SaveDynatraceMcpResponse(request.enabled()
                     ? "Saved. Test the connection, then map a service to a Dynatrace entity."
@@ -351,7 +357,8 @@ public class SettingsApiController {
 
     public record DynatraceMcpStageDto(String stage, boolean succeeded, String category, String detail) {}
 
-    public record TestDynatraceMcpResponse(boolean succeeded, List<DynatraceMcpStageDto> stages) {}
+    public record TestDynatraceMcpResponse(boolean succeeded, List<DynatraceMcpStageDto> stages,
+            List<String> organizationOptions) {}
 
     /**
      * Tests what is in the form, not what has been saved — the same contract
@@ -367,13 +374,14 @@ public class SettingsApiController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Enter the Dynatrace MCP endpoint before testing the connection.");
         }
-        var report = dynatraceMcpConnectionTest.runBridge(request.endpoint(), dynatraceMcpSettings.queryTimeout());
+        var report = dynatraceMcpConnectionTest.runBridge(request.endpoint(), dynatraceMcpSettings.queryTimeout(),
+                request.organization());
         List<DynatraceMcpStageDto> stages = report.stages().stream()
                 .map(stage -> new DynatraceMcpStageDto(stage.stage(), stage.succeeded(),
                         stage.category() == null ? null : stage.category().name(), stage.detail()))
                 .toList();
         recordTestResult(report);
-        return new TestDynatraceMcpResponse(report.succeeded(), stages);
+        return new TestDynatraceMcpResponse(report.succeeded(), stages, report.organizationOptions());
     }
 
     private void recordTestResult(DynatraceMcpConnectionTest.Report report) {
@@ -386,26 +394,6 @@ public class SettingsApiController {
                 .orElse("The Dynatrace MCP connection test failed.");
         dynatraceMcpAvailability.recordTestResult(false, problem,
                 "Use Test Connection under Settings for the full detail.");
-    }
-
-    public record ImportDynatraceMcpRequest(String pastedConfig) {}
-
-    public record ImportDynatraceMcpResponse(boolean recognized, String endpoint, String reason) {}
-
-    /**
-     * Parses a pasted MCP configuration and extracts a remote endpoint from it. Never executes
-     * anything the pasted text describes; never saves anything — the resolved endpoint is returned
-     * for review, and only {@link #saveDynatraceMcp} persists it.
-     */
-    @PostMapping("/dynatrace-mcp/import")
-    public ImportDynatraceMcpResponse importDynatraceMcp(@RequestBody ImportDynatraceMcpRequest request) {
-        var result = DynatraceMcpConfigImport.parse(request.pastedConfig());
-        return switch (result) {
-            case DynatraceMcpConfigImport.Recognized recognized ->
-                    new ImportDynatraceMcpResponse(true, recognized.endpoint(), null);
-            case DynatraceMcpConfigImport.Unrecognized unrecognized ->
-                    new ImportDynatraceMcpResponse(false, null, unrecognized.reason());
-        };
     }
 
     private Duration parseWindow(String display) {

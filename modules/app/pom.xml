@@ -67,6 +67,31 @@
 
   <build>
     <finalName>vortex</finalName>
+    <resources>
+      <!--
+        application.yaml carries a literal @project.version@ token so the Settings page can show
+        the real released version instead of a hand-maintained (and inevitably stale) string. The
+        `@` delimiter, not Maven's default `${...}`, is deliberate: this file already uses `${...}`
+        extensively for Spring's own runtime placeholder resolution (${user.home},
+        ${vortex.ai.base-url}, ...) — filtering those at build time with the default delimiter would
+        silently corrupt them. Everything else (notably the built frontend's binary/JS/CSS assets
+        under static/app/) stays unfiltered, since filtering binary files corrupts them too.
+      -->
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>true</filtering>
+        <includes>
+          <include>application.yaml</include>
+        </includes>
+      </resource>
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>false</filtering>
+        <excludes>
+          <exclude>application.yaml</exclude>
+        </excludes>
+      </resource>
+    </resources>
     <plugins>
       <!--
         SQLite's JDBC driver loads a native library. On JDK 25 that produces a restricted-method
@@ -82,6 +107,16 @@
               <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
             </manifestEntries>
           </archive>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <configuration>
+          <useDefaultDelimiters>false</useDefaultDelimiters>
+          <delimiters>
+            <delimiter>@</delimiter>
+          </delimiters>
         </configuration>
       </plugin>
       <plugin>

@@ -1,0 +1,49 @@
+= ADR-054: Dynatrace MCP: a multi-organization account picks its organization under Settings,
+never automatically
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+xref:adr-052-dynatrace-mcp-bridge-only.adoc[ADR-052] fixed `execute_dql`'s arguments to include the
+`organization` Dynatrace's real MCP server requires, auto-resolving it from the tool's own schema
+when exactly one value is enumerated — and stated, as a known gap, that an account with more than one
+organization was refused outright ("Vortex cannot choose one automatically. Multi-organization
+Dynatrace accounts are not supported yet."), with no way to proceed.
+
+A user hit exactly this: Test Connection reached "Local bridge started" and "Dynatrace tool
+discovered" successfully, then failed at organization resolution because their account has two.
+Silently picking one would risk attributing one organization's production traffic to another —
+exactly the failure mode `DqlToolSchema` was written to refuse rather than guess. The only correct
+fix is asking the person which one to use.
+
+== Decision
+
+`DqlToolSchema.Resolution` gains a third case, `Ambiguous(List<String> options)`, alongside
+`Resolved`/`Failed`. `resolveOrganization` now also takes the organization configured under
+Settings (blank if none): a single enumerated value still resolves automatically regardless of what's
+configured (the common case is unaffected); multiple values resolve to the configured one if it's
+still valid, refuse with a "pick again" message if it's now stale (account access changed), or come
+back `Ambiguous` with the full option list if nothing is configured yet.
+
+`DynatraceMcpSettings` gains a persisted `organization` field, threaded through the same
+config/preference-store/Settings-API path as `endpoint`. `DynatraceMcpConnectionTest.runBridge`
+threads the form's (unsaved) organization value through the same resolution and, on `Ambiguous`,
+returns the raw option list on `Report` — not just prose in a stage's detail — so
+`SettingsApiController`'s `/dynatrace-mcp/test` response carries a structured
+`organizationOptions: List<String>`. The Settings page renders a dropdown from that list only when
+it's non-empty: a single-organization account sees nothing new, a multi-organization account
+gets an actual picker populated with the real values Dynatrace advertised, right where the failed
+Test Connection stage told them to look.
+
+== Consequences
+
+Multi-organization Dynatrace accounts can now be used at all, at the cost of one extra step (Test
+Connection once, pick, Save, Test Connection again) — no worse than any other unresolved Settings
+field. Vortex still refuses rather than guesses when the configured organization becomes invalid
+(the account's access changed), consistent with the "never attribute one organization's traffic to
+another" principle ADR-052 established. Querying more than one organization at once (e.g. merging
+results across all of them) remains explicitly out of scope, the same way ADR-050 left interactive
+OAuth out of scope — this is a picker, not a fan-out.

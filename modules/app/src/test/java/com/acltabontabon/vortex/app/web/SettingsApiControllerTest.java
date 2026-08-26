@@ -143,7 +143,7 @@ class SettingsApiControllerTest {
 
     @BeforeEach
     void wiring() {
-        dynatraceMcpSettings.reconfigure(false, "", null);
+        dynatraceMcpSettings.reconfigure(false, "", null, "");
         when(properties.version()).thenReturn("0.1.0-SNAPSHOT");
         when(properties.engine()).thenReturn(
                 new VortexProperties.Engine("local", "k6", "docker", "grafana/k6:1.3.0", true, null));
@@ -314,7 +314,7 @@ class SettingsApiControllerTest {
 
         assertThat(dynatraceMcpSettings.enabled()).isTrue();
         assertThat(dynatraceMcpSettings.endpoint()).isEqualTo("https://dynatrace-mcp.internal/mcp");
-        verify(dynatraceMcpPreferences).save(true, "https://dynatrace-mcp.internal/mcp", "30d");
+        verify(dynatraceMcpPreferences).save(true, "https://dynatrace-mcp.internal/mcp", "30d", "");
         verify(dynatraceMcpAvailability).invalidate();
     }
 
@@ -323,7 +323,7 @@ class SettingsApiControllerTest {
         var stageResult = new DynatraceMcpConnectionTest.StageResult("Dynatrace tool discovered", true, null, "");
         var report = new DynatraceMcpConnectionTest.Report(true, List.of(stageResult));
         when(dynatraceMcpConnectionTest.runBridge(
-                org.mockito.ArgumentMatchers.eq("https://dynatrace-mcp.internal/mcp"), any()))
+                org.mockito.ArgumentMatchers.eq("https://dynatrace-mcp.internal/mcp"), any(), any()))
                 .thenReturn(report);
 
         mockMvc.perform(post("/api/settings/dynatrace-mcp/test")
@@ -345,7 +345,7 @@ class SettingsApiControllerTest {
                 DynatraceMcpFailureCategory.CONNECTION_FAILED, "connection refused");
         var report = new DynatraceMcpConnectionTest.Report(false, List.of(stageResult));
         when(dynatraceMcpConnectionTest.runBridge(
-                org.mockito.ArgumentMatchers.eq("https://dynatrace-mcp.internal/mcp"), any()))
+                org.mockito.ArgumentMatchers.eq("https://dynatrace-mcp.internal/mcp"), any(), any()))
                 .thenReturn(report);
 
         mockMvc.perform(post("/api/settings/dynatrace-mcp/test")
@@ -362,6 +362,41 @@ class SettingsApiControllerTest {
     }
 
     @Test
+    void testingAnAmbiguousOrganizationSurfacesTheOptionsForAPicker() throws Exception {
+        var stageResult = new DynatraceMcpConnectionTest.StageResult("Resolved organization", false,
+                DynatraceMcpFailureCategory.AMBIGUOUS_ORGANIZATION, "this account has 2 organizations — pick one below.");
+        var report = new DynatraceMcpConnectionTest.Report(false, List.of(stageResult), List.of("org-a", "org-b"));
+        when(dynatraceMcpConnectionTest.runBridge(
+                org.mockito.ArgumentMatchers.eq("https://dynatrace-mcp.internal/mcp"), any(), any()))
+                .thenReturn(report);
+
+        mockMvc.perform(post("/api/settings/dynatrace-mcp/test")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.succeeded").value(false))
+                .andExpect(jsonPath("$.organizationOptions[0]").value("org-a"))
+                .andExpect(jsonPath("$.organizationOptions[1]").value("org-b"));
+    }
+
+    @Test
+    void savingAnOrganizationPersistsAndReconfiguresIt() throws Exception {
+        mockMvc.perform(post("/api/settings/dynatrace-mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","organization":"org-b"}
+                                """))
+                .andExpect(status().isOk());
+
+        assertThat(dynatraceMcpSettings.organization()).isEqualTo("org-b");
+        verify(dynatraceMcpPreferences).save(true, "https://dynatrace-mcp.internal/mcp", "30d", "org-b");
+    }
+
+    @Test
     void testingWithABlankEndpointIsRejected() throws Exception {
         mockMvc.perform(post("/api/settings/dynatrace-mcp/test")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -371,35 +406,4 @@ class SettingsApiControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
-    @Test
-    void importingARecognizedMcpRemoteConfigExtractsTheUrl() throws Exception {
-        String pastedConfig = """
-                {"dynatrace":{"command":"npx","args":["mcp-remote","https://dynatrace-mcp.internal/mcp"]}}""";
-        mockMvc.perform(post("/api/settings/dynatrace-mcp/import")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(importRequestBody(pastedConfig)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.recognized").value(true))
-                .andExpect(jsonPath("$.endpoint").value("https://dynatrace-mcp.internal/mcp"));
-    }
-
-    @Test
-    void importingAnUnrecognizedCommandIsRefusedRatherThanExecuted() throws Exception {
-        String pastedConfig = """
-                {"command":"rm","args":["-rf","/"]}""";
-        mockMvc.perform(post("/api/settings/dynatrace-mcp/import")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(importRequestBody(pastedConfig)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.recognized").value(false))
-                .andExpect(jsonPath("$.reason").isNotEmpty());
-    }
-
-    private static String importRequestBody(String pastedConfig) throws Exception {
-        return new com.fasterxml.jackson.databind.ObjectMapper()
-                .writeValueAsString(new ImportDynatraceMcpBody(pastedConfig));
-    }
-
-    private record ImportDynatraceMcpBody(String pastedConfig) {
-    }
 }

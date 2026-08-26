@@ -1,0 +1,41 @@
+= ADR-055: Dynatrace MCP Settings takes the endpoint URL directly; the paste-import feature is
+removed
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+xref:adr-049-dynatrace-mcp-is-a-parallel-transport.adoc[ADR-049] added a "paste an MCP configuration"
+tab alongside the plain endpoint field: `DynatraceMcpConfigImport` recognised the
+`{"command": "npx", "args": ["mcp-remote", "<url>"]}` shape (and a bare `{"url": "..."}` shape) a
+provided config is often handed out as, and extracted just the URL for review — on the reasoning that
+a person may only have that JSON blob, not the bare URL, in front of them.
+
+In practice this is one more control, one more mode toggle, and a whole class of parsing logic for a
+job that amounts to: find the `https://...` substring and put it in the Endpoint field. A person
+handed that JSON blob can select just the URL portion of it themselves and paste that; asking Vortex
+to parse the wrapper first is solving a problem that barely exists once there is only ever a single
+field to fill in. Now that xref:adr-052-dynatrace-mcp-bridge-only.adoc[ADR-052] has already reduced
+Dynatrace MCP Settings to Enabled/Endpoint/Default window (dropping Direct HTTPS, auth mode, headers,
+and OAuth client fields), keeping a whole separate import path for one remaining field was the last
+piece of accidental complexity left.
+
+== Decision
+
+Remove `DynatraceMcpConfigImport` and its test entirely, the `/api/settings/dynatrace-mcp/import`
+endpoint and its DTOs, and the Settings page's "Endpoint URL" / "MCP configuration" mode toggle —
+there is now exactly one way to set the endpoint: type or paste it into the Endpoint field.
+`DynatraceModuleArchitectureTest`'s ArchUnit rule and doc comment are updated to drop the reference;
+its guarantee (only `DynatraceMcpBridgeTelemetryClient` may spawn a process) is unaffected — it was
+never resting on the import feature, which never executed anything to begin with.
+
+== Consequences
+
+Simpler Settings UI and one less class to maintain, at the cost of a small manual step (extracting
+the URL from a provided JSON blob by hand) for anyone still handed the `mcp-remote` config shape
+verbatim — accepted, since that's a single copy-paste a person can do themselves, not a capability
+Vortex is uniquely positioned to offer. Reversible at low cost: reintroducing paste-import restores
+deleted code, not a redesign, should teams frequently receive configs in that shape and ask for it
+back.

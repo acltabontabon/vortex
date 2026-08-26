@@ -52,7 +52,7 @@ server:
       enabled: false
 
 vortex:
-  version: 0.1.0-SNAPSHOT
+  version: "@project.version@"
 
   workspace:
     # Defaults to ~/.vortex
@@ -111,6 +111,21 @@ logging:
   level:
     root: INFO
     com.acltabontabon.vortex: INFO
+    # Routine framework startup chatter — auto-config announcements, embedded Tomcat/Coyote init,
+    # Hikari pool naming, Flyway's per-migration lines that repeat on every start even when nothing
+    # migrates. Quieted so the console reads as Vortex's own tool, not an unconfigured framework app
+    # (see docs/adr/adr-053-startup-console-output.adoc) — a real failure in any of these still
+    # surfaces at WARN/ERROR, nothing here silences that.
     org.springframework.jdbc: WARN
+    org.springframework.boot: WARN
+    org.apache.catalina: WARN
+    org.apache.tomcat: WARN
+    org.apache.coyote: WARN
+    com.zaxxer.hikari: WARN
+    org.flywaydb: WARN
+    # SpringApplication logs its own "Starting VortexApplication using Java..." / "No active
+    # profile set" lines under the *main application class's* logger, not org.springframework.boot
+    # — so they land under com.acltabontabon.vortex above unless named explicitly here too.
+    com.acltabontabon.vortex.app.VortexApplication: WARN
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level %-40.40logger{39} : %msg%n"

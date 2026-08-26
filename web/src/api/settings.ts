@@ -87,6 +87,7 @@ export interface DynatraceMcpSettings {
   enabled: boolean;
   endpoint: string;
   defaultWindowDisplay: string;
+  organization: string;
 }
 
 export interface DynatraceMcpAvailability {
@@ -166,6 +167,7 @@ export interface SaveDynatraceMcpRequest {
   enabled: boolean;
   endpoint: string;
   defaultWindow: string;
+  organization: string;
 }
 
 export interface SaveDynatraceMcpResponse {
@@ -191,6 +193,7 @@ export interface DynatraceMcpStage {
 export interface TestDynatraceMcpResponse {
   succeeded: boolean;
   stages: DynatraceMcpStage[];
+  organizationOptions: string[];
 }
 
 /** Tests what is in the form, not what has been saved — never invalidates the settings query. */
@@ -201,16 +204,3 @@ export function useTestDynatraceMcpMutation() {
   });
 }
 
-export interface ImportDynatraceMcpResponse {
-  recognized: boolean;
-  endpoint: string | null;
-  reason: string | null;
-}
-
-/** Parses a pasted config and returns what Vortex would configure — nothing is saved. */
-export function useImportDynatraceMcpMutation() {
-  return useMutation({
-    mutationFn: (pastedConfig: string) =>
-      apiClient.post<ImportDynatraceMcpResponse>('/api/settings/dynatrace-mcp/import', { pastedConfig }),
-  });
-}

@@ -7,9 +7,9 @@ import java.util.Objects;
  * Where and how to reach the Dynatrace MCP server: a plain HTTPS URL Vortex's local bridge connects
  * to.
  *
- * <p>Never a command. Whatever a provided config said to run locally (typically an
- * {@code npx mcp-remote <url>} bridge) is not represented here — {@link DynatraceMcpConfigImport}
- * exists specifically to extract {@code uri} out of that shape and discard the rest.
+ * <p>Never a command, even though a config a user was handed for a different client is typically
+ * shaped like {@code {"command": "npx", "args": ["mcp-remote", "<url>"]}} — Vortex only ever takes
+ * the URL a person enters directly under Settings.
  *
  * @param uri     the MCP server's base URL, e.g. {@code https://dynatrace-mcp.internal/mcp}
  * @param timeout the per-call bound for every MCP request this endpoint makes
