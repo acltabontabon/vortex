@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## [0.1.0-alpha.7] - 2026-08-27
+
+### Fixed
+
+- Dynatrace MCP's `execute_dql` calls now send the arguments the real server requires
+  (`dqlStatement` and an `organization` resolved from the server's own tool schema) instead of a
+  `query` key it rejected. The Settings-page Dynatrace badge now reflects the result of your last
+  Test Connection click instead of permanently reading "Unavailable."
+
+### Removed
+
+- Dynatrace MCP's Direct HTTPS connection mode and OAuth client credentials auth are removed — the
+  local `npx mcp-remote` bridge added in 0.1.0-alpha.6 is now the only way Vortex reaches a Dynatrace
+  MCP endpoint. See ADR-052.
+
 ## [0.1.0-alpha.6] - 2026-08-26
 
 ### Added
