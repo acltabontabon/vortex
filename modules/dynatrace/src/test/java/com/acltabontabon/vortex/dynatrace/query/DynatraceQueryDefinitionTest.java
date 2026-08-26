@@ -21,6 +21,12 @@ class DynatraceQueryDefinitionTest {
             assertThat(query.arguments()).containsKey("dqlStatement");
             assertThat(query.arguments()).containsEntry("organization", "my-org");
             assertThat(query.arguments()).doesNotContainKey("query");
+
+            // DQL's from:/to: value must be a quoted string literal — a bare ISO-8601 timestamp is
+            // not valid DQL grammar there and Dynatrace rejects it with a parse error.
+            String statement = (String) query.arguments().get("dqlStatement");
+            assertThat(statement).contains("from: \"" + WINDOW.start() + "\"");
+            assertThat(statement).contains("to: \"" + WINDOW.end() + "\"");
         }
     }
 }

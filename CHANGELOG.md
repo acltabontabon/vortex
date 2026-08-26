@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- Dynatrace MCP's generated DQL queries now quote the `from:`/`to:` timestamp values. Dynatrace's
+  parser rejected the unquoted form with a confusing "an integer number like `18` isn't allowed
+  here" error (pointing at a digit inside the timestamp itself), which made every query against a
+  real Dynatrace MCP endpoint fail.
+
 ## [0.1.0-alpha.8] - 2026-08-27
 
 ### Added

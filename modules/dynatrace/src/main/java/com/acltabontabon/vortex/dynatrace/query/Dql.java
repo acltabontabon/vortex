@@ -52,8 +52,11 @@ final class Dql {
         return resolution.toSeconds() % 60 == 0 ? (resolution.toMinutes()) + "m" : resolution.toSeconds() + "s";
     }
 
+    /** DQL's {@code from:}/{@code to:} value must be a quoted string literal — a bare ISO-8601
+     *  timestamp is not valid DQL grammar there and Dynatrace rejects it with a parse error pointing
+     *  at the first digit run it cannot place (e.g. the hour in {@code T18:...}). */
     private static String instant(Instant instant) {
-        return instant.toString();
+        return "\"" + instant + "\"";
     }
 
     private static String escape(String entityId) {
