@@ -44,12 +44,11 @@ jobs:
         if: always()
         with:
           name: Docker/k6 integration test results
-          # One glob per line, not a brace-expanded pattern: dorny/test-reporter resolves paths
-          # via @actions/glob, which does not expand `{k6,app}`-style braces, so that combined
-          # pattern silently matched nothing.
-          path: |
-            modules/k6/target/surefire-reports/TEST-*.xml
-            modules/app/target/surefire-reports/TEST-*.xml
+          # Comma-separated, not brace-expanded and not one-per-line: dorny/test-reporter@v1
+          # splits `path` on commas only. A `{k6,app}` brace pattern isn't expanded (it isn't a
+          # shell), and a YAML `|` block is passed through as one literal string with an embedded
+          # newline rather than being split into separate globs — both silently matched nothing.
+          path: 'modules/k6/target/surefire-reports/TEST-*.xml,modules/app/target/surefire-reports/TEST-*.xml'
           reporter: java-junit
           list-tests: failed
           fail-on-error: false
