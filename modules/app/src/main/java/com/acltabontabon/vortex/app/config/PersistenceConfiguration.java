@@ -18,6 +18,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,6 +36,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  */
 @Configuration(proxyBeanMethods = false)
 public class PersistenceConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(PersistenceConfiguration.class);
 
     @Bean
     VortexWorkspace vortexWorkspace(VortexProperties properties) {
@@ -84,13 +88,14 @@ public class PersistenceConfiguration {
      * is a tool that eventually loses their history.
      */
     @Bean
-    Flyway flyway(DataSource dataSource) {
+    Flyway flyway(DataSource dataSource, VortexWorkspace workspace) {
         Flyway flyway = Flyway.configure()
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
                 .baselineOnMigrate(true)
                 .load();
         flyway.migrate();
+        log.info("Local index loaded ({})", workspace.databaseFile());
         return flyway;
     }
 

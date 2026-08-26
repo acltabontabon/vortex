@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 /**
@@ -39,13 +40,19 @@ public class WorkspaceReconciler {
     private static final Logger log = LoggerFactory.getLogger(WorkspaceReconciler.class);
 
     private final ExecutionService executions;
+    private final Environment environment;
 
-    public WorkspaceReconciler(ExecutionService executions) {
+    public WorkspaceReconciler(ExecutionService executions, Environment environment) {
         this.executions = executions;
+        this.environment = environment;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void reconcile() {
+        String address = environment.getProperty("server.address", "127.0.0.1");
+        String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "7717"));
+        log.info("Ready → http://{}:{}", address, port);
+
         try {
             int interrupted = executions.reconcileUnfinished();
             if (interrupted > 0) {
