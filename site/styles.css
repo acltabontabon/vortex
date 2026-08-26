@@ -458,6 +458,31 @@ p {
   }
 }
 
+/* Mobile companion badge (see .station-map-walk in the 860px breakpoint below): a quick bounce each
+   time a station activates, so the sticky figure reads as "still walking with you" rather than a
+   static icon that happens to scroll along. */
+.station-map-walk.bump {
+  animation: walk-bump 0.4s ease;
+}
+
+@keyframes walk-bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station-map-walk.bump {
+    animation: none;
+  }
+}
+
 /* How it works: a station-map journey. Three registers, reusing the grammar already established
    at #concept (.diagram-inputs / .diagram-outputs) but applied to a concrete step sequence instead
    of an abstract bag: messy tilted stickers = arriving from the outside world (Import, Calibrate),
@@ -871,10 +896,40 @@ p {
 }
 
 @media (max-width: 860px) {
-  /* The walk needs real horizontal distance to cross — a stacked column doesn't have any, so the
-     figure/caption lane is dropped entirely rather than trying to force it into a vertical walk. */
+  /* The walk needs real horizontal distance to cross, which a stacked column doesn't have — instead
+     of dropping the figure, it becomes a small sticky companion badge that travels down the screen
+     with the reader (native position:sticky, no JS position math needed) and reveals its line once
+     Evidence — the last station — activates. Same character, a mobile-appropriate way to use it. */
   .station-map-walk {
-    display: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: sticky;
+    top: 12px;
+    z-index: 3;
+    height: auto;
+    width: fit-content;
+    margin: 0 auto 12px;
+    padding: 5px 14px 5px 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: 0 6px 20px -10px rgba(0, 0, 0, 0.35);
+  }
+
+  .station-map-walk-figure {
+    position: static;
+    width: 20px;
+    height: 40px;
+    opacity: 1;
+  }
+
+  .station-map-walk-caption {
+    position: static;
+    transform: none;
+    width: auto;
+    max-width: 170px;
+    text-align: left;
   }
 
   .station-map-row,

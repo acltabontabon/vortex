@@ -208,6 +208,13 @@ var stationCanvas = document.querySelector('.station-map-canvas');
 var walkFigure = document.querySelector('.station-map-walk-figure');
 var walkCaption = document.querySelector('.station-map-walk-caption');
 var firstCanvasStationIndex = stationCanvas ? stations.findIndex(function (el) { return stationCanvas.contains(el); }) : -1;
+// Below the row's own breakpoint (see styles.css), .station-map-row stacks into a column taller
+// than any viewport — inView(stationMap, {amount: 0.98}) below needs the *whole* row visible at
+// once to time the walk against, which a tall stack can never satisfy, leaving every station stuck
+// invisible. The walk needs real horizontal distance in the first place (.station-map-walk is
+// display:none there too), so mobile gets the simpler per-element reveal every other scroll-driven
+// section on this page already uses instead of trying to force the walk into a column.
+var isStackedLayout = window.matchMedia('(max-width: 860px)').matches;
 
 if (stationMap && stations.length) {
   var lightUpAll = function () {
@@ -219,6 +226,31 @@ if (stationMap && stations.length) {
 
   if (reduceMotion) {
     lightUpAll();
+  } else if (isStackedLayout) {
+    var walkBadge = document.querySelector('.station-map-walk');
+    var bump = function () {
+      if (!walkBadge) return;
+      walkBadge.classList.remove('bump');
+      // eslint-disable-next-line no-unused-expressions
+      walkBadge.offsetWidth; // restart the animation even if it's still mid-bounce from the last station
+      walkBadge.classList.add('bump');
+    };
+
+    stations.forEach(function (el, index) {
+      inView(el, function () {
+        el.classList.add('active');
+        bump();
+        if (index === stations.length - 1 && walkCaption) {
+          walkCaption.classList.add('is-visible');
+        }
+      }, { amount: 0.4, margin: '0px 0px -10% 0px' });
+    });
+    stationConnectors.forEach(function (el) {
+      inView(el, function () { el.classList.add('active'); }, { amount: 0.4, margin: '0px 0px -10% 0px' });
+    });
+    if (stationCanvas) {
+      inView(stationCanvas, function () { stationCanvas.classList.add('active'); }, { amount: 0.2, margin: '0px 0px -10% 0px' });
+    }
   } else {
     var walked = false;
 
