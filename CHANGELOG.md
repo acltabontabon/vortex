@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- Saving a fetched production observation with a zero observed average or p95 rate (a real
+  measurement for a low-traffic service, not an error) used to corrupt the whole saved configuration
+  on the very next read, making Production reality permanently show "No production traffic recorded
+  yet." even though the save itself had succeeded.
+- Dynatrace MCP's peak/average/p95 rate no longer averages traffic into unnecessarily coarse buckets
+  before reporting a "peak" — it now always samples at native (1-minute) resolution, matching what a
+  direct DQL query returns, instead of the busiest-hour average a long observation window was
+  silently substituting. See ADR-057.
+
 ## [0.1.0-alpha.15] - 2026-08-27
 
 ### Added

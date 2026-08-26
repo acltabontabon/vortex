@@ -1182,4 +1182,57 @@ class YamlConfigurationStoreTest {
             assertThat(EXAMPLE.resolve(".vortex/datasets/accounts.csv")).exists();
         }
     }
+
+    @Nested
+    @DisplayName("a saved production observation")
+    class ProductionObservationRoundTrip {
+
+        @Test
+        @DisplayName("a zero observed average parses back rather than invalidating the whole file")
+        void aZeroObservedAverageRoundTrips() {
+            // RequestsPerSecond explicitly allows zero — "an observation of zero throughput is a
+            // real and important measurement" — and a monitoring adapter fetching a genuinely
+            // near-zero average is far more plausible than a person typing 0 into a form. The parser
+            // used to reject any observed rate <= 0, which meant a fetched-and-saved observation with
+            // this shape corrupted the whole configuration on the very next read.
+            var configuration = parse("""
+                    version: 1
+                    production:
+                      observedAverage: 0
+                      observedPeak: 12
+                    """);
+
+            var production = configuration.productionObservationIfPresent().orElseThrow();
+            assertThat(production.averageRateIfPresent()).isPresent();
+            assertThat(production.averageRateIfPresent().get().value().doubleValue()).isEqualTo(0.0);
+            assertThat(production.peakRate().value().doubleValue()).isEqualTo(12.0);
+        }
+
+        @Test
+        @DisplayName("a zero observed p95 rate also parses back")
+        void aZeroObservedP95RoundTrips() {
+            var configuration = parse("""
+                    version: 1
+                    production:
+                      observedP95Rate: 0
+                      observedPeak: 12
+                    """);
+
+            var production = configuration.productionObservationIfPresent().orElseThrow();
+            assertThat(production.p95ObservedRateIfPresent()).isPresent();
+            assertThat(production.p95ObservedRateIfPresent().get().value().doubleValue()).isEqualTo(0.0);
+        }
+
+        @Test
+        @DisplayName("a zero observed peak is still rejected, matching ProductionObservation's own contract")
+        void aZeroObservedPeakIsStillRejected() {
+            var problems = problemsIn("""
+                    version: 1
+                    production:
+                      observedPeak: 0
+                    """);
+
+            assertThat(problems).anyMatch(problem -> problem.contains("production.observedPeak"));
+        }
+    }
 }

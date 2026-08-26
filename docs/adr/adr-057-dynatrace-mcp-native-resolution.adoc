@@ -1,0 +1,60 @@
+= ADR-057: Dynatrace MCP throughput always samples at native (1-minute) resolution, ignoring
+`ObservationResolution`'s window-scaled rule
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+`ObservationResolution.forWindow(window)` scales the sample interval with the observation window —
+1 minute up to 2 days, 5 minutes up to 14 days, 1 hour beyond that — and `CalibrationService` computes
+it once and passes the same value to whichever `ProductionObservationSource` handles the request,
+Prometheus, Dynatrace REST, or Dynatrace MCP alike. The rule exists, per its own javadoc, because "a
+thirty-day window at one-minute resolution is forty-three thousand points, which most Prometheus
+deployments will refuse to evaluate."
+
+That justification holds for Prometheus and the REST Dynatrace adapter: both receive an array of raw
+per-bucket points and reduce them themselves (`PrometheusObservationSource`'s subquery result,
+`DynatraceObservationSource#scalarFrom`'s `Math.max` over `result.data[].values`). It does not hold for
+the Dynatrace MCP path. Since ADR-056, `Dql#throughput`'s DQL ends in `| summarize peak = max(rate),
+average = avg(rate), p95 = percentile(rate, 95)`, so Dynatrace's own query engine collapses the
+response to three scalars no matter how many buckets `interval:` produces internally — Vortex never
+receives, or pays transport cost for, a per-bucket array on this path. Coarsening the interval bought
+nothing here; it only threw away accuracy, because `max(rate)` where `rate` is itself an average over
+a wide bucket is "the busiest bucket's average," not the busiest minute — for a 30-day window that
+meant Vortex reported the busiest *hour's* average as "peak," which for bursty HTTP traffic can be
+several times lower than what a direct `interval:1m` query (the kind a person or an assistant running
+DQL by hand would write) returns for the same window. Confirmed against a real account: this alone
+explained a ~7x gap between Vortex's reported peak and a manual query's.
+
+== Decision
+
+`DynatraceMcpObservationSource` no longer uses the `resolution` value `CalibrationService` computed
+and passed in (`ObservationRequest#resolution()` for `retrieve()`, the `resolution` parameter for
+`verify()`). It substitutes a fixed `NATIVE_RESOLUTION = Duration.ofMinutes(1)` when building the
+throughput DQL via `DynatraceQueries.THROUGHPUT_V1.queryFor(...)`, and reports that same substituted
+value — not the ignored one — as the returned `ProductionObservation`'s `sampleResolution`, so what
+the UI displays matches what was actually queried.
+
+`CalibrationService`, `ObservationResolution`, and the Prometheus and Dynatrace REST adapters are
+unchanged — they still need window-scaled resolution because they genuinely pay for point count.
+
+== Consequences
+
+A Dynatrace MCP throughput query for a long window (e.g. 30 days) now asks Dynatrace to compute
+1-minute buckets internally before `summarize` reduces them, rather than 1-hour buckets — a larger
+internal computation on Dynatrace's side for the same three-scalar response size on Vortex's side.
+Vortex has no evidence this hits any Dynatrace-side query limit (no documented cap found), and if it
+ever does, that surfaces through the existing `NotRetrieved` failure path with Dynatrace's own error
+text, not a silent wrong answer — preferable to the alternative this ADR replaces, which was a silent
+wrong answer with no failure at all.
+
+The Dynatrace MCP and REST adapters can now report different peaks for the same window and the same
+underlying traffic (MCP at 1-minute granularity, REST at whatever `ObservationResolution` picked) —
+an intentional divergence, not a regression: REST's number was already the "coarser" one before this
+change existed to compare against, and unifying it would mean either accepting REST's inflated
+per-request-array cost for a 30-day window or reintroducing the MCP dilution this ADR removes.
+
+Reversible at low cost: reverting to `request.resolution()`/`resolution` restores the previous
+window-scaled behavior exactly.

@@ -75,23 +75,39 @@ public final class ConfigText {
 
     /** Parses a positive rate in requests per second. */
     public static double rate(String field, Object raw) {
-        if (raw == null) {
-            throw new ConfigProblem(field, "must be set",
-                    "the number of requests per second, for example 120");
-        }
-        double value;
-        try {
-            value = raw instanceof Number number ? number.doubleValue()
-                    : Double.parseDouble(String.valueOf(raw).trim());
-        } catch (NumberFormatException e) {
-            throw new ConfigProblem(field, "is not a number: '" + raw + "'",
-                    "the number of requests per second, for example 120");
-        }
+        double value = parseRate(field, raw);
         if (value <= 0) {
             throw new ConfigProblem(field, "must be greater than 0 but was " + raw,
                     "a workload that generates no traffic cannot tell you anything");
         }
         return value;
+    }
+
+    /**
+     * Parses a rate in requests per second that may legitimately be zero — an observed average or
+     * p95 rate, unlike a workload's target rate, can be zero because zero throughput is itself a
+     * real measurement (see {@code RequestsPerSecond}'s own contract).
+     */
+    public static double nonNegativeRate(String field, Object raw) {
+        double value = parseRate(field, raw);
+        if (value < 0) {
+            throw new ConfigProblem(field, "must not be negative but was " + raw, "");
+        }
+        return value;
+    }
+
+    private static double parseRate(String field, Object raw) {
+        if (raw == null) {
+            throw new ConfigProblem(field, "must be set",
+                    "the number of requests per second, for example 120");
+        }
+        try {
+            return raw instanceof Number number ? number.doubleValue()
+                    : Double.parseDouble(String.valueOf(raw).trim());
+        } catch (NumberFormatException e) {
+            throw new ConfigProblem(field, "is not a number: '" + raw + "'",
+                    "the number of requests per second, for example 120");
+        }
     }
 
     /** A validation failure phrased so the user can act on it. */

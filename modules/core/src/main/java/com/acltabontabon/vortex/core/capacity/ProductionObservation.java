@@ -175,8 +175,9 @@ public record ProductionObservation(
                 : "entered by hand"));
         facts.add("Attributed to: " + (hasSource() ? source : "no source recorded"));
         facts.add("Window: " + (observation.isKnown() ? observation.describe() : "not recorded"));
-        sampleResolutionIfPresent().ifPresent(
-                resolution -> facts.add("Sample resolution: " + Durations.display(resolution)));
+        sampleResolutionIfPresent().ifPresent(resolution -> facts.add("Sample resolution: "
+                + Durations.display(resolution) + " (peak reflects the busiest " + Durations.display(resolution)
+                + " average, not an instantaneous spike)"));
         facts.add("Operation mix: " + observedMixIfPresent()
                 .map(mix -> mix.size() + " operation" + (mix.size() == 1 ? "" : "s"))
                 .orElse("not recorded"));

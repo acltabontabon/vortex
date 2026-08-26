@@ -31,6 +31,7 @@ class DynatraceMcpObservationSourceTest {
     private static final class FakeClient implements DynatraceTelemetryClient {
         private final TelemetryOutcome outcome;
         private final ToolsOutcome tools;
+        private DynatraceTelemetryQuery lastQuery;
 
         FakeClient(TelemetryOutcome outcome) {
             this(outcome, TOOLS_LISTED_ONE_ORGANIZATION);
@@ -43,6 +44,7 @@ class DynatraceMcpObservationSourceTest {
 
         @Override
         public TelemetryOutcome call(DynatraceTelemetryQuery query, Duration timeout) {
+            this.lastQuery = query;
             return outcome;
         }
 
@@ -72,6 +74,20 @@ class DynatraceMcpObservationSourceTest {
             @Override
             public DynatraceTelemetryClient openIfConfigured() {
                 return new FakeClient(outcome, tools);
+            }
+        };
+    }
+
+    /** Same as the two-argument factory, but hands back the exact {@link FakeClient} it will open,
+     *  so a test can inspect the query it was actually called with after the fact. */
+    private static DynatraceMcpClientFactory capturingFactory(DynatraceMcpSettings settings,
+            DynatraceTelemetryClient.TelemetryOutcome outcome, FakeClient[] captured) {
+        return new DynatraceMcpClientFactory(settings) {
+            @Override
+            public DynatraceTelemetryClient openIfConfigured() {
+                var client = new FakeClient(outcome);
+                captured[0] = client;
+                return client;
             }
         };
     }
@@ -191,5 +207,43 @@ class DynatraceMcpObservationSourceTest {
         var retrieval = source.retrieve(request);
 
         assertThat(retrieval).isInstanceOf(Retrieved.class);
+    }
+
+    @Test
+    void retrieveAlwaysSamplesAtNativeResolutionRegardlessOfWhatWasRequested() throws Exception {
+        // A 30-day window is exactly the case ObservationResolution.forWindow() would coarsen to 1h
+        // for Prometheus/REST — see ADR-057 for why that coarsening buys nothing on the MCP path and
+        // only dilutes the reported peak.
+        var payload = JSON.readTree("""
+                {"records": [{"peak": 2.0, "average": 1.5, "p95": 1.9, "dt.entity.service": "SERVICE-1"}]}""");
+        var outcome = new DynatraceTelemetryClient.Answered(new DynatraceTelemetryResult(payload, true));
+        DynatraceMcpSettings settings = enabledSettings();
+        var captured = new FakeClient[1];
+        var source = new DynatraceMcpObservationSource(capturingFactory(settings, outcome, captured), settings);
+
+        var request = new ObservationRequest(mcpSource("SERVICE-1"), WINDOW, Duration.ofHours(1), List.of());
+        var retrieval = source.retrieve(request);
+
+        assertThat(retrieval).isInstanceOfSatisfying(Retrieved.class, retrieved ->
+                assertThat(retrieved.observation().sampleResolution()).isEqualTo(Duration.ofMinutes(1)));
+        String dql = (String) captured[0].lastQuery.arguments().get("dqlStatement");
+        assertThat(dql).contains("interval: 1m");
+    }
+
+    @Test
+    void verifyAlsoAlwaysSamplesAtNativeResolution() throws Exception {
+        var payload = JSON.readTree("""
+                {"records": [{"peak": 2.0, "average": 1.5, "p95": 1.9, "dt.entity.service": "SERVICE-1"}]}""");
+        var outcome = new DynatraceTelemetryClient.Answered(new DynatraceTelemetryResult(payload, true));
+        DynatraceMcpSettings settings = enabledSettings();
+        var captured = new FakeClient[1];
+        var source = new DynatraceMcpObservationSource(capturingFactory(settings, outcome, captured), settings);
+
+        var retrieval = source.verify(mcpSource("SERVICE-1"), WINDOW, Duration.ofHours(1));
+
+        assertThat(retrieval).isInstanceOfSatisfying(Retrieved.class, retrieved ->
+                assertThat(retrieved.observation().sampleResolution()).isEqualTo(Duration.ofMinutes(1)));
+        String dql = (String) captured[0].lastQuery.arguments().get("dqlStatement");
+        assertThat(dql).contains("interval: 1m");
     }
 }

@@ -33,6 +33,20 @@ import java.util.Objects;
  */
 public final class DynatraceMcpObservationSource implements ProductionObservationSource {
 
+    /**
+     * The throughput DQL always ends in {@code | summarize peak = max(rate), ...}
+     * ({@link com.acltabontabon.vortex.dynatrace.query.DynatraceQueries#THROUGHPUT_V1}), so Dynatrace's
+     * own query engine collapses the response to three scalars no matter how many buckets
+     * {@code interval:} produces internally — Vortex never receives, or pays transport cost for, a
+     * per-bucket array on this path (see ADR-057). Window-scaled {@code ObservationResolution}
+     * exists to protect Prometheus and the Dynatrace REST adapter, which do receive and reduce a raw
+     * point array themselves; neither concern applies here, so this class ignores whatever resolution
+     * {@code CalibrationService} computed and always samples at native, one-minute granularity — the
+     * same interval a person querying Dynatrace directly would use, and the only way "peak" means the
+     * busiest minute rather than the busiest hour.
+     */
+    private static final Duration NATIVE_RESOLUTION = Duration.ofMinutes(1);
+
     private final DynatraceMcpClientFactory clients;
     private final DynatraceMcpSettings settings;
     private final TelemetryNormalizer normalizer = new TelemetryNormalizer();
@@ -69,7 +83,7 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             String organizationValue = ((OrganizationResult.Success) organization).organization();
 
             var query = DynatraceQueries.THROUGHPUT_V1.queryFor(source.serviceIdentifier(),
-                    request.window(), request.resolution(), organizationValue);
+                    request.window(), NATIVE_RESOLUTION, organizationValue);
             var outcome = client.call(query, settings.queryTimeout());
 
             var rates = ratesFrom(outcome, DynatraceQueries.THROUGHPUT_V1, request.window(),
@@ -84,7 +98,7 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
                     RequestsPerSecond.of(stats.p95()),
                     RequestsPerSecond.of(stats.peak()),
                     null, null,
-                    request.resolution(),
+                    NATIVE_RESOLUTION,
                     "Dynatrace MCP (" + source.serviceIdentifier() + ")",
                     Observation.over(request.window().start(), request.window().end()),
                     new ObservationProvenance(id(), DynatraceQueries.THROUGHPUT_V1.id(),
@@ -111,8 +125,8 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             }
             String organizationValue = ((OrganizationResult.Success) organization).organization();
 
-            var query = DynatraceQueries.THROUGHPUT_V1.queryFor(source.serviceIdentifier(), window, resolution,
-                    organizationValue);
+            var query = DynatraceQueries.THROUGHPUT_V1.queryFor(source.serviceIdentifier(), window,
+                    NATIVE_RESOLUTION, organizationValue);
             var outcome = client.call(query, settings.queryTimeout());
 
             var rates = ratesFrom(outcome, DynatraceQueries.THROUGHPUT_V1, window,
@@ -123,7 +137,7 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             RateStatistics stats = ((Success) rates).statistics();
 
             return new Retrieved(new ProductionObservation(
-                    null, null, RequestsPerSecond.of(stats.peak()), null, null, resolution,
+                    null, null, RequestsPerSecond.of(stats.peak()), null, null, NATIVE_RESOLUTION,
                     "Dynatrace MCP (" + source.serviceIdentifier() + ")",
                     Observation.over(window.start(), window.end()),
                     new ObservationProvenance(id(), DynatraceQueries.THROUGHPUT_V1.id(),

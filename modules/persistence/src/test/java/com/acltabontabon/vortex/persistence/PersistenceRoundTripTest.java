@@ -164,6 +164,32 @@ class PersistenceRoundTripTest {
         }
 
         @Test
+        @DisplayName("a fetched observation with a zero average survives the exact save-then-read the "
+                + "Configuration page performs after \"Save this observation\"")
+        void aFetchedObservationWithAZeroAverageSurvives() {
+            // Regression for the bug where fetch-and-save appeared to succeed but the very next read
+            // came back with no production section at all: ConfigText.rate() used to reject any
+            // observed average/p95 of exactly 0, which a real monitoring adapter can legitimately
+            // report for a low-traffic service — the save wrote it fine, but the next parse threw,
+            // which invalidated the whole configuration rather than just the one field.
+            Project project = storedProject();
+            var observation = new com.acltabontabon.vortex.core.capacity.ProductionObservation(
+                    RequestsPerSecond.of(0), null, RequestsPerSecond.of(12), null, null, null,
+                    "Dynatrace MCP (SERVICE-1)",
+                    com.acltabontabon.vortex.core.workload.Observation.unknown(),
+                    new ObservationProvenance("dynatrace-mcp", "dynatrace.throughput.v1", "SERVICE-1", ""),
+                    "");
+            configurations.save(project.id(), Fixtures.configuration().withProductionObservation(observation));
+
+            var loaded = configurations.findByProject(project.id()).orElseThrow();
+
+            var production = loaded.productionObservationIfPresent().orElseThrow();
+            assertThat(production.averageRateIfPresent()).isPresent();
+            assertThat(production.averageRateIfPresent().get().value().doubleValue()).isEqualTo(0.0);
+            assertThat(production.peakRate().value().doubleValue()).isEqualTo(12.0);
+        }
+
+        @Test
         @DisplayName("a concurrency workload does not come back as an arrival rate")
         void concurrencyWorkloadsKeepTheirUnit() {
             Project project = storedProject();

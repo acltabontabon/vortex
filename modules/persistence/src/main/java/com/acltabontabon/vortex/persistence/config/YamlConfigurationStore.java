@@ -818,10 +818,10 @@ public final class YamlConfigurationStore implements ConfigurationStore {
 
         return new ProductionObservation(
                 node.hasNonNull("observedAverage")
-                        ? RequestsPerSecond.of(ConfigText.rate("production.observedAverage",
+                        ? RequestsPerSecond.of(ConfigText.nonNegativeRate("production.observedAverage",
                         node.path("observedAverage").asDouble())) : null,
                 p95Field == null ? null
-                        : RequestsPerSecond.of(ConfigText.rate("production." + p95Field,
+                        : RequestsPerSecond.of(ConfigText.nonNegativeRate("production." + p95Field,
                         node.path(p95Field).asDouble())),
                 RequestsPerSecond.of(ConfigText.rate("production.observedPeak",
                         node.path("observedPeak").asDouble())),

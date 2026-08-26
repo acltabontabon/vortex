@@ -177,6 +177,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-056-dynatrace-mcp-trusts-summarize.adoc[056]
 | Dynatrace MCP throughput trusts Dynatrace's own `summarize` statistics instead of deriving them from raw per-bucket samples
+
+| xref:adr-057-dynatrace-mcp-native-resolution.adoc[057]
+| Dynatrace MCP throughput always samples at native (1-minute) resolution, ignoring the window-scaled resolution rule
 |===
 
 == Format
