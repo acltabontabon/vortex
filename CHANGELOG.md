@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- Dynatrace MCP's `execute_dql` responses are now extracted correctly regardless of how the
+  server wraps its JSON — a fenced ` ```json ` block, or (as also observed against a real endpoint)
+  a bare prefix like `"DQL Response: [...]"` with no fence at all. Vortex now scans for the first
+  syntactically complete JSON value anywhere in the text rather than only recognizing one specific
+  wrapping style; a response with no JSON in it at all (a markdown table, plain prose) is still
+  correctly refused rather than guessed at.
+
 ## [0.1.0-alpha.10] - 2026-08-27
 
 ### Fixed

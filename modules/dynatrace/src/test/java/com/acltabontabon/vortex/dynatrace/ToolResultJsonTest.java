@@ -40,6 +40,26 @@ class ToolResultJsonTest {
     }
 
     @Test
+    void jsonWithABarePrefixAndNoFenceIsExtracted() {
+        // The other shape Dynatrace's execute_dql tool actually answers with — no fence at all, just
+        // a "DQL Response: " prefix directly followed by the JSON.
+        var found = ToolResultJson.extractStructured(
+                "DQL Response: [{\"dt.entity.service\":\"SERVICE-1\",\"requests\":[1072,1080,1078]}]");
+
+        assertThat(found).isPresent();
+        assertThat(found.get().at("/0/requests/2").asInt()).isEqualTo(1078);
+    }
+
+    @Test
+    void aStringValueContainingBracesDoesNotConfuseTheBoundaryScan() {
+        var found = ToolResultJson.extractStructured(
+                "Result: {\"filter\":\"dt.entity.service == \\\"has [brackets] and {braces}\\\"\",\"requests\":7}");
+
+        assertThat(found).isPresent();
+        assertThat(found.get().at("/requests").asInt()).isEqualTo(7);
+    }
+
+    @Test
     void aFenceWithNoLanguageTagIsStillRecognized() {
         var found = ToolResultJson.extractStructured("""
                 Result:
