@@ -30,6 +30,74 @@
   box-sizing: border-box;
 }
 
+/* Deliberately not a button/pill — a quiet terminal-prompt affordance instead, echoing the
+   eyebrow's mono caret (see .eyebrow-sub / @keyframes eyebrow-caret) and the #download terminal
+   rather than competing with the hero for attention. */
+.topnav {
+  position: fixed;
+  top: 22px;
+  right: 24px;
+  z-index: 20;
+}
+
+.topnav-link {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+  color: var(--fg-muted);
+  text-decoration: none;
+  padding: 4px 2px;
+  transition: color 0.2s ease;
+}
+
+.topnav-link::before {
+  content: "> ";
+  color: var(--accent);
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+
+.topnav-link::after {
+  content: "_";
+  margin-left: 2px;
+  color: var(--accent);
+  opacity: 0;
+}
+
+.topnav-link:hover {
+  color: var(--fg);
+}
+
+.topnav-link:hover::before {
+  opacity: 1;
+}
+
+.topnav-link:hover::after {
+  opacity: 1;
+  animation: topnav-caret-blink 0.8s step-end infinite;
+}
+
+@keyframes topnav-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topnav-link:hover::after {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .topnav {
+    top: 14px;
+    right: 16px;
+  }
+}
+
 html {
   scroll-behavior: smooth;
   /* Whole-page slide feel: each top-level section (see .wrap > section below) is a mandatory
@@ -1762,4 +1830,81 @@ a {
     top: 10px;
     right: 10px;
   }
+}
+
+/* docs.html's "coming soon" placeholder: a static (non-animated, JS-independent) terminal window —
+   unlike .terminal-window, this page doesn't load interactions.js, so nothing here relies on
+   [data-reveal]/.in-view to become visible. */
+.docs-terminal {
+  margin: 24px 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0d1117;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 48px -28px rgba(0, 0, 0, 0.55);
+}
+
+.docs-terminal .terminal-body {
+  padding: 18px 20px 22px;
+}
+
+.docs-terminal-out {
+  padding-left: 24px;
+  color: rgba(201, 209, 217, 0.7);
+}
+
+.docs-terminal .terminal-line + .terminal-line {
+  margin-top: 12px;
+}
+
+.docs-progress {
+  margin: 28px 0 8px;
+}
+
+.docs-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  margin-bottom: 8px;
+}
+
+.docs-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.docs-progress-fill {
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--accent) 0 8px,
+    color-mix(in srgb, var(--accent) 60%, transparent) 8px 16px
+  );
+  background-size: 200% 100%;
+  animation: docs-progress-stall 14s linear infinite;
+}
+
+@keyframes docs-progress-stall {
+  to {
+    background-position: -160px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-progress-fill {
+    animation: none;
+  }
+}
+
+.docs-progress-caption {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  margin: 8px 0 0;
 }
