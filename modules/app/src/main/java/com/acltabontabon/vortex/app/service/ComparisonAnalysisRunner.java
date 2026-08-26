@@ -77,9 +77,13 @@ public class ComparisonAnalysisRunner {
         return inFlight.contains(new Key(baseline, candidate));
     }
 
+    /**
+     * The most recent interpretation attempted for this pair, whatever its state — including a
+     * FAILED one, so the caller can surface why it failed rather than have it silently look like no
+     * interpretation was ever requested.
+     */
     public Optional<ComparisonAnalysis> latest(ExecutionId baseline, ExecutionId candidate) {
-        return Optional.ofNullable(results.get(new Key(baseline, candidate)))
-                .filter(ComparisonAnalysis::isUsable);
+        return Optional.ofNullable(results.get(new Key(baseline, candidate)));
     }
 
     public com.acltabontabon.vortex.core.port.PerformanceAssistant.Availability availability() {

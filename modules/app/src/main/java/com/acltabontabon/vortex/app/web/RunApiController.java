@@ -983,10 +983,13 @@ public class RunApiController {
     public AnalysisPanelDto analysisPanel(@PathVariable String id) {
         ExecutionId executionId = ExecutionId.of(id);
         boolean analysing = analysisRunner.isRunning(executionId);
-        var latest = analysisRunner.latest(executionId).orElse(null);
         var history = analysisRunner.history(executionId);
         var availability = analysisRunner.availability();
 
+        // The true latest record, regardless of state — not analysisRunner.latest(), which filters
+        // to only a usable (COMPLETED) analysis. A FAILED analysis is still the newest interpretation
+        // attempt and belongs in "latest", not silently dropped from both latest and earlier.
+        var latest = history.isEmpty() ? null : history.get(0);
         List<AnalysisDto> earlier = history.size() > 1
                 ? history.subList(1, history.size()).stream().map(this::toDto).toList() : List.of();
 
@@ -997,17 +1000,20 @@ public class RunApiController {
 
     private AnalysisDto toDto(Analysis analysis) {
         return new AnalysisDto(
+                analysis.state().name(),
                 analysis.conclusion(),
                 analysis.findings().stream().map(this::toDto).toList(),
                 analysis.recommendations().stream().map(this::toDto).toList(),
                 analysis.missingTelemetry().stream().map(this::toDto).toList(),
                 analysis.nextTestIfPresent().map(this::toDto).orElse(null),
-                analysis.provenanceIfPresent().map(p -> p.describe()).orElse(null));
+                analysis.provenanceIfPresent().map(p -> p.describe()).orElse(null),
+                analysis.failureMessage().isBlank() ? null : analysis.failureMessage());
     }
 
     private FindingDto toDto(Finding finding) {
         return new FindingDto(finding.statement(), finding.type().name(), finding.type().label(),
-                display.confidenceLabel(finding.confidence()), finding.evidenceIds());
+                finding.confidence().name(), display.confidenceLabel(finding.confidence()),
+                finding.evidenceIds());
     }
 
     private RecommendationDto toDto(Recommendation recommendation) {

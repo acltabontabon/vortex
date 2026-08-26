@@ -1,22 +1,91 @@
-.typeTag {
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--mantine-color-dimmed);
+/* The AI panel's own visual grammar — distinct from evidence/shared.module.css's pass/fail/warn
+   tones on purpose, so an interpretation never reads as a measurement at a glance. */
+
+.card {
+  border-left: 3px solid var(--mantine-color-ai-5);
 }
 
-.dim {
-  color: var(--mantine-color-dimmed);
+.headlineIcon {
+  color: var(--mantine-color-ai-6);
+  flex: none;
+  margin-top: 0.15rem;
 }
 
-.disclosure {
-  margin-top: var(--mantine-spacing-sm);
+.findings {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.6rem;
+}
+
+.findingRow {
+  border-top: 1px solid var(--border-subtle, var(--mantine-color-default-border));
   font-size: 0.85rem;
 }
 
-.disclosure summary {
+.findingSummary {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr auto;
+  gap: 0.55rem;
+  align-items: baseline;
+  padding: 0.45rem 0;
   cursor: pointer;
-  font-weight: 600;
+}
+
+.findingIcon {
+  color: var(--mantine-color-ai-6);
+  align-self: center;
+}
+
+.findingStatement {
+  min-width: 0;
+}
+
+.findingDetail {
+  padding: 0 0 0.6rem 1.65rem;
+}
+
+.confidenceDots {
+  display: inline-flex;
+  gap: 0.2rem;
+  align-items: center;
+  align-self: center;
+}
+
+.dotFilled,
+.dotEmpty {
+  width: 0.36rem;
+  height: 0.36rem;
+  border-radius: 50%;
+  flex: none;
+}
+
+.dotFilled {
+  background: var(--mantine-color-ai-6);
+}
+
+.dotEmpty {
+  background: transparent;
+  border: 1px solid var(--mantine-color-ai-3);
+}
+
+.recommendationRow {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+.recommendationIcon {
+  color: var(--mantine-color-ai-6);
+  flex: none;
+  align-self: center;
+}
+
+.nextTestBox {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--mantine-radius-sm);
+  background: light-dark(var(--mantine-color-ai-0), var(--mantine-color-ai-9));
+  border: 1px solid var(--mantine-color-ai-3);
 }
 
 .evidenceBadges {
@@ -40,4 +109,12 @@
 
 .evidenceBadge:hover {
   background: var(--mantine-color-ai-1);
+}
+
+.history :global(.mantine-Accordion-control) {
+  padding-block: 0.5rem;
+}
+
+.history :global(.mantine-Accordion-item) {
+  border-color: var(--mantine-color-ai-2);
 }

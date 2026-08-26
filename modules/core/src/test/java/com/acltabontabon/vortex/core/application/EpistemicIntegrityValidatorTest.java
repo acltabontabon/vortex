@@ -154,6 +154,36 @@ class EpistemicIntegrityValidatorTest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("a finding describing an arrival-rate run's throughput as an "
+            + "applied concurrency is dropped")
+    void findingMixingInClosedModelVocabularyIsDroppedForAnOpenRun() {
+        var summary = summary(Verdict.PASS, "Yes.", null);
+        var finding = new Finding("Throughput fell once the applied concurrency was increased to "
+                + "150 virtual users.", FindingType.OBSERVATION, Confidence.HIGH,
+                List.of("metric:http.errorRate"));
+
+        var result = validator.validate(analysisWith(finding), plan, summary);
+
+        assertThat(result.analysis().findings()).isEmpty();
+        assertThat(result.contradictionsDropped()).hasSize(1);
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("a finding describing a concurrency run's throughput as an "
+            + "applied request rate is dropped")
+    void findingMixingInOpenModelVocabularyIsDroppedForAClosedRun() {
+        var closedPlan = Fixtures.concurrencyPlan();
+        var summary = summary(Verdict.PASS, "Yes.", null);
+        var finding = new Finding("The arrival rate was set to 150 requests/sec before latency rose.",
+                FindingType.OBSERVATION, Confidence.HIGH, List.of("metric:http.errorRate"));
+
+        var result = validator.validate(analysisWith(finding), closedPlan, summary);
+
+        assertThat(result.analysis().findings()).isEmpty();
+        assertThat(result.contradictionsDropped()).hasSize(1);
+    }
+
+    @Test
     void operationNamedWithOperationScopedEvidenceIsUnaffected() {
         var summary = summary(Verdict.PASS, "Yes.", null);
         String operationName = plan.operations().getFirst().name();

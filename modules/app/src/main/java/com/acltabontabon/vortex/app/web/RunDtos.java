@@ -138,8 +138,8 @@ public final class RunDtos {
 
     // ---------------------------------------------------------------- AI analysis
 
-    public record FindingDto(String statement, String typeKind, String typeLabel, String confidenceLabel,
-            List<String> evidenceIds) {
+    public record FindingDto(String statement, String typeKind, String typeLabel,
+            String confidenceKind, String confidenceLabel, List<String> evidenceIds) {
     }
 
     public record RecommendationDto(String action, String rationale, List<String> evidenceIds) {
@@ -151,9 +151,11 @@ public final class RunDtos {
     public record MissingTelemetryDto(String what, String whyItMatters) {
     }
 
-    public record AnalysisDto(String conclusion, List<FindingDto> findings,
+    /** {@code state} is {@code "COMPLETED" | "FAILED" | "PENDING" | "RUNNING"}; {@code
+     *  failureMessage} is only non-null when {@code state} is {@code "FAILED"}. */
+    public record AnalysisDto(String state, String conclusion, List<FindingDto> findings,
             List<RecommendationDto> recommendations, List<MissingTelemetryDto> missingTelemetry,
-            NextTestDto nextTest, String provenanceDescribe) {
+            NextTestDto nextTest, String provenanceDescribe, String failureMessage) {
     }
 
     public record AiAvailabilityDto(boolean available, String problem, String remedy) {
@@ -168,8 +170,10 @@ public final class RunDtos {
 
     // ---------------------------------------------------------------- comparison
 
-    public record ComparisonAnalysisDto(String conclusion, List<FindingDto> findings,
-            List<MissingTelemetryDto> missingTelemetry, String provenanceDescribe) {
+    /** Same {@code state}/{@code failureMessage} convention as {@link AnalysisDto}. */
+    public record ComparisonAnalysisDto(String state, String conclusion, List<FindingDto> findings,
+            List<MissingTelemetryDto> missingTelemetry, String provenanceDescribe,
+            String failureMessage) {
     }
 
     public record ComparisonAnalysisPanelDto(boolean analysing, ComparisonAnalysisDto latest,

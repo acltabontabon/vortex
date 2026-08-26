@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from './client';
 import { useAsyncPanel } from './asyncPanel';
 import type { AiAvailability } from '../components/AsyncPanel';
-import type { Analysis, MetricDelta } from './run';
+import type { AnalysisFinding, AnalysisState, MetricDelta, MissingTelemetry } from './run';
 import type { Verdict } from './workspace';
 
 export interface ProjectOption {
@@ -98,9 +98,24 @@ export function useCompareQuery(baseline: string, candidate: string) {
   });
 }
 
+/**
+ * Deliberately smaller than {@link Analysis} — the backend's ComparisonAnalysisDto has no
+ * recommendations or nextTest (a comparison explains deltas, it does not propose remediation).
+ * Reusing `Analysis` here previously meant these two fields were typed as always-present arrays
+ * that the JSON response never actually included.
+ */
+export interface ComparisonAnalysis {
+  state: AnalysisState;
+  conclusion: string;
+  findings: AnalysisFinding[];
+  missingTelemetry: MissingTelemetry[];
+  provenanceDescribe: string | null;
+  failureMessage: string | null;
+}
+
 export interface ComparisonAnalysisPanel {
   analysing: boolean;
-  latest: Analysis | null;
+  latest: ComparisonAnalysis | null;
   availability: AiAvailability;
 }
 

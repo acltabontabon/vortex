@@ -2,6 +2,7 @@ package com.acltabontabon.vortex.app.config;
 
 import com.acltabontabon.vortex.core.analysis.BreakpointDetector;
 import com.acltabontabon.vortex.core.analysis.SystemSaturationDetector;
+import com.acltabontabon.vortex.core.application.AnalysisBoundsEnforcer;
 import com.acltabontabon.vortex.core.application.AnalysisService;
 import com.acltabontabon.vortex.core.application.CapacityService;
 import com.acltabontabon.vortex.core.application.CatalogImportService;
@@ -253,18 +254,25 @@ public class CoreConfiguration {
     }
 
     @Bean
+    AnalysisBoundsEnforcer analysisBoundsEnforcer() {
+        return new AnalysisBoundsEnforcer();
+    }
+
+    @Bean
     AnalysisService analysisService(PerformanceAssistant assistant,
             EvidenceReferenceValidator validator, EpistemicIntegrityValidator epistemicValidator,
-            Repositories.AnalysisRepository analyses, Repositories.ExecutionRepository executions) {
-        return new AnalysisService(assistant, validator, epistemicValidator, analyses, executions);
+            AnalysisBoundsEnforcer boundsEnforcer, Repositories.AnalysisRepository analyses,
+            Repositories.ExecutionRepository executions) {
+        return new AnalysisService(assistant, validator, epistemicValidator, boundsEnforcer,
+                analyses, executions);
     }
 
     @Bean
     ComparisonAnalysisService comparisonAnalysisService(ComparisonService comparisonService,
             ComparisonEvidenceAssembler comparisonEvidenceAssembler, PerformanceAssistant assistant,
-            EvidenceReferenceValidator validator) {
+            EvidenceReferenceValidator validator, AnalysisBoundsEnforcer boundsEnforcer) {
         return new ComparisonAnalysisService(comparisonService, comparisonEvidenceAssembler,
-                assistant, validator);
+                assistant, validator, boundsEnforcer);
     }
 
     @Bean

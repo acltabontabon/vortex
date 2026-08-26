@@ -21,13 +21,28 @@ import java.util.List;
 public record NextTestSuggestion(
         String action, String rationale, String wouldDistinguish, List<String> evidenceIds) {
 
+    /** Mirrors {@link Finding#MAX_STATEMENT_LENGTH} — a misbehaving model returning far more than a
+     *  short action, rationale or distinguishing statement is truncated, not rejected. */
+    public static final int MAX_ACTION_LENGTH = 300;
+    public static final int MAX_RATIONALE_LENGTH = 500;
+    public static final int MAX_WOULD_DISTINGUISH_LENGTH = 300;
+
     public NextTestSuggestion {
         if (action == null || action.isBlank()) {
             throw new IllegalArgumentException("a next test must state an action");
         }
         action = action.trim();
+        if (action.length() > MAX_ACTION_LENGTH) {
+            action = action.substring(0, MAX_ACTION_LENGTH);
+        }
         rationale = rationale == null ? "" : rationale.trim();
+        if (rationale.length() > MAX_RATIONALE_LENGTH) {
+            rationale = rationale.substring(0, MAX_RATIONALE_LENGTH);
+        }
         wouldDistinguish = wouldDistinguish == null ? "" : wouldDistinguish.trim();
+        if (wouldDistinguish.length() > MAX_WOULD_DISTINGUISH_LENGTH) {
+            wouldDistinguish = wouldDistinguish.substring(0, MAX_WOULD_DISTINGUISH_LENGTH);
+        }
         evidenceIds = evidenceIds == null ? List.of() : List.copyOf(evidenceIds);
     }
 

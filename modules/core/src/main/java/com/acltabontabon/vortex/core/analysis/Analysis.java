@@ -41,11 +41,18 @@ public record Analysis(
         AnalysisProvenance provenance,
         String failureMessage) {
 
+    /** Mirrors {@link Finding#MAX_STATEMENT_LENGTH} — the headline is meant to be one or two
+     *  sentences, and a misbehaving model returning far more should be truncated, not rejected. */
+    public static final int MAX_CONCLUSION_LENGTH = 500;
+
     public Analysis {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(executionId, "executionId");
         Objects.requireNonNull(state, "state");
         conclusion = conclusion == null ? "" : conclusion;
+        if (conclusion.length() > MAX_CONCLUSION_LENGTH) {
+            conclusion = conclusion.substring(0, MAX_CONCLUSION_LENGTH);
+        }
         findings = findings == null ? List.of() : List.copyOf(findings);
         recommendations = recommendations == null ? List.of() : List.copyOf(recommendations);
         missingTelemetry = missingTelemetry == null ? List.of() : List.copyOf(missingTelemetry);

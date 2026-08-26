@@ -611,10 +611,15 @@ export function useCancelRunMutation(executionId: string) {
 
 // ---------------------------------------------------------------- AI analysis
 
+/** Mirrors core's AnalysisState. A FAILED analysis is still the newest interpretation attempt —
+ *  it is surfaced as `latest`, not indistinguishable from "never requested". */
+export type AnalysisState = 'COMPLETED' | 'FAILED' | 'PENDING' | 'RUNNING';
+
 export interface AnalysisFinding {
   statement: string;
   typeKind: string;
   typeLabel: string;
+  confidenceKind: string;
   confidenceLabel: string;
   evidenceIds: string[];
 }
@@ -638,12 +643,15 @@ export interface MissingTelemetry {
 }
 
 export interface Analysis {
+  state: AnalysisState;
   conclusion: string;
   findings: AnalysisFinding[];
   recommendations: Recommendation[];
   missingTelemetry: MissingTelemetry[];
   nextTest: NextTest | null;
   provenanceDescribe: string | null;
+  /** Only meaningful when `state` is `'FAILED'`. */
+  failureMessage: string | null;
 }
 
 export interface AnalysisPanel {

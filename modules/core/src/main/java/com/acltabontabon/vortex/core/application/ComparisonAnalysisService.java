@@ -31,14 +31,16 @@ public final class ComparisonAnalysisService {
     private final ComparisonEvidenceAssembler evidenceAssembler;
     private final PerformanceAssistant assistant;
     private final EvidenceReferenceValidator validator;
+    private final AnalysisBoundsEnforcer boundsEnforcer;
 
     public ComparisonAnalysisService(ComparisonService comparisons,
             ComparisonEvidenceAssembler evidenceAssembler, PerformanceAssistant assistant,
-            EvidenceReferenceValidator validator) {
+            EvidenceReferenceValidator validator, AnalysisBoundsEnforcer boundsEnforcer) {
         this.comparisons = Objects.requireNonNull(comparisons, "comparisons");
         this.evidenceAssembler = Objects.requireNonNull(evidenceAssembler, "evidenceAssembler");
         this.assistant = Objects.requireNonNull(assistant, "assistant");
         this.validator = Objects.requireNonNull(validator, "validator");
+        this.boundsEnforcer = Objects.requireNonNull(boundsEnforcer, "boundsEnforcer");
     }
 
     public ComparisonAnalysis analyze(TestExecution baseline, TestExecution candidate) {
@@ -81,7 +83,8 @@ public final class ComparisonAnalysisService {
         Set<String> availableDeltaIds = new LinkedHashSet<>();
         comparison.deltas().forEach(delta -> availableDeltaIds.add(delta.evidenceId()));
 
-        return validator.validateComparison(produced, availableDeltaIds).analysis();
+        var validated = validator.validateComparison(produced, availableDeltaIds).analysis();
+        return boundsEnforcer.enforceComparison(validated);
     }
 
     /** Whether an interpretation can be offered at all right now. */

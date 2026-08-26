@@ -1,5 +1,6 @@
 package com.acltabontabon.vortex.core.comparison;
 
+import com.acltabontabon.vortex.core.analysis.Analysis;
 import com.acltabontabon.vortex.core.analysis.AnalysisProvenance;
 import com.acltabontabon.vortex.core.analysis.AnalysisState;
 import com.acltabontabon.vortex.core.analysis.Finding;
@@ -47,6 +48,11 @@ public record ComparisonAnalysis(
         Objects.requireNonNull(candidateId, "candidateId");
         Objects.requireNonNull(state, "state");
         conclusion = conclusion == null ? "" : conclusion;
+        // Mirrors Analysis.MAX_CONCLUSION_LENGTH — a misbehaving model returning far more than a
+        // one- or two-sentence headline is truncated, not rejected.
+        if (conclusion.length() > Analysis.MAX_CONCLUSION_LENGTH) {
+            conclusion = conclusion.substring(0, Analysis.MAX_CONCLUSION_LENGTH);
+        }
         findings = findings == null ? List.of() : List.copyOf(findings);
         missingTelemetry = missingTelemetry == null ? List.of() : List.copyOf(missingTelemetry);
         failureMessage = failureMessage == null ? "" : failureMessage;

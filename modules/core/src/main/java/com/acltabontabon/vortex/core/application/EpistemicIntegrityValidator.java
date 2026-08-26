@@ -8,6 +8,7 @@ import com.acltabontabon.vortex.core.analysis.Finding;
 import com.acltabontabon.vortex.core.analysis.FindingType;
 import com.acltabontabon.vortex.core.plan.EffectiveTestPlan;
 import com.acltabontabon.vortex.core.threshold.Verdict;
+import com.acltabontabon.vortex.core.workload.WorkloadModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -44,6 +45,25 @@ public final class EpistemicIntegrityValidator {
             "no clear limit was found", "no breakpoint was reached", "capacity was not tested",
             "no limit was observed", "the service showed no limit");
 
+    /**
+     * Phrasing that only makes sense if throughput were an applied, controlled level — true under
+     * {@link WorkloadModel#CLOSED} (concurrency), never under {@link WorkloadModel#OPEN}
+     * (arrival-rate), where throughput is an outcome of latency, not an input.
+     */
+    private static final List<String> CLOSED_MODEL_VOCABULARY = List.of(
+            "virtual users were applied", "concurrency was increased to", "the applied concurrency",
+            "controlled the number of virtual users");
+
+    /**
+     * Phrasing that only makes sense if throughput were offered on a fixed schedule — true under
+     * {@link WorkloadModel#OPEN} (arrival-rate), never under {@link WorkloadModel#CLOSED}
+     * (concurrency), where a falling request rate is the service slowing down, not the workload
+     * easing off.
+     */
+    private static final List<String> OPEN_MODEL_VOCABULARY = List.of(
+            "requests were offered at", "the arrival rate was set to", "the applied request rate",
+            "controlled the requests per second");
+
     /** The outcome of an epistemic-integrity pass. */
     public record Result(Analysis analysis, List<String> contradictionsDropped) {
 
@@ -60,7 +80,8 @@ public final class EpistemicIntegrityValidator {
         for (Finding finding : analysis.findings()) {
             String lower = finding.statement().toLowerCase(Locale.ROOT);
 
-            if (contradictsVerdict(lower, summary.verdict()) || deniesBreakpoint(lower, summary)) {
+            if (contradictsVerdict(lower, summary.verdict()) || deniesBreakpoint(lower, summary)
+                    || mixesWorkloadModel(lower, plan)) {
                 contradicted.add(finding.statement());
                 continue;
             }
@@ -98,6 +119,19 @@ public final class EpistemicIntegrityValidator {
     private boolean deniesBreakpoint(String lowerStatement, DeterministicSummary summary) {
         return summary.sloBreakpointIfPresent().isPresent()
                 && BREAKPOINT_DENIALS.stream().anyMatch(lowerStatement::contains);
+    }
+
+    /**
+     * Catches a finding that describes this run's throughput using the other workload model's
+     * vocabulary — e.g. calling an arrival-rate run's request rate an "applied concurrency". The two
+     * models fail differently when a service slows down (see {@link WorkloadModel}'s own Javadoc), so
+     * reasoning built on the wrong one is confidently wrong in a way that reads as insight.
+     */
+    private boolean mixesWorkloadModel(String lowerStatement, EffectiveTestPlan plan) {
+        List<String> wrongModelVocabulary = plan.workloadModel() == WorkloadModel.OPEN
+                ? CLOSED_MODEL_VOCABULARY
+                : OPEN_MODEL_VOCABULARY;
+        return wrongModelVocabulary.stream().anyMatch(lowerStatement::contains);
     }
 
     /**

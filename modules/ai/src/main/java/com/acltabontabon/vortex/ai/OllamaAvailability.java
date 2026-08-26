@@ -10,6 +10,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +30,12 @@ public final class OllamaAvailability {
     private static final Duration CACHE_FOR = Duration.ofSeconds(15);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(3);
 
+    /** Consecutive model-call failures (not probe failures) before the breaker trips. */
+    static final int FAILURE_THRESHOLD = 3;
+
+    /** How long a tripped breaker refuses new calls before it lets one through to test the water. */
+    private static final Duration COOL_DOWN = Duration.ofSeconds(30);
+
     private final AiSettings settings;
     private final HttpClient client;
     private final ObjectMapper json = new ObjectMapper();
@@ -36,12 +43,29 @@ public final class OllamaAvailability {
     private volatile Availability cached;
     private volatile long cachedAt;
 
+    /**
+     * Tracks failures of actual model calls (see {@link #recordFailure()}), not the availability
+     * probe below — an Ollama that answers {@code /api/tags} but then times out on every {@code
+     * /api/chat} is exactly the "misbehaving, worth backing off from" case this exists for, and the
+     * probe alone would never see it.
+     */
+    private final AtomicInteger consecutiveFailures = new AtomicInteger();
+    private volatile long backingOffUntilNanos;
+
     public OllamaAvailability(AiSettings settings) {
         this.settings = settings;
         this.client = HttpClient.newBuilder().connectTimeout(PROBE_TIMEOUT).build();
     }
 
     public Availability check() {
+        if (isBackingOff()) {
+            return Availability.unavailable(settings.provider(),
+                    "Ollama has failed on the last " + FAILURE_THRESHOLD + " requests in a row.",
+                    "Vortex is pausing new AI requests briefly rather than repeating a call that "
+                            + "keeps failing — this clears on its own within " + COOL_DOWN.toSeconds()
+                            + " seconds. Everything else in Vortex is unaffected.");
+        }
+
         long now = System.nanoTime();
         Availability current = cached;
         if (current != null && Duration.ofNanos(now - cachedAt).compareTo(CACHE_FOR) < 0) {
@@ -56,6 +80,23 @@ public final class OllamaAvailability {
     /** Discards the cached result, so a user pressing "Retry" gets a real answer. */
     public void refresh() {
         cached = null;
+    }
+
+    /** A model call failed. Trips the breaker after enough of these in a row. */
+    public void recordFailure() {
+        if (consecutiveFailures.incrementAndGet() >= FAILURE_THRESHOLD) {
+            backingOffUntilNanos = System.nanoTime() + COOL_DOWN.toNanos();
+        }
+    }
+
+    /** A model call succeeded. Clears any failure streak and un-trips the breaker. */
+    public void recordSuccess() {
+        consecutiveFailures.set(0);
+        backingOffUntilNanos = 0;
+    }
+
+    private boolean isBackingOff() {
+        return System.nanoTime() < backingOffUntilNanos;
     }
 
     /** The models this installation has already pulled, for the settings page. */
@@ -93,9 +134,9 @@ public final class OllamaAvailability {
             return Availability.unavailable(settings.provider(),
                     "Ollama is running but no models have been pulled.",
                     """
-                    Pull a small instruct model and select it under Settings → Local AI, for example:
+                    Pull an instruct model and select it under Settings → Local AI, for example:
 
-                      ollama pull qwen3:4b
+                      ollama pull qwen3:8b
 
                     Vortex is designed so that a modest local model is enough: it sends a small, \
                     already-calculated evidence package rather than raw output.""");

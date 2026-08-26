@@ -21,12 +21,23 @@ import java.util.Objects;
  */
 public record Recommendation(String action, String rationale, List<String> evidenceIds) {
 
+    /** Mirrors {@link Finding#MAX_STATEMENT_LENGTH} — a misbehaving model returning far more than a
+     *  short action or rationale is truncated, not rejected. */
+    public static final int MAX_ACTION_LENGTH = 300;
+    public static final int MAX_RATIONALE_LENGTH = 500;
+
     public Recommendation {
         if (action == null || action.isBlank()) {
             throw new IllegalArgumentException("a recommendation must state an action");
         }
         action = action.trim();
+        if (action.length() > MAX_ACTION_LENGTH) {
+            action = action.substring(0, MAX_ACTION_LENGTH);
+        }
         rationale = rationale == null ? "" : rationale.trim();
+        if (rationale.length() > MAX_RATIONALE_LENGTH) {
+            rationale = rationale.substring(0, MAX_RATIONALE_LENGTH);
+        }
         evidenceIds = evidenceIds == null ? List.of() : List.copyOf(evidenceIds);
     }
 

@@ -19,18 +19,20 @@ import java.util.Map;
  */
 public final class PromptLibrary {
 
-    /**
-     * Bumped whenever a prompt changes in a way that could alter the shape or substance of a
-     * response. Recorded against every analysis.
-     */
     /** Bumped whenever a prompt's shape or substance changes, so a stored analysis can always be
      * traced back to the exact prompt text that produced it. v3: findings carry a type, evidence
      * is required on recommendations and nextTest, and nextTest states what it would distinguish.
      * v4: rule prose condensed for local-model instruction budgets — same constraints, same JSON
      * schema, but each rule states the requirement without its explanatory justification.
      * v5: dropped product-name references and downstream/rhetorical padding from rule prose — same
-     * constraints, same JSON schema. */
-    public static final String VERSION = "v5";
+     * constraints, same JSON schema.
+     * v6: AVAILABLE EVIDENCE moved directly after the settled facts, ahead of the larger
+     * variable-length sections, so the citation list sits well clear of the truncation risk
+     * described on {@code OllamaPerformanceAssistant.NUM_CTX} regardless of which end an over-long
+     * prompt is actually cut from; the workload-model rule now also tells the model to state
+     * figures only in the vocabulary WORKLOAD gives it, matching a new code-level check ({@code
+     * EpistemicIntegrityValidator.mixesWorkloadModel}) — same JSON schema. */
+    public static final String VERSION = "v6";
 
     public static final String ANALYZE_EXECUTION = "analyze-execution";
     public static final String EXPLAIN_WORKLOAD = "explain-workload";

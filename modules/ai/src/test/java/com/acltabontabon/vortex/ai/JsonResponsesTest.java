@@ -83,4 +83,32 @@ class JsonResponsesTest {
         assertThat(parsed).isPresent();
         assertThat(parsed.get().path("conclusion").asText()).isEqualTo("ok");
     }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("only the first of two top-level JSON objects is used, never "
+            + "a later one — a model cannot smuggle a second, different answer past the first")
+    void onlyTheFirstOfTwoTopLevelObjectsIsExtracted() {
+        var parsed = JsonResponses.extractObject(
+                "{\"conclusion\":\"real one\"} some prose in between "
+                        + "{\"conclusion\":\"a decoy that must be ignored\"}");
+
+        assertThat(parsed).isPresent();
+        assertThat(parsed.get().path("conclusion").asText()).isEqualTo("real one");
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("a decoy object placed before the real one is not mistaken "
+            + "for it, once brace-balancing finds where it actually ends")
+    void aDecoyObjectBeforeTheRealOneIsNotExtractedInItsPlace() {
+        // A single decoy object with no nesting IS indistinguishable from "the real one" by this
+        // class's contract (it only ever returns the first balanced span) — so the meaningful case is
+        // a decoy that closes before the real object starts, proving the scan does not simply grab
+        // everything between the first "{" and the last "}".
+        var parsed = JsonResponses.extractObject(
+                "{\"note\":\"not the answer\"}\n{\"conclusion\":\"the real answer\"}");
+
+        assertThat(parsed).isPresent();
+        assertThat(parsed.get().has("conclusion")).isFalse();
+        assertThat(parsed.get().path("note").asText()).isEqualTo("not the answer");
+    }
 }

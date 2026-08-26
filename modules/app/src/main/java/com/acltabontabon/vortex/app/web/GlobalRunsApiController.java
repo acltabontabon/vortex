@@ -190,15 +190,18 @@ public class GlobalRunsApiController {
 
     private ComparisonAnalysisDto toDto(ComparisonAnalysis analysis) {
         return new ComparisonAnalysisDto(
+                analysis.state().name(),
                 analysis.conclusion(),
                 analysis.findings().stream().map(this::toDto).toList(),
                 analysis.missingTelemetry().stream().map(this::toDto).toList(),
-                analysis.provenanceIfPresent().map(p -> p.describe()).orElse(null));
+                analysis.provenanceIfPresent().map(p -> p.describe()).orElse(null),
+                analysis.failureMessage().isBlank() ? null : analysis.failureMessage());
     }
 
     private FindingDto toDto(Finding finding) {
         return new FindingDto(finding.statement(), finding.type().name(), finding.type().label(),
-                display.confidenceLabel(finding.confidence()), finding.evidenceIds());
+                finding.confidence().name(), display.confidenceLabel(finding.confidence()),
+                finding.evidenceIds());
     }
 
     private MissingTelemetryDto toDto(MissingTelemetry missing) {

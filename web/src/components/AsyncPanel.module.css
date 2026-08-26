@@ -5,6 +5,52 @@
 }
 
 .header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-weight: 600;
   margin-bottom: 0.5rem;
+}
+
+.running {
+  border-color: var(--mantine-color-ai-4);
+  background: light-dark(var(--mantine-color-ai-0), var(--mantine-color-ai-9));
+}
+
+.pulse {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--mantine-color-ai-6);
+  animation: pulse 1.4s ease-in-out infinite;
+  flex: none;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.elapsed {
+  margin-left: auto;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--mantine-color-dimmed);
+  font-size: 0.78rem;
+}
+
+.failed {
+  border-color: var(--mantine-color-fail-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
 }

@@ -10,6 +10,7 @@ import com.acltabontabon.vortex.core.analysis.EvidenceStrength;
 import com.acltabontabon.vortex.core.analysis.Finding;
 import com.acltabontabon.vortex.core.analysis.FindingType;
 import com.acltabontabon.vortex.core.analysis.SloBreakpoint;
+import com.acltabontabon.vortex.core.application.AnalysisBoundsEnforcer;
 import com.acltabontabon.vortex.core.application.AnalysisService;
 import com.acltabontabon.vortex.core.application.EpistemicIntegrityValidator;
 import com.acltabontabon.vortex.core.application.EvidenceReferenceValidator;
@@ -61,7 +62,7 @@ class AiDegradationTest {
         analyses = new InMemoryAnalyses();
         executions = new InMemoryExecutions();
         analysisService = new AnalysisService(assistant, new EvidenceReferenceValidator(),
-                new EpistemicIntegrityValidator(), analyses, executions);
+                new EpistemicIntegrityValidator(), new AnalysisBoundsEnforcer(), analyses, executions);
 
         executions.save(completedExecution());
     }

@@ -30,15 +30,17 @@ public final class AnalysisService {
     private final PerformanceAssistant assistant;
     private final EvidenceReferenceValidator validator;
     private final EpistemicIntegrityValidator epistemicValidator;
+    private final AnalysisBoundsEnforcer boundsEnforcer;
     private final AnalysisRepository analyses;
     private final ExecutionRepository executions;
 
     public AnalysisService(PerformanceAssistant assistant, EvidenceReferenceValidator validator,
-            EpistemicIntegrityValidator epistemicValidator, AnalysisRepository analyses,
-            ExecutionRepository executions) {
+            EpistemicIntegrityValidator epistemicValidator, AnalysisBoundsEnforcer boundsEnforcer,
+            AnalysisRepository analyses, ExecutionRepository executions) {
         this.assistant = Objects.requireNonNull(assistant, "assistant");
         this.validator = Objects.requireNonNull(validator, "validator");
         this.epistemicValidator = Objects.requireNonNull(epistemicValidator, "epistemicValidator");
+        this.boundsEnforcer = Objects.requireNonNull(boundsEnforcer, "boundsEnforcer");
         this.analyses = Objects.requireNonNull(analyses, "analyses");
         this.executions = Objects.requireNonNull(executions, "executions");
     }
@@ -98,7 +100,7 @@ public final class AnalysisService {
                     epistemic.analysis().provenance(),
                     "");
 
-            return analyses.save(complete);
+            return analyses.save(boundsEnforcer.enforce(complete));
 
         } catch (RuntimeException e) {
             String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();

@@ -41,14 +41,14 @@ Candidate: {candidateLabel}
 Comparability (already decided): {comparability}
 Regression verdict (already decided): {regressionVerdict}
 
+=== AVAILABLE EVIDENCE (the only identifiers you may cite) ===
+{evidenceIds}
+
 === DIFFERENCES (why these runs are or are not the same experiment) ===
 {differences}
 
 === DELTAS ===
 {deltas}
-
-=== AVAILABLE EVIDENCE (the only identifiers you may cite) ===
-{evidenceIds}
 
 === MISSING TELEMETRY ON EITHER SIDE (not measured — do not guess at these) ===
 {missingOnEitherSide}

@@ -8,6 +8,20 @@ Vortex has not made a release yet, so everything to date is recorded under
 
 ## Unreleased
 
+### Changed
+
+- The AI interpretation panel has been redesigned: findings now show a type icon (observation,
+  correlation, hypothesis, limitation) and a confidence dot-scale instead of plain text, an evidence
+  citation previews the deterministic finding it points to on hover before jumping to it, a running
+  analysis shows elapsed time, a failed attempt is shown distinctly with a retry action instead of
+  silently looking identical to one that was never requested, and earlier analyses are browsable one
+  at a time instead of dumped into a single flat list.
+- The local AI assistant is hardened against transient failures and a misbehaving model: automatic
+  retry with backoff on connection blips, a circuit breaker that backs off briefly after repeated
+  failures, per-call timeouts sized to what each call actually needs, a bound on how many findings
+  and recommendations one analysis can carry, and a guard against a prompt silently exceeding the
+  model's context window. The prompt template was retuned (v6) for the qwen3:8b baseline model.
+
 ## [0.1.0-alpha.3] - 2026-08-26
 
 ### Changed

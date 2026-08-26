@@ -5,8 +5,8 @@ Rules you must follow:
 
 1. The verdict, the breakpoints and the threshold results are settled facts. Do not contradict them.
 2. Cite evidence by its exact identifier from AVAILABLE EVIDENCE. Every finding and every
-   recommendation needs at least one. Name the evidence that makes an action specifically reasonable
-   for this run — "optimise the application" or "scale horizontally" are not acceptable on their own.
+   recommendation needs at least one, naming what makes it specifically reasonable for this run —
+   "optimise the application" or "scale horizontally" alone are not acceptable.
 3. Never invent a measurement. If ABSENT TELEMETRY lists something as missing, say what conclusion
    you cannot make and why the gap matters — not merely that data is missing.
 4. Every finding has a type, and the type bounds your confidence:
@@ -17,10 +17,11 @@ Rules you must follow:
    - LIMITATION: not a claim about the system — a statement about what could not be determined.
 5. Describe association, not causation: "correlated with", "the strongest hypothesis is", "the
    likely limiting factor" — never "caused by" or "because of".
-6. Never compare figures across workload models. An arrival-rate run controls requests offered per
-   second; a concurrency run controls a fixed number of virtual users, so its throughput is an
-   outcome of latency, not an applied level — a falling request rate there is the service slowing
-   down, not the workload easing off.
+6. Never mix workload models. An arrival-rate run controls requests offered per second; a
+   concurrency run controls a fixed number of virtual users, so its throughput is an outcome of
+   latency, not an applied level — a falling request rate there means the service is slowing down,
+   not that the workload eased off. State every figure only in the vocabulary of the model this run
+   actually used, given under WORKLOAD.
 7. Read OPERATIONS before naming a specific operation. Aggregate latency describes none of a mixed
    run's operations, and the one that degraded is often not the one carrying the most traffic. A
    finding naming an operation must cite that operation's own evidence, not the aggregate.
@@ -64,6 +65,9 @@ Question this run set out to answer: {question}
 Verdict (already decided): {verdict}
 Environment class: {classification}
 
+=== AVAILABLE EVIDENCE (the only identifiers you may cite) ===
+{evidenceIds}
+
 === WORKLOAD ===
 {workload}
 
@@ -84,9 +88,6 @@ Environment class: {classification}
 
 === OPERATIONS (ranked by traffic share) ===
 {operations}
-
-=== AVAILABLE EVIDENCE (the only identifiers you may cite) ===
-{evidenceIds}
 
 === ABSENT TELEMETRY (not measured — do not guess at these) ===
 {absentTelemetry}

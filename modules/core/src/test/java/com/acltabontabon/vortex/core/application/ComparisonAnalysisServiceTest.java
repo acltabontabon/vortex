@@ -67,7 +67,7 @@ class ComparisonAnalysisServiceTest {
 
         var fake = new FakeAssistant();
         var service = new ComparisonAnalysisService(comparisonService, evidenceAssembler, fake,
-                validator);
+                validator, new AnalysisBoundsEnforcer());
 
         ComparisonAnalysis analysis = service.analyze(byRate, byConcurrency);
 
@@ -85,7 +85,7 @@ class ComparisonAnalysisServiceTest {
 
         var fake = new FakeAssistant();
         var service = new ComparisonAnalysisService(comparisonService, evidenceAssembler, fake,
-                validator);
+                validator, new AnalysisBoundsEnforcer());
 
         ComparisonAnalysis analysis = service.analyze(baseline, candidate);
 
@@ -110,7 +110,7 @@ class ComparisonAnalysisServiceTest {
                 List.of(), null, "");
 
         var service = new ComparisonAnalysisService(comparisonService, evidenceAssembler, fake,
-                validator);
+                validator, new AnalysisBoundsEnforcer());
         ComparisonAnalysis analysis = service.analyze(baseline, candidate);
 
         assertThat(analysis.findings()).isEmpty();
