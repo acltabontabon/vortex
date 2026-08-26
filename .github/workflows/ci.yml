@@ -32,14 +32,14 @@ jobs:
       # frontend-maven-plugin (bound into modules/app's generate-resources phase) downloads its
       # own Node/npm and installs web/node_modules on every run unless these are cached — the
       # Maven cache above doesn't cover them.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: web/node_modules
           key: web-node-modules-${{ hashFiles('web/package-lock.json') }}
           restore-keys: |
             web-node-modules-
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: web/node
           key: web-node-runtime-v22.14.0
