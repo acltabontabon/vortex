@@ -32,7 +32,9 @@ public record VortexProperties(
         workspace = workspace == null ? new Workspace(null) : workspace;
         engine = engine == null ? new Engine(null, null, null, null, true, null) : engine;
         ai = ai == null ? new Ai(null, null, null, null, false) : ai;
-        dynatraceMcp = dynatraceMcp == null ? new DynatraceMcp(false, null, null, null, null) : dynatraceMcp;
+        dynatraceMcp = dynatraceMcp == null
+                ? new DynatraceMcp(false, null, null, null, null, null, null, null, null, null)
+                : dynatraceMcp;
         loadGenerator = loadGenerator == null ? new LoadGenerator(null, null, null) : loadGenerator;
         safety = safety == null ? new Safety(null, null, null) : safety;
         observability = observability == null ? new Observability(null, null, null) : observability;
@@ -159,9 +161,19 @@ public record VortexProperties(
      *                      when the server needs no credential, the common case behind a VPN
      * @param defaultWindow how far back a fetch looks when a service does not override it
      * @param queryTimeout  how long a single MCP tool call may take before Vortex gives up on it
+     * @param authMode      {@code header} (default) or {@code oauth_client_credentials}. See
+     *                      {@code docs/adr/adr-050-dynatrace-mcp-oauth-client-credentials.adoc}
+     * @param clientId      OAuth Client Credentials client id — only meaningful when {@code authMode}
+     *                      is {@code oauth_client_credentials}
+     * @param clientSecret  the client's secret, whose value may be a {@code ${NAME}} reference exactly
+     *                      like a header value — it is long-lived and externally managed, unlike the
+     *                      short-lived access token Vortex fetches with it
+     * @param scope         space-separated OAuth scopes to request, or empty to request none explicitly
+     * @param resource      the Dynatrace account URN the token is scoped to, e.g. {@code urn:dtaccount:...}
      */
     public record DynatraceMcp(boolean enabled, String endpoint, java.util.Map<String, String> headers,
-            Duration defaultWindow, Duration queryTimeout) {
+            Duration defaultWindow, Duration queryTimeout, String authMode, String clientId,
+            String clientSecret, String scope, String resource) {
 
         public DynatraceMcp {
             endpoint = endpoint == null ? "" : endpoint.trim();
@@ -170,6 +182,12 @@ public record VortexProperties(
                     ? Duration.ofDays(30) : defaultWindow;
             queryTimeout = queryTimeout == null || queryTimeout.isZero() || queryTimeout.isNegative()
                     ? Duration.ofSeconds(30) : queryTimeout;
+            authMode = authMode == null || authMode.isBlank()
+                    ? "header" : authMode.trim().toLowerCase(java.util.Locale.ROOT);
+            clientId = clientId == null ? "" : clientId.trim();
+            clientSecret = clientSecret == null ? "" : clientSecret.trim();
+            scope = scope == null ? "" : scope.trim();
+            resource = resource == null ? "" : resource.trim();
         }
     }
 

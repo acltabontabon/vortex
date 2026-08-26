@@ -107,7 +107,10 @@ function aSettings(overrides: Partial<Settings> = {}): Settings {
         colocatedWithManagedSut: true,
       },
     },
-    dynatraceMcp: { enabled: false, endpoint: '', maskedHeaders: {}, defaultWindowDisplay: '30d' },
+    dynatraceMcp: {
+      enabled: false, endpoint: '', maskedHeaders: {}, defaultWindowDisplay: '30d',
+      authMode: 'header', clientId: '', maskedClientSecret: '', scope: '', resource: '',
+    },
     dynatraceMcpAvailability: {
       available: false,
       problem: 'Dynatrace MCP is not enabled.',
@@ -240,6 +243,11 @@ describe('the settings page', () => {
             endpoint: 'https://dynatrace-mcp.internal/mcp',
             maskedHeaders: {},
             defaultWindowDisplay: '30d',
+            authMode: 'header',
+            clientId: '',
+            maskedClientSecret: '',
+            scope: '',
+            resource: '',
           },
           dynatraceMcpAvailability: { available: true, problem: '', remedy: '' },
         }),
@@ -280,6 +288,7 @@ describe('the settings page', () => {
       queryResult = { data: aSettings({ dynatraceMcp: {
         enabled: true, endpoint: 'https://dynatrace-mcp.internal/mcp', maskedHeaders: {},
         defaultWindowDisplay: '30d',
+        authMode: 'header', clientId: '', maskedClientSecret: '', scope: '', resource: '',
       } }), isError: false };
       renderWithProviders(<SettingsPage />);
 

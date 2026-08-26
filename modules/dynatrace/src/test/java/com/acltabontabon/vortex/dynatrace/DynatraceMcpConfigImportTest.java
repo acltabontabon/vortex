@@ -15,7 +15,7 @@ class DynatraceMcpConfigImportTest {
     }
 
     @Test
-    void theExactShapeSreSharesIsRecognized() {
+    void theWrappedNpxMcpRemoteShapeIsRecognized() {
         String pasted = """
                 {"dynatrace": {"command": "npx", "args":["mcp-remote", "https://dynatrace-mcp.internal/mcp"]}}""";
         var result = DynatraceMcpConfigImport.parse(pasted);
@@ -39,6 +39,60 @@ class DynatraceMcpConfigImportTest {
                     assertThat(recognized.candidateHeaders())
                             .containsEntry("Authorization", "Bearer ${DT_TOKEN}");
                 });
+    }
+
+    @Test
+    void aBareUrlFieldInsideAServersWrapperIsRecognized() {
+        String pasted = """
+                {"servers": {"dynatrace-mcp": {"url": "https://dynatrace-mcp.internal/mcp",
+                  "headers": {"Authorization": "Bearer ${DT_TOKEN}"}}}}""";
+        var result = DynatraceMcpConfigImport.parse(pasted);
+        assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
+                recognized -> {
+                    assertThat(recognized.endpoint()).isEqualTo("https://dynatrace-mcp.internal/mcp");
+                    assertThat(recognized.candidateHeaders())
+                            .containsEntry("Authorization", "Bearer ${DT_TOKEN}");
+                    assertThat(recognized.suggestedLabel()).isEqualTo("dynatrace-mcp");
+                });
+    }
+
+    @Test
+    void mcpServersWrapperWithABareUrlIsRecognized() {
+        String pasted = """
+                {"mcpServers": {"dynatrace": {"url": "https://dt.example.com/mcp"}}}""";
+        var result = DynatraceMcpConfigImport.parse(pasted);
+        assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
+                recognized -> assertThat(recognized.endpoint()).isEqualTo("https://dt.example.com/mcp"));
+    }
+
+    @Test
+    void aBareUrlFieldWithATypeHttpEntryIsRecognizedAndTypeIsIgnored() {
+        String pasted = """
+                {"type": "http", "url": "https://dynatrace-mcp.internal/mcp"}""";
+        var result = DynatraceMcpConfigImport.parse(pasted);
+        assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
+                recognized -> assertThat(recognized.endpoint())
+                        .isEqualTo("https://dynatrace-mcp.internal/mcp"));
+    }
+
+    @Test
+    void aBareUrlFieldWithNoHeadersIsRecognizedWithEmptyCandidateHeaders() {
+        String pasted = """
+                {"url": "https://dynatrace-mcp.internal/mcp"}""";
+        var result = DynatraceMcpConfigImport.parse(pasted);
+        assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
+                recognized -> assertThat(recognized.candidateHeaders()).isEmpty());
+    }
+
+    @Test
+    void theNpxMcpRemoteShapeTakesPrecedenceOverACoexistingBareUrlEntry() {
+        String pasted = """
+                {"dynatrace": {"command": "npx", "args": ["mcp-remote", "https://npx-shape.internal/mcp"]},
+                 "other": {"url": "https://bare-url-shape.internal/mcp"}}""";
+        var result = DynatraceMcpConfigImport.parse(pasted);
+        assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
+                recognized -> assertThat(recognized.endpoint())
+                        .isEqualTo("https://npx-shape.internal/mcp"));
     }
 
     @Test

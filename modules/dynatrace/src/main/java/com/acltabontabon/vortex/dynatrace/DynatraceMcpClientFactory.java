@@ -1,5 +1,9 @@
 package com.acltabontabon.vortex.dynatrace;
 
+import com.acltabontabon.vortex.dynatrace.oauth.DynatraceOAuthTokenProvider;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -19,9 +23,15 @@ import java.util.Objects;
 public class DynatraceMcpClientFactory {
 
     private final DynatraceMcpSettings settings;
+    private final DynatraceOAuthTokenProvider oauth;
 
     public DynatraceMcpClientFactory(DynatraceMcpSettings settings) {
+        this(settings, new DynatraceOAuthTokenProvider());
+    }
+
+    DynatraceMcpClientFactory(DynatraceMcpSettings settings, DynatraceOAuthTokenProvider oauth) {
         this.settings = Objects.requireNonNull(settings, "settings");
+        this.oauth = Objects.requireNonNull(oauth, "oauth");
     }
 
     /**
@@ -33,12 +43,32 @@ public class DynatraceMcpClientFactory {
         if (!settings.enabled() || settings.endpoint().isBlank()) {
             return null;
         }
-        return open(settings.endpoint(), settings.headers(), settings.queryTimeout());
+        Map<String, String> headers = settings.authMode() == DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
+                ? withOAuthBearer(settings.headers(), settings.clientId(), settings.clientSecret(),
+                        settings.scope(), settings.resource(), settings.queryTimeout())
+                : settings.headers();
+        return open(settings.endpoint(), headers, settings.queryTimeout());
     }
 
-    /** Opens a client against an explicit endpoint — used to test a form before it is saved. */
-    public DynatraceTelemetryClient open(String uri, java.util.Map<String, String> headers,
-            java.time.Duration timeout) {
+    /** Opens a client against an explicit endpoint and pre-resolved headers — used to test a form
+     *  before it is saved. Headers must already carry any OAuth bearer token the caller wants used;
+     *  this overload never itself talks to Dynatrace's SSO endpoint. */
+    public DynatraceTelemetryClient open(String uri, Map<String, String> headers, Duration timeout) {
         return new DynatraceMcpTelemetryClient(new DynatraceMcpEndpoint(uri, headers, timeout));
+    }
+
+    /**
+     * Resolves an OAuth Client Credentials bearer token against the given credentials, merging it into
+     * {@code baseHeaders} as {@code Authorization} — used both by {@link #openIfConfigured()} and by
+     * the Test Connection flow, which must be able to test unsaved OAuth credentials without a Save
+     * first.
+     */
+    Map<String, String> withOAuthBearer(Map<String, String> baseHeaders, String clientId,
+            String clientSecretRef, String scope, String resource, Duration timeout) {
+        String resolvedSecret = DynatraceMcpSecretResolution.resolveValue(clientSecretRef);
+        String token = oauth.bearerToken(clientId, resolvedSecret, scope, resource, timeout);
+        Map<String, String> merged = new LinkedHashMap<>(baseHeaders);
+        merged.put("Authorization", "Bearer " + token);
+        return merged;
     }
 }

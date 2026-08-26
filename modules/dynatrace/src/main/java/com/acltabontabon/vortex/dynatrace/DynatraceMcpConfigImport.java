@@ -69,6 +69,9 @@ public final class DynatraceMcpConfigImport {
 
         NamedEntry entry = findNpxMcpRemoteEntry(root, "");
         if (entry == null) {
+            entry = findBareUrlEntry(root, "");
+        }
+        if (entry == null) {
             return new Unrecognized(
                     "Vortex only recognises a remote MCP endpoint, or a config shaped like "
                             + "{\"command\":\"npx\",\"args\":[\"-y\",\"mcp-remote\",\"<url>\"]} — and it "
@@ -137,6 +140,63 @@ public final class DynatraceMcpConfigImport {
         }
 
         Map<String, String> headers = extractHeaderFlags(args);
+        return new Recognized(url, headers, keyHint);
+    }
+
+    /**
+     * Walks the parsed JSON for any object naming a remote endpoint directly — the shape VS Code and
+     * Claude Code use natively for a remote MCP server, e.g. {@code {"url": "https://...", "headers":
+     * {...}}}, optionally under a {@code mcpServers}/{@code servers} wrapper. Tried only after the
+     * npx/mcp-remote shape fails to match, so a config carrying both interpretations still prefers the
+     * explicit bridge command.
+     */
+    private static NamedEntry findBareUrlEntry(JsonNode node, String keyHint) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (node.isObject()) {
+            Result direct = tryAsBareUrlEntry(node, keyHint);
+            if (direct != null) {
+                return new NamedEntry(direct);
+            }
+            var fields = node.fields();
+            while (fields.hasNext()) {
+                var field = fields.next();
+                NamedEntry found = findBareUrlEntry(field.getValue(), field.getKey());
+                if (found != null) {
+                    return found;
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode element : node) {
+                NamedEntry found = findBareUrlEntry(element, keyHint);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** A {@code "type"} field (e.g. {@code "http"}) may be present but is not diagnostic — ignored. */
+    private static Result tryAsBareUrlEntry(JsonNode candidate, String keyHint) {
+        JsonNode urlNode = candidate.path("url");
+        if (!urlNode.isTextual()) {
+            return null;
+        }
+        String url = urlNode.asText("");
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return null;
+        }
+        Map<String, String> headers = new LinkedHashMap<>();
+        JsonNode headersNode = candidate.path("headers");
+        if (headersNode.isObject()) {
+            headersNode.fields().forEachRemaining(field -> {
+                if (field.getValue().isTextual()) {
+                    headers.put(field.getKey(), field.getValue().asText());
+                }
+            });
+        }
         return new Recognized(url, headers, keyHint);
     }
 

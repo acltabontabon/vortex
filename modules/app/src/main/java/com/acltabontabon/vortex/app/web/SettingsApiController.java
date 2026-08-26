@@ -66,7 +66,7 @@ public class SettingsApiController {
     private final DynatraceMcpPreferenceStore dynatraceMcpPreferences;
     private final DynatraceMcpAvailability dynatraceMcpAvailability;
     private final DynatraceMcpClientFactory dynatraceMcpClients;
-    private final DynatraceMcpConnectionTest dynatraceMcpConnectionTest = new DynatraceMcpConnectionTest();
+    private final DynatraceMcpConnectionTest dynatraceMcpConnectionTest;
 
     public SettingsApiController(VortexProperties properties, PerformanceEngine engine,
             PerformanceAssistant assistant, OllamaAvailability ollama, AiSettings aiSettings,
@@ -75,7 +75,8 @@ public class SettingsApiController {
             LoadGeneratorBudgetPreferenceStore loadGeneratorBudgetPreferences,
             LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver,
             DynatraceMcpSettings dynatraceMcpSettings, DynatraceMcpPreferenceStore dynatraceMcpPreferences,
-            DynatraceMcpAvailability dynatraceMcpAvailability, DynatraceMcpClientFactory dynatraceMcpClients) {
+            DynatraceMcpAvailability dynatraceMcpAvailability, DynatraceMcpClientFactory dynatraceMcpClients,
+            DynatraceMcpConnectionTest dynatraceMcpConnectionTest) {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.engine = Objects.requireNonNull(engine, "engine");
         this.assistant = Objects.requireNonNull(assistant, "assistant");
@@ -96,6 +97,8 @@ public class SettingsApiController {
         this.dynatraceMcpAvailability =
                 Objects.requireNonNull(dynatraceMcpAvailability, "dynatraceMcpAvailability");
         this.dynatraceMcpClients = Objects.requireNonNull(dynatraceMcpClients, "dynatraceMcpClients");
+        this.dynatraceMcpConnectionTest =
+                Objects.requireNonNull(dynatraceMcpConnectionTest, "dynatraceMcpConnectionTest");
     }
 
     public record EngineSettingsDto(boolean usesDocker, String runner, String executable,
@@ -119,7 +122,8 @@ public class SettingsApiController {
             DynatraceMcpSettingsDto dynatraceMcp, DynatraceMcpAvailabilityDto dynatraceMcpAvailability) {}
 
     public record DynatraceMcpSettingsDto(boolean enabled, String endpoint,
-            Map<String, String> maskedHeaders, String defaultWindowDisplay) {}
+            Map<String, String> maskedHeaders, String defaultWindowDisplay, String authMode,
+            String clientId, String maskedClientSecret, String scope, String resource) {}
 
     public record DynatraceMcpAvailabilityDto(boolean available, String problem, String remedy) {}
 
@@ -166,7 +170,14 @@ public class SettingsApiController {
 
     private DynatraceMcpSettingsDto toDto(DynatraceMcpSettings settings) {
         return new DynatraceMcpSettingsDto(settings.enabled(), settings.endpoint(),
-                settings.maskedHeaders(), Durations.display(settings.defaultWindow()));
+                settings.maskedHeaders(), Durations.display(settings.defaultWindow()),
+                authModeWire(settings.authMode()), settings.clientId(), settings.maskedClientSecret(),
+                settings.scope(), settings.resource());
+    }
+
+    private static String authModeWire(DynatraceMcpSettings.AuthMode authMode) {
+        return authMode == DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
+                ? "oauth_client_credentials" : "header";
     }
 
     private DynatraceMcpAvailabilityDto toDto(DynatraceMcpAvailability.Availability availability) {
@@ -326,7 +337,14 @@ public class SettingsApiController {
     // ==================================================================== Dynatrace MCP
 
     public record SaveDynatraceMcpRequest(boolean enabled, String endpoint, String defaultWindow,
-            List<String> headerName, List<String> headerValue) {}
+            List<String> headerName, List<String> headerValue, String authMode, String clientId,
+            String clientSecret, String scope, String resource) {
+        public SaveDynatraceMcpRequest {
+            clientId = clientId == null ? "" : clientId;
+            scope = scope == null ? "" : scope;
+            resource = resource == null ? "" : resource;
+        }
+    }
 
     public record SaveDynatraceMcpResponse(String message) {}
 
@@ -340,10 +358,14 @@ public class SettingsApiController {
         try {
             Map<String, String> headers = resolveHeaders(
                     parseHeaders(request.headerName(), request.headerValue()), dynatraceMcpSettings.headers());
+            String clientSecret = resolveSecretField(request.clientSecret(), dynatraceMcpSettings.clientSecret());
+            DynatraceMcpSettings.AuthMode authMode = parseAuthMode(request.authMode());
             Duration window = parseWindow(request.defaultWindow());
-            dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), headers, window);
+            dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), headers, window,
+                    authMode, request.clientId(), clientSecret, request.scope(), request.resource());
             dynatraceMcpPreferences.save(request.enabled(), request.endpoint(), headers,
-                    Durations.display(window));
+                    Durations.display(window), authModeWire(authMode), request.clientId(), clientSecret,
+                    request.scope(), request.resource());
             dynatraceMcpAvailability.refresh();
             return new SaveDynatraceMcpResponse(request.enabled()
                     ? "Saved. Test the connection, then map a service to a Dynatrace entity."
@@ -351,6 +373,12 @@ public class SettingsApiController {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
+    }
+
+    private DynatraceMcpSettings.AuthMode parseAuthMode(String value) {
+        return "oauth_client_credentials".equals(value)
+                ? DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
+                : DynatraceMcpSettings.AuthMode.HEADER;
     }
 
     public record DynatraceMcpStageDto(String stage, boolean succeeded, String category, String detail) {}
@@ -361,7 +389,8 @@ public class SettingsApiController {
      * Tests what is in the form, not what has been saved — the same contract
      * {@code ConfigurationApiController.testObservationSource} already has, and for the same reason:
      * testing only a saved configuration would make the button useless for the case it exists to
-     * serve.
+     * serve. OAuth Client Credentials in {@code request} are tested directly against Dynatrace's SSO
+     * token endpoint too, so an unsaved client id/secret can be proven before Save without a round trip.
      */
     @PostMapping("/dynatrace-mcp/test")
     public TestDynatraceMcpResponse testDynatraceMcp(@RequestBody SaveDynatraceMcpRequest request) {
@@ -372,8 +401,15 @@ public class SettingsApiController {
         try {
             Map<String, String> headers = resolveHeaders(
                     parseHeaders(request.headerName(), request.headerValue()), dynatraceMcpSettings.headers());
+            DynatraceMcpConnectionTest.OAuthCredentials oauth = null;
+            if ("oauth_client_credentials".equals(request.authMode())) {
+                String clientSecret =
+                        resolveSecretField(request.clientSecret(), dynatraceMcpSettings.clientSecret());
+                oauth = new DynatraceMcpConnectionTest.OAuthCredentials(request.clientId(), clientSecret,
+                        request.scope(), request.resource());
+            }
             var report = dynatraceMcpConnectionTest.run(request.endpoint(), headers,
-                    dynatraceMcpSettings.queryTimeout());
+                    dynatraceMcpSettings.queryTimeout(), oauth);
             List<DynatraceMcpStageDto> stages = report.stages().stream()
                     .map(stage -> new DynatraceMcpStageDto(stage.stage(), stage.succeeded(),
                             stage.category() == null ? null : stage.category().name(), stage.detail()))
@@ -446,6 +482,19 @@ public class SettingsApiController {
             resolved.put(entry.getKey(), value);
         }
         return resolved;
+    }
+
+    /** Single-value variant of {@link #resolveHeaders} for one scalar secret field (the OAuth client secret). */
+    private String resolveSecretField(String parsed, String existing) {
+        if (!SecretReferences.MASK.equals(parsed)) {
+            return parsed == null ? "" : parsed;
+        }
+        if (existing == null || existing.isBlank()) {
+            throw new IllegalArgumentException("The client secret shows " + SecretReferences.MASK
+                    + " — retype its value to change it. Vortex never writes a masked placeholder as a "
+                    + "real secret value.");
+        }
+        return existing;
     }
 
     private Duration parseWindow(String display) {

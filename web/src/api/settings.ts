@@ -83,11 +83,18 @@ export interface LoadGeneratorSettings {
   automaticPreview: ResolvedLoadGeneratorBudget;
 }
 
+export type DynatraceMcpAuthMode = 'header' | 'oauth_client_credentials';
+
 export interface DynatraceMcpSettings {
   enabled: boolean;
   endpoint: string;
   maskedHeaders: Record<string, string>;
   defaultWindowDisplay: string;
+  authMode: DynatraceMcpAuthMode;
+  clientId: string;
+  maskedClientSecret: string;
+  scope: string;
+  resource: string;
 }
 
 export interface DynatraceMcpAvailability {
@@ -169,6 +176,11 @@ export interface SaveDynatraceMcpRequest {
   defaultWindow: string;
   headerName: string[];
   headerValue: string[];
+  authMode: DynatraceMcpAuthMode;
+  clientId: string;
+  clientSecret: string;
+  scope: string;
+  resource: string;
 }
 
 export interface SaveDynatraceMcpResponse {

@@ -156,6 +156,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-049-dynatrace-mcp-is-a-parallel-transport.adoc[049]
 | Dynatrace over MCP is a second transport on the existing observation model, not a new one
+
+| xref:adr-050-dynatrace-mcp-oauth-client-credentials.adoc[050]
+| Dynatrace MCP authenticates via a static header or OAuth client credentials, never an interactive browser flow
 |===
 
 == Format

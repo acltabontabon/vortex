@@ -26,7 +26,7 @@ final class DynatraceMcpSecretResolution {
         return resolved;
     }
 
-    private static String resolveValue(String value) {
+    static String resolveValue(String value) {
         String resolved = value;
         for (String name : SecretReferences.referencedNames(value)) {
             String fromEnvironment = System.getenv(name);

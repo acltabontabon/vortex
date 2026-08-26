@@ -1,5 +1,6 @@
 package com.acltabontabon.vortex.dynatrace;
 
+import com.acltabontabon.vortex.dynatrace.oauth.DynatraceOAuthException;
 import io.modelcontextprotocol.client.transport.McpHttpClientTransportAuthorizationException;
 import io.modelcontextprotocol.spec.McpError;
 import io.modelcontextprotocol.spec.McpTransportException;
@@ -22,6 +23,11 @@ final class DynatraceMcpFailureClassifier {
     static DynatraceMcpFailureCategory classify(RuntimeException failure) {
         if (failure instanceof McpHttpClientTransportAuthorizationException) {
             return DynatraceMcpFailureCategory.AUTHENTICATION_FAILED;
+        }
+        if (failure instanceof DynatraceOAuthException oauth) {
+            return oauth.httpStatus() == 401 || oauth.httpStatus() == 400
+                    ? DynatraceMcpFailureCategory.AUTHENTICATION_FAILED
+                    : DynatraceMcpFailureCategory.CONNECTION_FAILED;
         }
         Throwable cause = failure;
         while (cause != null) {

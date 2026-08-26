@@ -1,7 +1,9 @@
 package com.acltabontabon.vortex.dynatrace;
 
+import com.acltabontabon.vortex.dynatrace.oauth.DynatraceOAuthTokenProvider;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -34,15 +36,60 @@ public final class DynatraceMcpConnectionTest {
         }
     }
 
-    /** Runs every stage the given inputs allow. */
+    /** Unsaved OAuth Client Credentials to test — the token is fetched fresh, never from cache. */
+    public record OAuthCredentials(String clientId, String clientSecret, String scope, String resource) {
+        public OAuthCredentials {
+            Objects.requireNonNull(clientId, "clientId");
+            Objects.requireNonNull(clientSecret, "clientSecret");
+            scope = scope == null ? "" : scope;
+            resource = resource == null ? "" : resource;
+        }
+    }
+
+    private final DynatraceOAuthTokenProvider oauth;
+
+    public DynatraceMcpConnectionTest() {
+        this(new DynatraceOAuthTokenProvider());
+    }
+
+    DynatraceMcpConnectionTest(DynatraceOAuthTokenProvider oauth) {
+        this.oauth = Objects.requireNonNull(oauth, "oauth");
+    }
+
+    /** Runs every stage the given inputs allow, using header auth only. */
     public Report run(String uri, Map<String, String> headers, Duration timeout) {
+        return run(uri, headers, timeout, null);
+    }
+
+    /**
+     * Runs every stage the given inputs allow. {@code oauth} is {@code null} for header auth; when
+     * given, a token is fetched as its own leading stage — SSO rejecting the client is a distinct
+     * failure from the MCP server rejecting the resulting token, which stays named "Authentication".
+     */
+    public Report run(String uri, Map<String, String> headers, Duration timeout, OAuthCredentials oauth) {
         Objects.requireNonNull(uri, "uri");
         Objects.requireNonNull(timeout, "timeout");
         List<StageResult> stages = new ArrayList<>();
 
+        Map<String, String> effectiveHeaders = headers;
+        if (oauth != null) {
+            try {
+                String resolvedSecret = DynatraceMcpSecretResolution.resolveValue(oauth.clientSecret());
+                String token = this.oauth.bearerToken(oauth.clientId(), resolvedSecret, oauth.scope(),
+                        oauth.resource(), timeout);
+                effectiveHeaders = new LinkedHashMap<>(headers);
+                effectiveHeaders.put("Authorization", "Bearer " + token);
+                stages.add(StageResult.pass("OAuth token obtained"));
+            } catch (RuntimeException e) {
+                stages.add(StageResult.fail("OAuth token obtained", DynatraceMcpFailureClassifier.classify(e),
+                        message(e)));
+                return new Report(false, stages);
+            }
+        }
+
         DynatraceTelemetryClient client;
         try {
-            client = new DynatraceMcpTelemetryClient(new DynatraceMcpEndpoint(uri, headers, timeout));
+            client = new DynatraceMcpTelemetryClient(new DynatraceMcpEndpoint(uri, effectiveHeaders, timeout));
         } catch (RuntimeException e) {
             DynatraceMcpFailureCategory category = DynatraceMcpFailureClassifier.classify(e);
             boolean isAuthFailure = category == DynatraceMcpFailureCategory.AUTHENTICATION_FAILED

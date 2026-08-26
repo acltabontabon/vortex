@@ -31,6 +31,7 @@ import com.acltabontabon.vortex.core.target.ResourceEnvelopeRequest;
 import com.acltabontabon.vortex.core.workload.RateAllocator;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpAvailability;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpClientFactory;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpConnectionTest;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpSettings;
 import com.acltabontabon.vortex.app.config.DynatraceMcpPreferenceStore;
 import com.acltabontabon.vortex.persistence.VortexWorkspace;
@@ -125,6 +126,9 @@ class SettingsApiControllerTest {
     @MockitoBean
     private DynatraceMcpClientFactory dynatraceMcpClients;
 
+    @MockitoBean
+    private DynatraceMcpConnectionTest dynatraceMcpConnectionTest;
+
     private static ResolvedLoadGeneratorBudget resolvedAutomaticBudget() {
         return new ResolvedLoadGeneratorBudget(
                 LoadGeneratorResourceBudget.BudgetMode.AUTOMATIC,
@@ -140,7 +144,8 @@ class SettingsApiControllerTest {
 
     @BeforeEach
     void wiring() {
-        dynatraceMcpSettings.reconfigure(false, "", Map.of(), null);
+        dynatraceMcpSettings.reconfigure(false, "", Map.of(), null,
+                DynatraceMcpSettings.AuthMode.HEADER, "", "", "", "");
         when(properties.version()).thenReturn("0.1.0-SNAPSHOT");
         when(properties.engine()).thenReturn(
                 new VortexProperties.Engine("local", "k6", "docker", "grafana/k6:1.3.0", true, null));
@@ -311,7 +316,8 @@ class SettingsApiControllerTest {
 
         assertThat(dynatraceMcpSettings.enabled()).isTrue();
         assertThat(dynatraceMcpSettings.endpoint()).isEqualTo("https://dynatrace-mcp.internal/mcp");
-        verify(dynatraceMcpPreferences).save(true, "https://dynatrace-mcp.internal/mcp", Map.of(), "30d");
+        verify(dynatraceMcpPreferences).save(true, "https://dynatrace-mcp.internal/mcp", Map.of(), "30d",
+                "header", "", "", "", "");
         verify(dynatraceMcpAvailability).refresh();
     }
 
@@ -338,7 +344,8 @@ class SettingsApiControllerTest {
 
         assertThat(dynatraceMcpSettings.headers()).containsEntry("Authorization", "Api-Token abc123");
         verify(dynatraceMcpPreferences, org.mockito.Mockito.times(2)).save(true,
-                "https://dynatrace-mcp.internal/mcp", Map.of("Authorization", "Api-Token abc123"), "30d");
+                "https://dynatrace-mcp.internal/mcp", Map.of("Authorization", "Api-Token abc123"), "30d",
+                "header", "", "", "", "");
     }
 
     @Test
@@ -353,6 +360,117 @@ class SettingsApiControllerTest {
                 .andExpect(status().isBadRequest());
 
         assertThat(dynatraceMcpSettings.headers()).isEmpty();
+    }
+
+    @Test
+    void savingOAuthClientCredentialsRoundTripsThroughGet() throws Exception {
+        mockMvc.perform(post("/api/settings/dynatrace-mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","headerName":[],"headerValue":[],
+                                 "authMode":"oauth_client_credentials","clientId":"client-1",
+                                 "clientSecret":"${DT_CLIENT_SECRET}","scope":"app-engine:mcp-servers:invoke",
+                                 "resource":"urn:dtaccount:abc"}
+                                """))
+                .andExpect(status().isOk());
+
+        assertThat(dynatraceMcpSettings.authMode())
+                .isEqualTo(DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS);
+        assertThat(dynatraceMcpSettings.clientId()).isEqualTo("client-1");
+        assertThat(dynatraceMcpSettings.scope()).isEqualTo("app-engine:mcp-servers:invoke");
+        assertThat(dynatraceMcpSettings.resource()).isEqualTo("urn:dtaccount:abc");
+
+        mockMvc.perform(get("/api/settings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dynatraceMcp.authMode").value("oauth_client_credentials"))
+                .andExpect(jsonPath("$.dynatraceMcp.clientId").value("client-1"))
+                .andExpect(jsonPath("$.dynatraceMcp.maskedClientSecret").value("${DT_CLIENT_SECRET}"));
+    }
+
+    @Test
+    void savingWithAMaskedClientSecretResolvesToThePreviouslyStoredValue() throws Exception {
+        mockMvc.perform(post("/api/settings/dynatrace-mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","headerName":[],"headerValue":[],
+                                 "authMode":"oauth_client_credentials","clientId":"client-1",
+                                 "clientSecret":"top-secret-literal","scope":"","resource":""}
+                                """))
+                .andExpect(status().isOk());
+        assertThat(dynatraceMcpSettings.clientSecret()).isEqualTo("top-secret-literal");
+
+        mockMvc.perform(post("/api/settings/dynatrace-mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","headerName":[],"headerValue":[],
+                                 "authMode":"oauth_client_credentials","clientId":"client-1",
+                                 "clientSecret":"%s","scope":"","resource":""}
+                                """.formatted(SecretReferences.MASK)))
+                .andExpect(status().isOk());
+
+        assertThat(dynatraceMcpSettings.clientSecret()).isEqualTo("top-secret-literal");
+    }
+
+    @Test
+    void savingAMaskedClientSecretWithNothingToResolveAgainstIsRejected() throws Exception {
+        mockMvc.perform(post("/api/settings/dynatrace-mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","headerName":[],"headerValue":[],
+                                 "authMode":"oauth_client_credentials","clientId":"client-1",
+                                 "clientSecret":"%s","scope":"","resource":""}
+                                """.formatted(SecretReferences.MASK)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(dynatraceMcpSettings.clientSecret()).isEmpty();
+    }
+
+    @Test
+    void testingInOAuthModeBuildsCredentialsAndReachesTheConnectionTest() throws Exception {
+        var stageResult = new DynatraceMcpConnectionTest.StageResult("OAuth token obtained", true, null, "");
+        var report = new DynatraceMcpConnectionTest.Report(true, List.of(stageResult));
+        when(dynatraceMcpConnectionTest.run(org.mockito.ArgumentMatchers.eq("https://dynatrace-mcp.internal/mcp"),
+                any(), any(), any(DynatraceMcpConnectionTest.OAuthCredentials.class)))
+                .thenReturn(report);
+
+        mockMvc.perform(post("/api/settings/dynatrace-mcp/test")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","headerName":[],"headerValue":[],
+                                 "authMode":"oauth_client_credentials","clientId":"client-1",
+                                 "clientSecret":"top-secret-literal","scope":"","resource":""}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.succeeded").value(true))
+                .andExpect(jsonPath("$.stages[0].stage").value("OAuth token obtained"));
+
+        var credentialsCaptor = org.mockito.ArgumentCaptor.forClass(DynatraceMcpConnectionTest.OAuthCredentials.class);
+        verify(dynatraceMcpConnectionTest).run(org.mockito.ArgumentMatchers.eq("https://dynatrace-mcp.internal/mcp"),
+                any(), any(), credentialsCaptor.capture());
+        assertThat(credentialsCaptor.getValue().clientId()).isEqualTo("client-1");
+        assertThat(credentialsCaptor.getValue().clientSecret()).isEqualTo("top-secret-literal");
+    }
+
+    @Test
+    void testingInHeaderModePassesNoOAuthCredentials() throws Exception {
+        var report = new DynatraceMcpConnectionTest.Report(true, List.of());
+        when(dynatraceMcpConnectionTest.run(any(), any(), any(), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(report);
+
+        mockMvc.perform(post("/api/settings/dynatrace-mcp/test")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
+                                 "defaultWindow":"30d","headerName":[],"headerValue":[]}
+                                """))
+                .andExpect(status().isOk());
+
+        verify(dynatraceMcpConnectionTest).run(any(), any(), any(), org.mockito.ArgumentMatchers.isNull());
     }
 
     @Test

@@ -18,18 +18,38 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class DynatraceMcpSettings {
 
-    private record State(boolean enabled, String endpoint, Map<String, String> headers, Duration defaultWindow) {
+    /** How the connection authenticates. Dynatrace's own recommended path is a static header. */
+    public enum AuthMode {
+        HEADER,
+        OAUTH_CLIENT_CREDENTIALS
+    }
+
+    private record State(boolean enabled, String endpoint, Map<String, String> headers,
+            Duration defaultWindow, AuthMode authMode, String clientId, String clientSecret,
+            String scope, String resource) {
     }
 
     private final AtomicReference<State> state;
     private final Duration queryTimeout;
 
     public DynatraceMcpSettings(boolean enabled, String endpoint, Map<String, String> headers,
-            Duration defaultWindow, Duration queryTimeout) {
+            Duration defaultWindow, Duration queryTimeout, AuthMode authMode, String clientId,
+            String clientSecret, String scope, String resource) {
         this.state = new AtomicReference<>(new State(enabled, normalize(endpoint),
                 headers == null ? Map.of() : Map.copyOf(headers),
-                defaultWindow == null ? Duration.ofDays(30) : defaultWindow));
+                defaultWindow == null ? Duration.ofDays(30) : defaultWindow,
+                authMode == null ? AuthMode.HEADER : authMode,
+                clientId == null ? "" : clientId.trim(),
+                clientSecret == null ? "" : clientSecret.trim(),
+                scope == null ? "" : scope.trim(),
+                resource == null ? "" : resource.trim()));
         this.queryTimeout = queryTimeout == null ? Duration.ofSeconds(30) : queryTimeout;
+    }
+
+    /** Every existing caller means header auth — OAuth is opted into explicitly, never inferred. */
+    public DynatraceMcpSettings(boolean enabled, String endpoint, Map<String, String> headers,
+            Duration defaultWindow, Duration queryTimeout) {
+        this(enabled, endpoint, headers, defaultWindow, queryTimeout, AuthMode.HEADER, "", "", "", "");
     }
 
     public boolean enabled() {
@@ -48,20 +68,49 @@ public final class DynatraceMcpSettings {
         return state.get().defaultWindow();
     }
 
+    public AuthMode authMode() {
+        return state.get().authMode();
+    }
+
+    public String clientId() {
+        return state.get().clientId();
+    }
+
+    /** Raw, may be a {@code ${NAME}} reference — never resolved here, same discipline as {@link #headers()}. */
+    public String clientSecret() {
+        return state.get().clientSecret();
+    }
+
+    public String scope() {
+        return state.get().scope();
+    }
+
+    public String resource() {
+        return state.get().resource();
+    }
+
     /** Fixed at startup, unlike the other fields — a mid-flight timeout change has no safe moment to apply. */
     public Duration queryTimeout() {
         return queryTimeout;
     }
 
     /** Takes effect on the next call. Does not itself persist anything — the caller's job. */
-    public void reconfigure(boolean enabled, String endpoint, Map<String, String> headers, Duration defaultWindow) {
+    public void reconfigure(boolean enabled, String endpoint, Map<String, String> headers,
+            Duration defaultWindow, AuthMode authMode, String clientId, String clientSecret,
+            String scope, String resource) {
         state.set(new State(enabled, normalize(endpoint), headers == null ? Map.of() : Map.copyOf(headers),
-                defaultWindow == null ? Duration.ofDays(30) : defaultWindow));
+                defaultWindow == null ? Duration.ofDays(30) : defaultWindow,
+                authMode == null ? AuthMode.HEADER : authMode,
+                clientId == null ? "" : clientId.trim(),
+                clientSecret == null ? "" : clientSecret.trim(),
+                scope == null ? "" : scope.trim(),
+                resource == null ? "" : resource.trim()));
     }
 
     public Set<String> referencedSecretNames() {
         Set<String> names = new java.util.TreeSet<>();
         headers().values().forEach(value -> names.addAll(SecretReferences.referencedNames(value)));
+        names.addAll(SecretReferences.referencedNames(clientSecret()));
         return names;
     }
 
@@ -69,6 +118,10 @@ public final class DynatraceMcpSettings {
         Map<String, String> masked = new LinkedHashMap<>();
         headers().forEach((name, value) -> masked.put(name, SecretReferences.mask(value)));
         return masked;
+    }
+
+    public String maskedClientSecret() {
+        return SecretReferences.mask(clientSecret());
     }
 
     private static String normalize(String endpoint) {

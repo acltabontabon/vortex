@@ -29,10 +29,15 @@ import {
   useSettingsQuery,
   useTestDynatraceMcpMutation,
 } from '../api/settings';
-import type { ChooseLoadGeneratorBudgetRequest, DynatraceMcpAvailability, DynatraceMcpSettings } from '../api/settings';
+import type {
+  ChooseLoadGeneratorBudgetRequest,
+  DynatraceMcpAuthMode,
+  DynatraceMcpAvailability,
+  DynatraceMcpSettings,
+} from '../api/settings';
 import { Fact, Facts } from '../components/Fact';
 import { HeaderRows } from '../features/service/configuration/HeaderRows';
-import { rowsFromMasked, type HeaderRow } from '../features/service/configuration/headerRowUtils';
+import { rowsFromMasked, SECRET_MASK, type HeaderRow } from '../features/service/configuration/headerRowUtils';
 import { errorFallback, extractErrorMessage } from '../lib/queryFallback';
 import classes from './SettingsPage.module.css';
 
@@ -467,6 +472,12 @@ function DynatraceMcpCard({
   const [endpoint, setEndpoint] = useState(settings.endpoint);
   const [defaultWindow, setDefaultWindow] = useState(settings.defaultWindowDisplay);
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>(rowsFromMasked(settings.maskedHeaders));
+  const [authMode, setAuthMode] = useState<DynatraceMcpAuthMode>(settings.authMode);
+  const [clientId, setClientId] = useState(settings.clientId);
+  const [clientSecret, setClientSecret] = useState(settings.maskedClientSecret);
+  const [clientSecretMasked, setClientSecretMasked] = useState(Boolean(settings.maskedClientSecret));
+  const [scope, setScope] = useState(settings.scope);
+  const [resource, setResource] = useState(settings.resource);
 
   function headerArrays() {
     const named = headerRows.filter((row) => row.name.trim());
@@ -474,8 +485,11 @@ function DynatraceMcpCard({
   }
 
   function payload() {
-    return { enabled, endpoint, defaultWindow, ...headerArrays() };
+    return { enabled, endpoint, defaultWindow, ...headerArrays(), authMode, clientId, clientSecret, scope, resource };
   }
+
+  const usingOAuth = authMode === 'oauth_client_credentials';
+  const oauthCredentialsIncomplete = usingOAuth && (!clientId.trim() || !clientSecret.trim());
 
   function onImport() {
     doImport.mutate(pasted, {
@@ -597,6 +611,68 @@ function DynatraceMcpCard({
         </Stack>
       )}
 
+      <SegmentedControl
+        mt="md"
+        size="xs"
+        value={authMode}
+        onChange={(v) => setAuthMode(v as DynatraceMcpAuthMode)}
+        data={[
+          { label: 'Bearer header', value: 'header' },
+          { label: 'OAuth client credentials', value: 'oauth_client_credentials' },
+        ]}
+      />
+
+      {usingOAuth && (
+        <Stack gap="sm" mt="sm">
+          <TextInput
+            label="Client ID"
+            value={clientId}
+            onChange={(e) => setClientId(e.currentTarget.value)}
+          />
+          {clientSecretMasked ? (
+            <div>
+              <Text size="sm" fw={600} mb={4}>
+                Client secret
+              </Text>
+              <Group gap={6} wrap="nowrap">
+                <Text size="sm" c="dimmed" ff="monospace">
+                  {SECRET_MASK}
+                </Text>
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  onClick={() => {
+                    setClientSecret('');
+                    setClientSecretMasked(false);
+                  }}
+                >
+                  Replace
+                </Button>
+              </Group>
+            </div>
+          ) : (
+            <TextInput
+              label="Client secret"
+              placeholder={'Secret value, or ${NAME} for a secret'}
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.currentTarget.value)}
+            />
+          )}
+          <TextInput
+            label="Scope"
+            placeholder="storage:events:read storage:logs:read ..."
+            value={scope}
+            onChange={(e) => setScope(e.currentTarget.value)}
+          />
+          <TextInput
+            label="Resource"
+            placeholder="https://your-environment.apps.dynatrace.com"
+            value={resource}
+            onChange={(e) => setResource(e.currentTarget.value)}
+          />
+        </Stack>
+      )}
+
       {test.data && (
         <div style={{ marginTop: 'var(--mantine-spacing-md)' }}>
           <List spacing={4} size="sm" center>
@@ -640,7 +716,7 @@ function DynatraceMcpCard({
           variant="default"
           onClick={() => test.mutate(payload())}
           loading={test.isPending}
-          disabled={mode === 'paste' || !endpoint.trim()}
+          disabled={mode === 'paste' || !endpoint.trim() || oauthCredentialsIncomplete}
         >
           Test connection
         </Button>

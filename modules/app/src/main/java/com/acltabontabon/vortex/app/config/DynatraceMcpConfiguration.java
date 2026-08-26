@@ -4,6 +4,7 @@ import com.acltabontabon.vortex.app.VortexProperties;
 import com.acltabontabon.vortex.core.port.ProductionObservationSource;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpAvailability;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpClientFactory;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpConnectionTest;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpObservationSource;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpSettings;
 import org.springframework.context.annotation.Bean;
@@ -27,7 +28,14 @@ public class DynatraceMcpConfiguration {
     DynatraceMcpSettings dynatraceMcpSettings(VortexProperties properties) {
         VortexProperties.DynatraceMcp config = properties.dynatraceMcp();
         return new DynatraceMcpSettings(config.enabled(), config.endpoint(), config.headers(),
-                config.defaultWindow(), config.queryTimeout());
+                config.defaultWindow(), config.queryTimeout(), parseAuthMode(config.authMode()),
+                config.clientId(), config.clientSecret(), config.scope(), config.resource());
+    }
+
+    private static DynatraceMcpSettings.AuthMode parseAuthMode(String value) {
+        return "oauth_client_credentials".equals(value)
+                ? DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
+                : DynatraceMcpSettings.AuthMode.HEADER;
     }
 
     @Bean
@@ -39,6 +47,11 @@ public class DynatraceMcpConfiguration {
     DynatraceMcpAvailability dynatraceMcpAvailability(DynatraceMcpSettings settings,
             DynatraceMcpClientFactory clients) {
         return new DynatraceMcpAvailability(settings, clients);
+    }
+
+    @Bean
+    DynatraceMcpConnectionTest dynatraceMcpConnectionTest() {
+        return new DynatraceMcpConnectionTest();
     }
 
     @Bean
