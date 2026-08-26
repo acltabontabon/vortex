@@ -19,8 +19,8 @@ import java.util.Objects;
 /**
  * Speaks MCP Streamable-HTTP directly to a Dynatrace MCP endpoint.
  *
- * <p>Deliberately does not go through the {@code npx mcp-remote <url>} bridge an SRE-shared config
- * describes — that bridge exists for MCP clients that only support stdio. Vortex is a full MCP
+ * <p>Deliberately does not go through the {@code npx mcp-remote <url>} bridge a provided config may
+ * describe — that bridge exists for MCP clients that only support stdio. Vortex is a full MCP
  * client itself, so it connects straight to the remote HTTPS endpoint and never spawns a local
  * process to get there.
  *

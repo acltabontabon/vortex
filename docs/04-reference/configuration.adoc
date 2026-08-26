@@ -652,18 +652,17 @@ Vortex will not build a collector or a telemetry pipeline of its own.
 [[dynatrace-via-mcp]]
 === Dynatrace via MCP
 
-Some teams' only route to Dynatrace is an MCP server their SRE team runs, often reachable only over
+Some teams' only route to Dynatrace is an internally-managed MCP server, often reachable only over
 a corporate VPN and with no separate credential — the VPN is the perimeter. `transport: mcp` on a
 Dynatrace source points Vortex at that server instead of Dynatrace's REST API, without changing
 anything else about how `observation`, `production` or calibration behave.
 
 *What it does not do.* Vortex connects to the MCP endpoint directly over HTTPS, as a full MCP
-client. The config an SRE team hands out is often shaped for a different kind of client and looks
-like this:
+client. A config for it is often shaped for a different kind of client and looks like this:
 
 [source,json]
 ----
-{"our-sre": {"command": "npx", "args": ["mcp-remote", "https://sre-mcp-server.internal/mcp"]}}
+{"dynatrace": {"command": "npx", "args": ["mcp-remote", "https://dynatrace-mcp.internal/mcp"]}}
 ----
 
 `mcp-remote` is a local bridge for MCP clients that only speak stdio. *Vortex never runs it* — it is
@@ -674,7 +673,8 @@ rather than run.
 
 *Setup.*
 
-1. Get the MCP endpoint URL from SRE — either the bare URL, or their `mcp-remote`-shaped config.
+1. Get the MCP endpoint URL from whoever manages your Dynatrace access — either the bare URL, or
+   their `mcp-remote`-shaped config.
 2. Under *Settings → Dynatrace*, paste the config (or enter the URL directly) and *Save*.
 3. *Test connection* — this checks the endpoint is reachable, authentication succeeds if a
    credential is configured, and the server offers the `execute_dql` tool Vortex needs.
@@ -698,7 +698,7 @@ a REST-sourced one Dynatrace could not attribute.
 
 | MCP server reachable | Not on the VPN, or the endpoint URL is wrong
 | Authentication | The credential referenced under Settings is unset or wrong
-| Dynatrace tool discovered | The server does not offer `execute_dql` — check with SRE
+| Dynatrace tool discovered | The server does not offer `execute_dql` — check with whoever manages it
 | Telemetry access | The entity id is wrong, or there is no traffic in the requested window
 |===
 

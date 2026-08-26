@@ -300,7 +300,7 @@ class SettingsApiControllerTest {
         mockMvc.perform(post("/api/settings/dynatrace-mcp")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"enabled":true,"endpoint":"https://sre-mcp-server.internal/mcp",
+                                {"enabled":true,"endpoint":"https://dynatrace-mcp.internal/mcp",
                                  "defaultWindow":"30d","headerName":[],"headerValue":[]}
                                 """))
                 .andExpect(status().isOk())
@@ -308,21 +308,21 @@ class SettingsApiControllerTest {
                         "Saved. Test the connection, then map a service to a Dynatrace entity."));
 
         assertThat(dynatraceMcpSettings.enabled()).isTrue();
-        assertThat(dynatraceMcpSettings.endpoint()).isEqualTo("https://sre-mcp-server.internal/mcp");
-        verify(dynatraceMcpPreferences).save(true, "https://sre-mcp-server.internal/mcp", Map.of(), "30d");
+        assertThat(dynatraceMcpSettings.endpoint()).isEqualTo("https://dynatrace-mcp.internal/mcp");
+        verify(dynatraceMcpPreferences).save(true, "https://dynatrace-mcp.internal/mcp", Map.of(), "30d");
         verify(dynatraceMcpAvailability).refresh();
     }
 
     @Test
     void importingARecognizedMcpRemoteConfigExtractsTheUrl() throws Exception {
         String pastedConfig = """
-                {"our-sre":{"command":"npx","args":["mcp-remote","https://sre-mcp-server.internal/mcp"]}}""";
+                {"dynatrace":{"command":"npx","args":["mcp-remote","https://dynatrace-mcp.internal/mcp"]}}""";
         mockMvc.perform(post("/api/settings/dynatrace-mcp/import")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(importRequestBody(pastedConfig)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recognized").value(true))
-                .andExpect(jsonPath("$.endpoint").value("https://sre-mcp-server.internal/mcp"));
+                .andExpect(jsonPath("$.endpoint").value("https://dynatrace-mcp.internal/mcp"));
     }
 
     @Test

@@ -59,7 +59,7 @@ class DynatraceMcpObservationSourceTest {
     }
 
     private static DynatraceMcpSettings enabledSettings() {
-        return new DynatraceMcpSettings(true, "https://sre-mcp-server.internal/mcp", Map.of(), null, null);
+        return new DynatraceMcpSettings(true, "https://dynatrace-mcp.internal/mcp", Map.of(), null, null);
     }
 
     @Test
@@ -133,7 +133,7 @@ class DynatraceMcpObservationSourceTest {
     @Test
     void aMissingSecretRefusesCleanlyBeforeOpeningAConnection() {
         DynatraceMcpSettings missingSecret = new DynatraceMcpSettings(true,
-                "https://sre-mcp-server.internal/mcp",
+                "https://dynatrace-mcp.internal/mcp",
                 Map.of("Authorization", "Bearer ${DT_TOKEN_THAT_DOES_NOT_EXIST}"), null, null);
         var source = new DynatraceMcpObservationSource(fakeFactory(missingSecret, null), missingSecret);
 

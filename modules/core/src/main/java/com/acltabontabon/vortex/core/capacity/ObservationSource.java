@@ -21,8 +21,8 @@ import java.util.TreeSet;
  * attached to it. A third becomes worth building when somebody has one and needs it.
  *
  * <p>{@code transport} is a narrower, second axis that only Dynatrace uses: the same question —
- * "what does production see" — can be answered over Dynatrace's REST metrics API or over an MCP
- * server an SRE team already runs. That is a detail of how the answer is fetched, not a third kind
+ * "what does production see" — can be answered over Dynatrace's REST metrics API or over an
+ * internally-managed MCP server. That is a detail of how the answer is fetched, not a third kind
  * of question, so it does not reopen the "two kinds" decision above.
  *
  * @param kind              which system answers

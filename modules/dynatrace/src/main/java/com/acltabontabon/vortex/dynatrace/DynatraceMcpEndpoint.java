@@ -7,11 +7,11 @@ import java.util.Objects;
 /**
  * Where and how to reach the Dynatrace MCP server: a plain HTTPS URL Vortex connects to directly.
  *
- * <p>Never a command. Whatever an SRE-provided config said to run locally (typically an
+ * <p>Never a command. Whatever a provided config said to run locally (typically an
  * {@code npx mcp-remote <url>} bridge) is not represented here — {@link DynatraceMcpConfigImport}
  * exists specifically to extract {@code uri} out of that shape and discard the rest.
  *
- * @param uri     the MCP server's base URL, e.g. {@code https://sre-mcp-server.internal/mcp}
+ * @param uri     the MCP server's base URL, e.g. {@code https://dynatrace-mcp.internal/mcp}
  * @param headers request headers, whose values may be {@code ${NAME}} references. Empty when the
  *                server needs no credential — the common case behind a VPN perimeter
  * @param timeout the per-call bound for every MCP request this endpoint makes

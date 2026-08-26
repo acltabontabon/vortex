@@ -11,9 +11,9 @@ Vortex has not made a release yet, so everything to date is recorded under
 ### Added
 
 - Dynatrace production observation can now be fetched over MCP instead of Dynatrace's REST API, for
-  teams whose only access to Dynatrace is an SRE-managed MCP server (typically reachable only over a
-  VPN). Configure the connection under Settings → Dynatrace — either by pasting the config SRE
-  provides or entering the endpoint URL directly — then set a service's observation source to
+  teams whose only access to Dynatrace is an internally-managed MCP server (typically reachable only
+  over a VPN). Configure the connection under Settings → Dynatrace — either by pasting the provided
+  config or entering the endpoint URL directly — then set a service's observation source to
   Dynatrace with transport `mcp`. Vortex connects to the endpoint directly over HTTPS and never
   executes a pasted config's command. Only deterministic, versioned queries (throughput, request
   latency, failure rate) are issued; no AI interpretation participates in the resulting baseline.

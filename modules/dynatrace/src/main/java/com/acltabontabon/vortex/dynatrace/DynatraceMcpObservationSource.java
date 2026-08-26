@@ -134,7 +134,7 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
         if (settings.endpoint().isBlank()) {
             return new NotRetrieved("Cannot reach Dynatrace over MCP",
                     "no Dynatrace MCP endpoint is configured.",
-                    "Set the endpoint under Settings, either by pasting the config SRE gave you or "
+                    "Set the endpoint under Settings, either by pasting the provided config or "
                             + "entering the URL directly.");
         }
         String missing = DynatraceMcpSecretResolution.missingSecret(settings.headers());

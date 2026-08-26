@@ -566,7 +566,7 @@ function DynatraceMcpCard({
         <Stack gap="sm" mt="sm">
           <TextInput
             label="Endpoint"
-            placeholder="https://sre-mcp-server.internal/mcp"
+            placeholder="https://dynatrace-mcp.internal/mcp"
             value={endpoint}
             onChange={(e) => setEndpoint(e.currentTarget.value)}
           />
@@ -632,7 +632,7 @@ function DynatraceMcpCard({
         <div className={classes.advancedBody}>
           <p>
             Vortex connects directly to the endpoint above over HTTPS. It never runs the
-            <code> npx mcp-remote</code> command an SRE-provided config may describe — that bridge
+            <code> npx mcp-remote</code> command a provided config may describe — that bridge
             exists for MCP clients that only support stdio, and Vortex is not one.
           </p>
           <p>

@@ -226,7 +226,7 @@ describe('the settings page', () => {
         data: aSettings({
           dynatraceMcp: {
             enabled: true,
-            endpoint: 'https://sre-mcp-server.internal/mcp',
+            endpoint: 'https://dynatrace-mcp.internal/mcp',
             maskedHeaders: {},
             defaultWindowDisplay: '30d',
           },
@@ -238,7 +238,7 @@ describe('the settings page', () => {
 
       const card = withinCard('Dynatrace');
       expect(card.getByText('Connected')).toBeInTheDocument();
-      expect(card.getByText('https://sre-mcp-server.internal/mcp')).toBeInTheDocument();
+      expect(card.getByText('https://dynatrace-mcp.internal/mcp')).toBeInTheDocument();
     });
 
     it('saves the endpoint entered manually', async () => {
@@ -246,11 +246,11 @@ describe('the settings page', () => {
       renderWithProviders(<SettingsPage />);
 
       const card = withinCard('Dynatrace');
-      await userEvent.type(card.getByLabelText('Endpoint'), 'https://sre-mcp-server.internal/mcp');
+      await userEvent.type(card.getByLabelText('Endpoint'), 'https://dynatrace-mcp.internal/mcp');
       await userEvent.click(card.getByRole('button', { name: 'Save' }));
 
       expect(saveDynatraceMcpMutate).toHaveBeenCalledWith(
-        expect.objectContaining({ endpoint: 'https://sre-mcp-server.internal/mcp' }),
+        expect.objectContaining({ endpoint: 'https://dynatrace-mcp.internal/mcp' }),
         expect.anything(),
       );
     });

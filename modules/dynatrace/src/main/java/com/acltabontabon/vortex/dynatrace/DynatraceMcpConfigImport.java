@@ -8,14 +8,14 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Reads the MCP configuration an SRE team hands out and extracts a remote endpoint from it —
- * without ever running what it describes.
+ * Reads a provided MCP configuration and extracts a remote endpoint from it — without ever running
+ * what it describes.
  *
- * <p>The configuration most teams share is shaped like {@code {"command": "npx", "args":
- * ["-y", "mcp-remote", "https://sre-server/mcp"]}}: a local stdio bridge ({@code mcp-remote}) that
- * exists so MCP clients which only speak stdio can reach a remote HTTP(S) server. Vortex is not such
- * a client — it speaks MCP Streamable-HTTP directly — so this class's only job is to find the URL
- * that command would have connected to, and discard the command itself.
+ * <p>The configuration most teams are given is shaped like {@code {"command": "npx", "args":
+ * ["-y", "mcp-remote", "https://mcp-server.example/mcp"]}}: a local stdio bridge ({@code mcp-remote})
+ * that exists so MCP clients which only speak stdio can reach a remote HTTP(S) server. Vortex is not
+ * such a client — it speaks MCP Streamable-HTTP directly — so this class's only job is to find the
+ * URL that command would have connected to, and discard the command itself.
  *
  * <p>Anything this class cannot confidently reduce to "here is the remote URL" is refused with an
  * explanation, never silently accepted. There is no code path here that constructs a
@@ -63,8 +63,8 @@ public final class DynatraceMcpConfigImport {
             root = JSON.readTree(trimmed);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             return new Unrecognized(
-                    "This is neither a URL nor valid JSON. Paste the endpoint SRE gave you directly, "
-                            + "or the MCP configuration block they shared.");
+                    "This is neither a URL nor valid JSON. Paste the endpoint directly, or the MCP "
+                            + "configuration block you were given.");
         }
 
         NamedEntry entry = findNpxMcpRemoteEntry(root, "");
@@ -72,8 +72,8 @@ public final class DynatraceMcpConfigImport {
             return new Unrecognized(
                     "Vortex only recognises a remote MCP endpoint, or a config shaped like "
                             + "{\"command\":\"npx\",\"args\":[\"-y\",\"mcp-remote\",\"<url>\"]} — and it "
-                            + "never runs a pasted command. If SRE gave you something else, ask them "
-                            + "for the plain HTTPS endpoint instead.");
+                            + "never runs a pasted command. If you have something else, ask whoever "
+                            + "provided it for the plain HTTPS endpoint instead.");
         }
         return entry.result;
     }

@@ -64,7 +64,7 @@ public final class DynatraceMcpAvailability {
         }
         if (settings.endpoint().isBlank()) {
             return Availability.unavailable("No Dynatrace MCP endpoint is configured.",
-                    "Paste the endpoint SRE gave you, or enter it manually, under Settings.");
+                    "Paste the provided config, or enter the endpoint manually, under Settings.");
         }
         try (DynatraceTelemetryClient client = clients.openIfConfigured()) {
             if (client == null) {

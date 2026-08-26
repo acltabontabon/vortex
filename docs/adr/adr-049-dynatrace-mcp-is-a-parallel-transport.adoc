@@ -6,12 +6,12 @@ Accepted, implemented.
 
 == Context
 
-An SRE team's Dynatrace access is exposed only through an MCP server reachable over the corporate
-VPN. The config they hand out is shaped like the standard `mcp-remote` stdio bridge:
+Some teams' only route to Dynatrace is an internally-managed MCP server reachable over a corporate
+VPN. The config handed out for it is often shaped like the standard `mcp-remote` stdio bridge:
 
 [source,json]
 ----
-"our-sre": { "command": "npx", "args": ["mcp-remote", "https://sre-mcp-server.internal/.../mcp"] }
+"dynatrace": { "command": "npx", "args": ["mcp-remote", "https://dynatrace-mcp.internal/.../mcp"] }
 ----
 
 `mcp-remote` exists so MCP clients that only speak stdio (editor plugins, chat clients) can reach a
@@ -71,7 +71,7 @@ missing `transport:` key parses as `REST`, exactly as before this change.
 The cost is two Dynatrace adapters to maintain instead of one, and an MCP tool response's shape is
 far less contractually stable than Dynatrace's versioned REST Metrics API v2 — the normalizer
 therefore carries more defensive validation than the REST adapter ever needed, and the DQL statements
-in `Dql.java` are provisional pending verification against the real SRE-provided endpoint (VPN-gated,
+in `Dql.java` are provisional pending verification against a real deployment's endpoint (VPN-gated,
 not reachable from the automated test suite).
 
 Reversible at low cost: dropping `modules/dynatrace` removes the MCP path entirely, and

@@ -10,8 +10,8 @@ import java.util.Map;
  * Builds the {@code execute_dql} tool arguments for each query definition.
  *
  * <p>Isolated in one small class so that correcting a statement against Dynatrace's real DQL grammar
- * — verified by hand against the SRE-provided endpoint, since no automated test can reach it — never
- * touches the definitions, the normalizer, or the observation source that consume the result.
+ * — verified by hand against a real endpoint, since no automated test can reach one — never touches
+ * the definitions, the normalizer, or the observation source that consume the result.
  */
 final class Dql {
 

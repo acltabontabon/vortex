@@ -8,21 +8,21 @@ class DynatraceMcpConfigImportTest {
 
     @Test
     void aBareUrlIsRecognizedDirectly() {
-        var result = DynatraceMcpConfigImport.parse("https://sre-mcp-server.internal/mcp");
+        var result = DynatraceMcpConfigImport.parse("https://dynatrace-mcp.internal/mcp");
         assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
                 recognized -> assertThat(recognized.endpoint())
-                        .isEqualTo("https://sre-mcp-server.internal/mcp"));
+                        .isEqualTo("https://dynatrace-mcp.internal/mcp"));
     }
 
     @Test
     void theExactShapeSreSharesIsRecognized() {
         String pasted = """
-                {"our-sre": {"command": "npx", "args":["mcp-remote", "https://sre-mcp-server.internal/mcp"]}}""";
+                {"dynatrace": {"command": "npx", "args":["mcp-remote", "https://dynatrace-mcp.internal/mcp"]}}""";
         var result = DynatraceMcpConfigImport.parse(pasted);
         assertThat(result).isInstanceOfSatisfying(DynatraceMcpConfigImport.Recognized.class,
                 recognized -> {
-                    assertThat(recognized.endpoint()).isEqualTo("https://sre-mcp-server.internal/mcp");
-                    assertThat(recognized.suggestedLabel()).isEqualTo("our-sre");
+                    assertThat(recognized.endpoint()).isEqualTo("https://dynatrace-mcp.internal/mcp");
+                    assertThat(recognized.suggestedLabel()).isEqualTo("dynatrace");
                 });
     }
 
