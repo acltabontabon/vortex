@@ -193,22 +193,97 @@ if (statement) {
   }
 }
 
-// How it works: light up each step as it's scrolled into view, filling the line behind it.
-var flowSteps = document.querySelectorAll('.flow li');
-if (flowSteps.length) {
+// How it works: a hand-drawn figure walks the length of the station-map once it scrolls into view,
+// each station and its connector lighting up roughly as the figure passes it, arriving at Evidence
+// to reveal "You. About to stop guessing." — a single timed sequence, not scroll-linked, because
+// the whole row lives inside one min-height:100vh section: there's no scroll distance across it to
+// drive an animation with, the way a tall page would give a vertical scroll-linked reveal.
+// Stations are read as a flat, document-order list (not a sibling walk) because three of them sit
+// nested inside .station-map-canvas — querySelectorAll already returns document order regardless
+// of that nesting.
+var stationMap = document.querySelector('.station-map');
+var stations = Array.prototype.slice.call(document.querySelectorAll('.station'));
+var stationConnectors = Array.prototype.slice.call(document.querySelectorAll('.station-connector'));
+var stationCanvas = document.querySelector('.station-map-canvas');
+var walkFigure = document.querySelector('.station-map-walk-figure');
+var walkCaption = document.querySelector('.station-map-walk-caption');
+var firstCanvasStationIndex = stationCanvas ? stations.findIndex(function (el) { return stationCanvas.contains(el); }) : -1;
+
+if (stationMap && stations.length) {
+  var lightUpAll = function () {
+    stations.forEach(function (el) { el.classList.add('active'); });
+    stationConnectors.forEach(function (el) { el.classList.add('active'); });
+    if (stationCanvas) stationCanvas.classList.add('active');
+    if (walkCaption) walkCaption.classList.add('is-visible');
+  };
+
   if (reduceMotion) {
-    flowSteps.forEach(function (li) { li.classList.add('active'); });
+    lightUpAll();
   } else {
-    flowSteps.forEach(function (li) {
-      inView(li, function () {
-        li.classList.add('active');
-        var prev = li.previousElementSibling;
-        while (prev) {
-          prev.classList.add('passed');
-          prev = prev.previousElementSibling;
+    var walked = false;
+
+    var startWalk = function () {
+      if (walked) return;
+      walked = true;
+
+      var totalDuration = 4.8;
+      var stationDelay = stagger(totalDuration / Math.max(stations.length - 1, 1));
+      var mapRect = stationMap.getBoundingClientRect();
+
+      if (walkFigure) {
+        var targets = stations.map(function (el) {
+          var icon = el.querySelector('.station-icon');
+          var r = icon.getBoundingClientRect();
+          return (r.left + r.width / 2) - mapRect.left - walkFigure.clientWidth / 2;
+        });
+        walkFigure.style.opacity = '1';
+        animate(walkFigure, { x: targets }, { duration: totalDuration, easing: 'ease-in-out' });
+
+        // The caption lands under wherever the figure actually stops (its final x varies with
+        // viewport width), not at a fixed corner — pinning it to a static position is what caused
+        // it to overlap the figure when the walk ended near the right edge.
+        if (walkCaption) {
+          walkCaption.style.left = (targets[targets.length - 1] + walkFigure.clientWidth / 2) + 'px';
         }
-      }, { amount: 0.6, margin: '0px 0px -10% 0px' });
-    });
+      }
+
+      stations.forEach(function (el, index) {
+        setTimeout(function () {
+          el.classList.add('active');
+          var connector = stationConnectors[index - 1];
+          if (connector) connector.classList.add('active');
+          if (stationCanvas && index === firstCanvasStationIndex) stationCanvas.classList.add('active');
+        }, stationDelay(index, stations.length) * 1000);
+      });
+
+      setTimeout(function () {
+        if (walkCaption) walkCaption.classList.add('is-visible');
+      }, totalDuration * 1000);
+    };
+
+    // Wait for the reader to actually be looking at a settled screen, not a mid-scroll one: the
+    // section has to be (almost) fully in view AND the scroll-snap transition has to have actually
+    // finished. `scrollend` reports that directly; browsers without it (older Safari) fall back to
+    // a fixed delay comfortably longer than the page's own snap transition.
+    var armed = false;
+    var settleFallback = null;
+
+    var onScrollEnd = function () {
+      if (settleFallback) clearTimeout(settleFallback);
+      window.removeEventListener('scrollend', onScrollEnd);
+      startWalk();
+    };
+
+    inView(stationMap, function () {
+      if (armed) return;
+      armed = true;
+      if ('onscrollend' in window) {
+        window.addEventListener('scrollend', onScrollEnd);
+        settleFallback = setTimeout(onScrollEnd, 1600);
+      } else {
+        settleFallback = setTimeout(startWalk, 900);
+      }
+    }, { amount: 0.98 });
   }
 }
 
@@ -263,7 +338,7 @@ if (buttons.length && !reduceMotion) {
 // HTML via --tilt / data-tilt) for a sketchnote feel. On hover it "picks up" — straightens and
 // lifts with a spring, like plucking a sticky note off a whiteboard — then springs back to its
 // tilt on release.
-var archNodes = document.querySelectorAll('.arch-node, .diagram-inputs li');
+var archNodes = document.querySelectorAll('.arch-node, .diagram-inputs li, .station--input .station-card');
 if (archNodes.length && !reduceMotion) {
   archNodes.forEach(function (node) {
     var tilt = parseFloat(node.dataset.tilt) || 0;
