@@ -1,0 +1,64 @@
+= ADR-056: Dynatrace MCP throughput trusts Dynatrace's own `summarize` statistics instead of
+deriving them from raw per-bucket samples
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+`dynatrace.throughput.v1`'s DQL was a bare `timeseries requests = sum(dt.service.request.count), by:
+{dt.entity.service}, filter: ..., interval: ..., from: "...", to: "..."` — no aggregation pipeline.
+DQL's `timeseries` command always returns one value per interval bucket across the whole window, so
+this could mean thousands of numbers for a fine interval over a 30-day window (confirmed against a
+real endpoint: a 1-minute interval over 30 days is 43,200 values). `DynatraceMcpObservationSource`
+pulled every one of those raw samples and computed peak/average/p95 itself, mirroring how the REST
+Dynatrace adapter already works.
+
+That size made responses fragile in a way unrelated to the query's own correctness: Dynatrace's real
+MCP server wraps `execute_dql` results in explanatory prose around the JSON (see ADR context in the
+`ToolResultJson` class), and the larger the embedded payload, the more surface there is for the
+prose-plus-JSON extraction to go wrong — including, confirmed in practice, an earlier, smaller,
+syntactically-valid JSON fragment elsewhere in the response text being mistaken for the real one.
+Meanwhile, DQL's own `summarize` command already computes `max`/`avg`/`percentile()` — the exact
+statistics Vortex was re-deriving — over a query engine built for exactly that, in a fraction of the
+data transferred.
+
+== Decision
+
+`Dql#throughput` now ends the query in a pipeline: `| expand requests | fieldsAdd rate = requests /
+<bucketSeconds> | summarize peak = max(rate), average = avg(rate), p95 = percentile(rate, 95), by:
+{dt.entity.service}`. The response collapses to one row carrying three named scalars instead of one
+field carrying thousands of raw values.
+
+`NormalizedTelemetry` changes shape from `List<Double> samples` (one flat list, meaning depended on
+which query asked) to `Map<String, List<Double>> valuesByField` (one list per field name the query
+expects) — a query that pre-aggregates, like the new throughput one, gets exactly one value per
+field; a query that still hands back raw per-bucket arrays gets several. `TelemetryNormalizer`
+requires every one of `DynatraceQueryDefinition#valueFields()` to have at least one value, naming
+whichever are missing, rather than accepting if any one of them was found. `DynatraceMcpObservationSource`
+reads `peak`/`average`/`p95` directly rather than sorting and computing a percentile itself; the
+`percentile()` helper and the per-sample rate math are deleted.
+
+`dynatrace.request-latency.v1` and `dynatrace.failure-rate.v1` are **not** migrated to this pattern —
+neither is wired into a live retrieval (see the class javadoc on `DynatraceMcpObservationSource`), so
+there is no exercised caller to design the equivalent pipeline against yet, and doing so speculatively
+risks guessing wrong the same way the original throughput query did. They keep returning raw per-bucket
+arrays until whoever wires them in designs their own `summarize` shape deliberately.
+
+== Consequences
+
+Vortex now trusts Dynatrace's own `max`/`avg`/`percentile()` implementation for throughput, rather
+than computing those statistics identically to the REST Dynatrace adapter and Prometheus — the two
+backends can, in principle, report a given window's peak or p95 by very slightly different math
+(interpolation method, bucket-boundary handling). This is a deliberate trade: response size and
+extraction robustness against Dynatrace's prose-wrapped MCP tool, over byte-for-byte statistical
+parity across every observation source. Vortex also loses the ability to independently verify the
+response's covered window (`summarize` drops the `timeframe` field the raw per-bucket response
+carried) — the window-overlap check in `TelemetryNormalizer` simply has nothing to check against now
+and passes through, the same documented behavior as any other query whose response volunteers no
+timestamps.
+
+Reversible at low cost: reverting to a bare `timeseries` query and re-adding the local
+peak/average/percentile computation restores the previous behavior exactly, should Dynatrace's
+`summarize` semantics ever prove to disagree with what Vortex needs.

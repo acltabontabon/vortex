@@ -23,13 +23,28 @@ final class Dql {
                 Map.of("dqlStatement", statement, "organization", organization));
     }
 
+    /**
+     * Ends in {@code summarize} rather than handing back the raw per-bucket array: Dynatrace's own
+     * {@code max}/{@code avg}/{@code percentile} compute the same statistic Vortex would otherwise
+     * derive itself from potentially thousands of per-bucket values (one per {@code interval} across
+     * the whole window) — trusting the query engine to do that reduction is both simpler and lighter
+     * to transport than re-deriving it client-side from the full series.
+     */
     static String throughput(String entityId, TimeWindow window, Duration resolution) {
+        long bucketSeconds = Math.max(1, resolution.toSeconds());
         return "timeseries requests = sum(dt.service.request.count), by: {dt.entity.service}, "
                 + "filter: dt.entity.service == \"" + escape(entityId) + "\", "
                 + "interval: " + iso(resolution) + ", "
-                + "from: " + instant(window.start()) + ", to: " + instant(window.end());
+                + "from: " + instant(window.start()) + ", to: " + instant(window.end())
+                + " | expand requests"
+                + " | fieldsAdd rate = requests / " + bucketSeconds
+                + " | summarize peak = max(rate), average = avg(rate), p95 = percentile(rate, 95), "
+                + "by: {dt.entity.service}";
     }
 
+    /** Still returns per-bucket arrays, unlike {@link #throughput}'s {@code summarize} pipeline —
+     *  {@code dynatrace.request-latency.v1} isn't wired into a live retrieval yet (see
+     *  {@code DynatraceMcpObservationSource}), so there is no exercised caller to migrate against. */
     static String requestLatency(String entityId, TimeWindow window, Duration resolution) {
         return "timeseries p50 = percentile(dt.service.request.response_time, 50), "
                 + "p95 = percentile(dt.service.request.response_time, 95), "
@@ -40,6 +55,9 @@ final class Dql {
                 + "from: " + instant(window.start()) + ", to: " + instant(window.end());
     }
 
+    /** Still returns per-bucket arrays, unlike {@link #throughput}'s {@code summarize} pipeline —
+     *  {@code dynatrace.failure-rate.v1} isn't wired into a live retrieval yet, so there is no
+     *  exercised caller to migrate against. */
     static String failureRate(String entityId, TimeWindow window, Duration resolution) {
         return "timeseries failed = sum(dt.service.request.failure_count), "
                 + "total = sum(dt.service.request.count), by: {dt.entity.service}, "

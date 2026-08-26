@@ -50,9 +50,12 @@ public sealed interface DynatraceQueryDefinition
             return "requests/sec";
         }
 
+        /** These three are Dynatrace's own {@code summarize}d statistics (see {@link Dql#throughput}),
+         *  not raw per-bucket samples — {@code DynatraceMcpObservationSource} reads each directly
+         *  rather than deriving them itself. */
         @Override
         public java.util.List<String> valueFields() {
-            return java.util.List.of("requests");
+            return java.util.List.of("peak", "average", "p95");
         }
 
         @Override

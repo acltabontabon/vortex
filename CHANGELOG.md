@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Changed
+
+- Dynatrace MCP throughput now trusts Dynatrace's own `summarize` statistics (`max`/`avg`/
+  `percentile`) instead of pulling every raw per-bucket sample and computing peak/average/p95 in
+  Vortex itself. A fine interval over a long window could mean thousands of raw values wrapped in
+  Dynatrace's explanatory prose — this both shrinks the response dramatically and removes a real
+  source of extraction fragility. See ADR-056.
+
 ## [0.1.0-alpha.12] - 2026-08-27
 
 ### Fixed

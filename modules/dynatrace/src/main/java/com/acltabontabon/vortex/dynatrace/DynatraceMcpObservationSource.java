@@ -13,7 +13,6 @@ import com.acltabontabon.vortex.dynatrace.query.DqlToolSchema;
 import com.acltabontabon.vortex.dynatrace.query.DynatraceQueries;
 import com.acltabontabon.vortex.dynatrace.query.DynatraceQueryDefinition;
 import java.time.Duration;
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -74,7 +73,7 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             var outcome = client.call(query, settings.queryTimeout());
 
             var rates = ratesFrom(outcome, DynatraceQueries.THROUGHPUT_V1, request.window(),
-                    source.serviceIdentifier(), request.resolution());
+                    source.serviceIdentifier());
             if (rates instanceof Failure failure) {
                 return failure.toNotRetrieved();
             }
@@ -117,7 +116,7 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             var outcome = client.call(query, settings.queryTimeout());
 
             var rates = ratesFrom(outcome, DynatraceQueries.THROUGHPUT_V1, window,
-                    source.serviceIdentifier(), resolution);
+                    source.serviceIdentifier());
             if (rates instanceof Failure failure) {
                 return failure.toNotRetrieved();
             }
@@ -212,8 +211,15 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
         }
     }
 
+    /**
+     * Reads {@code peak}/{@code average}/{@code p95} directly from what {@link TelemetryNormalizer}
+     * found — Dynatrace's own {@code summarize} pipeline (see {@code Dql#throughput}) already
+     * computed these, so Vortex trusts that math rather than re-deriving it from a raw per-bucket
+     * series. Coupled to {@code DynatraceQueries#THROUGHPUT_V1} specifically by these literal field
+     * names, the only definition currently wired into a live retrieval.
+     */
     private RateResult ratesFrom(DynatraceTelemetryClient.TelemetryOutcome outcome,
-            DynatraceQueryDefinition definition, TimeWindow window, String entityId, Duration resolution) {
+            DynatraceQueryDefinition definition, TimeWindow window, String entityId) {
 
         if (outcome instanceof DynatraceTelemetryClient.Failed failed) {
             return new Failure("Could not read production traffic from Dynatrace MCP",
@@ -230,30 +236,14 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
         }
         NormalizedTelemetry telemetry = ((TelemetryNormalizer.Normalized) outcome2).telemetry();
 
-        List<Double> samples = telemetry.samples();
-        double bucketSeconds = Math.max(1, resolution.toSeconds());
-        List<Double> rates = samples.stream().map(v -> v / bucketSeconds).sorted().toList();
-
-        double peak = rates.get(rates.size() - 1);
-        double average = rates.stream().mapToDouble(Double::doubleValue).average().orElse(0);
-        double p95 = percentile(rates, 95);
+        double peak = telemetry.valuesByField().get("peak").get(0);
+        double average = telemetry.valuesByField().get("average").get(0);
+        double p95 = telemetry.valuesByField().get("p95").get(0);
 
         return new Success(new RateStatistics(average, p95, peak));
     }
 
     private record RateStatistics(double average, double p95, double peak) {
-    }
-
-    private double percentile(List<Double> sortedAscending, int percentile) {
-        if (sortedAscending.isEmpty()) {
-            return 0;
-        }
-        if (sortedAscending.size() == 1) {
-            return sortedAscending.get(0);
-        }
-        int rank = (int) Math.ceil(percentile / 100.0 * sortedAscending.size());
-        int index = Math.min(sortedAscending.size(), Math.max(1, rank)) - 1;
-        return sortedAscending.get(index);
     }
 
     private String describe(DynatraceMcpFailureCategory category) {

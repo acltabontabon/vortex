@@ -45,20 +45,34 @@ class TelemetryNormalizerTest {
     }
 
     @Test
-    void aValidThroughputResponseIsNormalized() throws Exception {
+    void aPartiallyPresentFieldSetIsRejectedNamingWhatIsMissing() throws Exception {
         JsonNode payload = JSON.readTree("""
-                {"records": [{"requests": [120, 130, 90, 150], "dt.entity.service": "SERVICE-1"}]}""");
+                {"records": [{"peak": [12.5], "average": [9.0]}]}""");
+        var result = new DynatraceTelemetryResult(payload, true);
+        var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, null);
+        assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Rejected.class,
+                rejected -> assertThat(rejected.reason().detail()).contains("p95"));
+    }
+
+    @Test
+    void aValidThroughputResponseIsNormalized() throws Exception {
+        // Dynatrace's own `summarize` pipeline (see Dql#throughput) reduces the whole window to one
+        // row per statistic — each field resolves to exactly one value, not a raw sample series.
+        JsonNode payload = JSON.readTree("""
+                {"records": [{"peak": 15.0, "average": 12.0, "p95": 14.0, "dt.entity.service": "SERVICE-1"}]}""");
         var result = new DynatraceTelemetryResult(payload, true);
         var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, "SERVICE-1");
-        assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Normalized.class,
-                normalized -> assertThat(normalized.telemetry().samples())
-                        .containsExactlyInAnyOrder(120.0, 130.0, 90.0, 150.0));
+        assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Normalized.class, normalized -> {
+            assertThat(normalized.telemetry().valuesByField().get("peak")).containsExactly(15.0);
+            assertThat(normalized.telemetry().valuesByField().get("average")).containsExactly(12.0);
+            assertThat(normalized.telemetry().valuesByField().get("p95")).containsExactly(14.0);
+        });
     }
 
     @Test
     void aMismatchedUnitIsRejected() throws Exception {
         JsonNode payload = JSON.readTree("""
-                {"records": [{"requests": [120], "unit": "percent"}]}""");
+                {"records": [{"peak": 120, "average": 100, "p95": 110, "unit": "percent"}]}""");
         var result = new DynatraceTelemetryResult(payload, true);
         var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, null);
         assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Rejected.class,
@@ -68,7 +82,7 @@ class TelemetryNormalizerTest {
     @Test
     void aWindowEntirelyOutsideTheRequestedOneIsRejected() throws Exception {
         JsonNode payload = JSON.readTree("""
-                {"records": [{"requests": [120],
+                {"records": [{"peak": 120, "average": 100, "p95": 110,
                   "timeframe": {"start": "2025-01-01T00:00:00Z", "end": "2025-01-02T00:00:00Z"}}]}""");
         var result = new DynatraceTelemetryResult(payload, true);
         var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, null);
@@ -79,7 +93,7 @@ class TelemetryNormalizerTest {
     @Test
     void aWindowOverlappingTheRequestedOneIsAccepted() throws Exception {
         JsonNode payload = JSON.readTree("""
-                {"records": [{"requests": [120],
+                {"records": [{"peak": 120, "average": 100, "p95": 110,
                   "timeframe": {"start": "2026-07-27T00:00:00Z", "end": "2026-08-26T00:00:00Z"}}]}""");
         var result = new DynatraceTelemetryResult(payload, true);
         var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, null);
@@ -89,7 +103,7 @@ class TelemetryNormalizerTest {
     @Test
     void anEntityThatDoesNotMatchIsRejected() throws Exception {
         JsonNode payload = JSON.readTree("""
-                {"records": [{"requests": [120], "dt.entity.service": "SERVICE-OTHER"}]}""");
+                {"records": [{"peak": 120, "average": 100, "p95": 110, "dt.entity.service": "SERVICE-OTHER"}]}""");
         var result = new DynatraceTelemetryResult(payload, true);
         var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, "SERVICE-1");
         assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Rejected.class,
@@ -99,16 +113,16 @@ class TelemetryNormalizerTest {
     @Test
     void noEntityEchoInTheResponsePassesThroughRatherThanFailingClosed() throws Exception {
         JsonNode payload = JSON.readTree("""
-                {"records": [{"requests": [120]}]}""");
+                {"records": [{"peak": 120, "average": 100, "p95": 110}]}""");
         var result = new DynatraceTelemetryResult(payload, true);
         var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, "SERVICE-1");
         assertThat(outcome).isInstanceOf(TelemetryNormalizer.Normalized.class);
     }
 
     @Test
-    void allZeroSamplesAreRejectedAsEmptyResultNotAsAFailure() throws Exception {
+    void allZeroValuesAreRejectedAsEmptyResultNotAsAFailure() throws Exception {
         JsonNode payload = JSON.readTree("""
-                {"records": [{"requests": [0, 0, 0]}]}""");
+                {"records": [{"peak": 0, "average": 0, "p95": 0}]}""");
         var result = new DynatraceTelemetryResult(payload, true);
         var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, null);
         assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Rejected.class,
@@ -116,23 +130,27 @@ class TelemetryNormalizerTest {
     }
 
     @Test
-    void samplesFoundAtAnyNestingDepthAreCollected() throws Exception {
+    void valuesFoundAtAnyNestingDepthAreCollected() throws Exception {
         JsonNode payload = JSON.readTree("""
-                {"result": {"data": [{"series": {"requests": [55, 65]}}]}}""");
+                {"result": {"data": [{"series": {"peak": 55, "average": 50, "p95": 52}}]}}""");
         var result = new DynatraceTelemetryResult(payload, true);
         var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, null);
         assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Normalized.class,
-                normalized -> assertThat(normalized.telemetry().samples()).containsExactlyInAnyOrder(55.0, 65.0));
+                normalized -> assertThat(normalized.telemetry().valuesByField().get("peak")).containsExactly(55.0));
     }
 
     @Test
-    void latencyDefinitionCollectsAllThreePercentileFields() throws Exception {
+    void latencyDefinitionCollectsAllThreePercentileFieldsAsRawPerBucketSamples() throws Exception {
+        // dynatrace.request-latency.v1 hasn't been migrated to a `summarize` pipeline (it isn't wired
+        // into a live retrieval), so it still expects raw per-bucket arrays, one field per percentile.
         JsonNode payload = JSON.readTree("""
                 {"records": [{"p50": [10], "p95": [40], "p99": [80]}]}""");
         var result = new DynatraceTelemetryResult(payload, true);
         var outcome = normalizer.normalize(DynatraceQueries.REQUEST_LATENCY_V1, result, WINDOW, null);
-        assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Normalized.class,
-                normalized -> assertThat(normalized.telemetry().samples())
-                        .containsExactlyInAnyOrder(10.0, 40.0, 80.0));
+        assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Normalized.class, normalized -> {
+            assertThat(normalized.telemetry().valuesByField().get("p50")).containsExactly(10.0);
+            assertThat(normalized.telemetry().valuesByField().get("p95")).containsExactly(40.0);
+            assertThat(normalized.telemetry().valuesByField().get("p99")).containsExactly(80.0);
+        });
     }
 }

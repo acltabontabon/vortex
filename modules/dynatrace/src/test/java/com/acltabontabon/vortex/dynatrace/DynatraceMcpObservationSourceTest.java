@@ -99,8 +99,10 @@ class DynatraceMcpObservationSourceTest {
 
     @Test
     void aValidThroughputAnswerBecomesAProductionObservation() throws Exception {
+        // Dynatrace's own `summarize` pipeline already reduces to req/s statistics — no further
+        // division by bucket duration happens on Vortex's side.
         var payload = JSON.readTree("""
-                {"records": [{"requests": [60, 120, 90], "dt.entity.service": "SERVICE-1"}]}""");
+                {"records": [{"peak": 2.0, "average": 1.5, "p95": 1.9, "dt.entity.service": "SERVICE-1"}]}""");
         var outcome = new DynatraceTelemetryClient.Answered(new DynatraceTelemetryResult(payload, true));
         DynatraceMcpSettings settings = enabledSettings();
         var source = new DynatraceMcpObservationSource(fakeFactory(settings, outcome), settings);
@@ -110,7 +112,7 @@ class DynatraceMcpObservationSourceTest {
 
         assertThat(retrieval).isInstanceOfSatisfying(Retrieved.class, retrieved -> {
             var observation = retrieved.observation();
-            assertThat(observation.peakRate().value().doubleValue()).isEqualTo(2.0); // 120 / 60s
+            assertThat(observation.peakRate().value().doubleValue()).isEqualTo(2.0);
             assertThat(observation.provenance()).isNotNull();
             assertThat(observation.provenance().providerId()).isEqualTo("dynatrace-mcp");
             assertThat(observation.provenance().query()).isEqualTo("dynatrace.throughput.v1");
@@ -178,7 +180,7 @@ class DynatraceMcpObservationSourceTest {
         var toolsWithMultipleOrganizations = new DynatraceTelemetryClient.ToolsListed(
                 List.of(new DynatraceTelemetryClient.ToolInfo("execute_dql", multiOrgSchema)));
         var payload = JSON.readTree("""
-                {"records": [{"requests": [60, 120, 90], "dt.entity.service": "SERVICE-1"}]}""");
+                {"records": [{"peak": 2.0, "average": 1.5, "p95": 1.9, "dt.entity.service": "SERVICE-1"}]}""");
         var outcome = new DynatraceTelemetryClient.Answered(new DynatraceTelemetryResult(payload, true));
         DynatraceMcpSettings settings = new DynatraceMcpSettings(true, "https://dynatrace-mcp.internal/mcp",
                 null, null, "org-b");

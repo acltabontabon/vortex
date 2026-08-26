@@ -7,18 +7,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
  * Turns an MCP tool's raw JSON into evidence Vortex trusts, or rejects it with a reason.
  *
  * <p>Five stages, each able to end the pipeline: the result must be structured data (not prose), it
- * must contain numeric samples under the field this query expects, any unit the response volunteers
- * must agree with what the query expects, any timestamps it volunteers must overlap the requested
- * window, and any entity identifier it volunteers must match the one asked about. A stage that finds
- * nothing to check (no unit field, no timestamps, no entity echo) passes through rather than failing
- * closed — some tool responses legitimately answer with a bare number and nothing else.
+ * must contain a numeric value under every field this query expects, any unit the response
+ * volunteers must agree with what the query expects, any timestamps it volunteers must overlap the
+ * requested window, and any entity identifier it volunteers must match the one asked about. A stage
+ * that finds nothing to check (no unit field, no timestamps, no entity echo) passes through rather
+ * than failing closed — some tool responses legitimately answer with a bare number and nothing else.
  *
  * <p>Field matching is defensive by design: the exact JSON envelope an MCP {@code execute_dql} tool
  * wraps its rows in is not contractually documented the way Dynatrace's REST Metrics API v2 is, so
@@ -55,15 +57,20 @@ public final class TelemetryNormalizer {
                             + snippet(raw.payload())));
         }
 
-        List<Double> samples = new ArrayList<>();
-        String unit = collect(raw.payload(), definition.valueFields(), samples);
+        Map<String, List<Double>> valuesByField = new LinkedHashMap<>();
+        String[] unitOut = {""};
+        walk(raw.payload(), definition.valueFields(), valuesByField, unitOut);
 
-        if (samples.isEmpty()) {
+        List<String> missing = definition.valueFields().stream()
+                .filter(field -> valuesByField.getOrDefault(field, List.of()).isEmpty())
+                .toList();
+        if (!missing.isEmpty()) {
             return new Rejected(new NormalizationFailure.SchemaInvalid(
-                    "no numeric value was found for '" + String.join("' or '", definition.valueFields())
+                    "no numeric value was found for '" + String.join("' or '", missing)
                             + "' in the response to " + definition.id()));
         }
 
+        String unit = unitOut[0];
         if (!unit.isBlank() && !unitAgrees(definition.expectedUnit(), unit)) {
             return new Rejected(new NormalizationFailure.UnitUnrecognized(
                     "the response reported unit '" + unit + "' but " + definition.id()
@@ -87,15 +94,19 @@ public final class TelemetryNormalizer {
                             + requestedEntityId + "'"));
         }
 
-        boolean allZeroOrNegative = samples.stream().allMatch(v -> v == null || v <= 0);
+        boolean allZeroOrNegative = valuesByField.values().stream()
+                .flatMap(List::stream)
+                .allMatch(v -> v == null || v <= 0);
         if (allZeroOrNegative) {
             return new Rejected(new NormalizationFailure.EmptyResult(
-                    "every sample for " + definition.id() + " was zero or negative over the requested "
+                    "every value for " + definition.id() + " was zero or negative over the requested "
                             + "window — Dynatrace has no traffic to report, not a fetch failure"));
         }
 
-        return new Normalized(new NormalizedTelemetry(definition.id(), List.copyOf(samples), unit));
+        return new Normalized(new NormalizedTelemetry(definition.id(), valuesByField, unit));
     }
+
+    // ------------------------------------------------------------------ walking
 
     /** A bounded preview of what an unstructured response actually said, so a person debugging this
      *  rejection sees what Dynatrace returned instead of guessing — never the full text, which could
@@ -110,15 +121,8 @@ public final class TelemetryNormalizer {
         return text.length() > SNIPPET_LIMIT ? text.substring(0, SNIPPET_LIMIT) + "…" : text;
     }
 
-    // ------------------------------------------------------------------ walking
-
-    private String collect(JsonNode node, List<String> fieldNames, List<Double> samples) {
-        String[] unit = {""};
-        walk(node, fieldNames, samples, unit);
-        return unit[0];
-    }
-
-    private void walk(JsonNode node, List<String> fieldNames, List<Double> samples, String[] unitOut) {
+    private void walk(JsonNode node, List<String> fieldNames, Map<String, List<Double>> valuesByField,
+            String[] unitOut) {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return;
         }
@@ -129,16 +133,16 @@ public final class TelemetryNormalizer {
                 String key = entry.getKey();
                 JsonNode value = entry.getValue();
                 if (fieldNames.contains(key)) {
-                    addNumeric(value, samples);
+                    addNumeric(value, valuesByField.computeIfAbsent(key, k -> new ArrayList<>()));
                 }
                 if ("unit".equals(key) && value.isTextual() && unitOut[0].isBlank()) {
                     unitOut[0] = value.asText("");
                 }
-                walk(value, fieldNames, samples, unitOut);
+                walk(value, fieldNames, valuesByField, unitOut);
             }
         } else if (node.isArray()) {
             for (JsonNode element : node) {
-                walk(element, fieldNames, samples, unitOut);
+                walk(element, fieldNames, valuesByField, unitOut);
             }
         }
     }
