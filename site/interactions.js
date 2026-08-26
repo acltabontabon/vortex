@@ -473,22 +473,10 @@ if (spiral && !reduceMotion && 'IntersectionObserver' in window) {
   var running = false;
   var rafId = null;
   var accentRgb = '95, 214, 201';
-  var bgRgb = '20, 22, 26';
 
   function readTheme() {
     var styles = getComputedStyle(document.documentElement);
     accentRgb = styles.getPropertyValue('--accent-rgb').trim() || accentRgb;
-    var bgHex = styles.getPropertyValue('--bg').trim();
-    // The production build's CSS minifier shortens #ffffff to #fff, so both the 3- and 6-digit
-    // forms need handling here — matching only 6 digits silently kept the canvas on its dark
-    // fallback color under the light theme, since --bg never matched.
-    var long = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(bgHex);
-    var short = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(bgHex);
-    if (long) {
-      bgRgb = parseInt(long[1], 16) + ', ' + parseInt(long[2], 16) + ', ' + parseInt(long[3], 16);
-    } else if (short) {
-      bgRgb = parseInt(short[1] + short[1], 16) + ', ' + parseInt(short[2] + short[2], 16) + ', ' + parseInt(short[3] + short[3], 16);
-    }
   }
 
   function resize() {
@@ -509,7 +497,7 @@ if (spiral && !reduceMotion && 'IntersectionObserver' in window) {
     p.spin = rand(0.35, 0.9);
     p.inward = rand(0.25, 0.55);
     p.size = rand(0.6, 2.1);
-    p.alpha = rand(0.25, 0.65);
+    p.alpha = rand(0.35, 0.85);
   }
 
   for (var i = 0; i < particleCount; i++) {
@@ -519,10 +507,20 @@ if (spiral && !reduceMotion && 'IntersectionObserver' in window) {
   }
 
   function frame() {
-    // A translucent fill instead of a hard clear leaves each particle a soft comet trail as it
-    // spirals inward — cheap (one extra fillRect) and it's what actually sells the "vortex" motion.
-    ctx.fillStyle = 'rgba(' + bgRgb + ', 0.15)';
+    // Fading via a translucent same-color fillRect (the original approach) never actually reaches
+    // the page's true background — canvas alpha compositing asymptotes toward opaque but never quite
+    // gets there, so the whole masked circle steady-states a few RGB units off from the surrounding
+    // page background. Against near-black that small, uniform offset reads as a visibly different
+    // shade over the whole vortex area, not just a trail behind each particle.
+    // destination-out instead fades the canvas's own alpha down (toward fully transparent) rather
+    // than tinting it toward an approximated background color. Untouched pixels are already fully
+    // transparent — true page background showing through, exact match, no offset — and only pixels a
+    // particle actually painted have any alpha to fade, so the trail decays to literally nothing
+    // instead of to a near-miss color.
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
     ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = 'source-over';
 
     for (var i = 0; i < particles.length; i++) {
       var p = particles[i];
