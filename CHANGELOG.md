@@ -3,10 +3,10 @@
 All notable changes to Vortex are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Vortex has not made a release yet, so everything to date is recorded under
-[Unreleased](#unreleased).
 
 ## Unreleased
+
+## [0.1.0-alpha.4] - 2026-08-26
 
 ### Added
 
@@ -28,6 +28,18 @@ Vortex has not made a release yet, so everything to date is recorded under
   failures, per-call timeouts sized to what each call actually needs, a bound on how many findings
   and recommendations one analysis can carry, and a guard against a prompt silently exceeding the
   model's context window. The prompt template was retuned (v6) for the qwen3:8b baseline model.
+
+### Fixed
+
+- A Dynatrace MCP header value submitted unchanged as its masked placeholder now resolves back to
+  the stored secret instead of overwriting it with the literal mask; a masked value with nothing to
+  resolve against (a new or renamed header) is now rejected instead of silently stored as-is.
+- A Dynatrace MCP endpoint must now be `https://` — `http://` is rejected, since headers configured
+  for it may carry credentials.
+- The Dynatrace MCP connection test now checks only auth, reachability, and tool discovery; it no
+  longer runs a telemetry-access stage against a specific service, since that stage never made sense
+  before a service is mapped. A passing test validates the shared MCP connection only, not any one
+  service's entity id or traffic.
 
 ## [0.1.0-alpha.3] - 2026-08-26
 
