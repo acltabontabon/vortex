@@ -44,7 +44,7 @@ class DynatraceMcpClientFactoryTest {
     void withOAuthBearerMergesTheFetchedTokenAndPreservesOtherHeaders() throws Exception {
         var settings = new DynatraceMcpSettings(true, "https://dynatrace-mcp.internal/mcp", Map.of(),
                 null, null, DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS, "client-1", "secret-1",
-                "", "");
+                "", "", DynatraceMcpSettings.ConnectionMode.DIRECT_HTTPS);
         var factory = new DynatraceMcpClientFactory(settings, tokenProviderAnsweringWith("fetched-token"));
 
         Map<String, String> merged = factory.withOAuthBearer(Map.of("X-Custom", "kept"), "client-1",
@@ -58,7 +58,7 @@ class DynatraceMcpClientFactoryTest {
     void withOAuthBearerResolvesAnEnvironmentReferencedClientSecret() throws Exception {
         var settings = new DynatraceMcpSettings(true, "https://dynatrace-mcp.internal/mcp", Map.of(),
                 null, null, DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS, "client-1",
-                "${PATH}", "", ""); // PATH is reliably set in any test environment
+                "${PATH}", "", "", DynatraceMcpSettings.ConnectionMode.DIRECT_HTTPS); // PATH is reliably set in any test environment
         var factory = new DynatraceMcpClientFactory(settings, tokenProviderAnsweringWith("fetched-token"));
 
         // Resolution happening is proven indirectly: if it did not resolve, the raw "${PATH}" string

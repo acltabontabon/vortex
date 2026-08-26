@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Validates the Dynatrace MCP connection itself, without changing anything, one independent stage
@@ -106,6 +107,41 @@ public final class DynatraceMcpConnectionTest {
         stages.add(StageResult.pass("MCP server reachable"));
         stages.add(StageResult.pass("Authentication"));
 
+        return discoverToolAndFinish(client, timeout, stages);
+    }
+
+    /**
+     * Runs the local npx/mcp-remote bridge connection mode instead of the direct-HTTP path — see
+     * {@code DynatraceMcpBridgeTelemetryClient}. A dedicated method rather than a mode switch through
+     * {@link #run(String, Map, Duration, OAuthCredentials)}: the two paths share almost no stage
+     * logic (no header resolution, no token fetch, a different first stage, a different timeout
+     * policy for the initial handshake).
+     */
+    public Report runBridge(String uri, Duration timeout) {
+        Objects.requireNonNull(uri, "uri");
+        Objects.requireNonNull(timeout, "timeout");
+        List<StageResult> stages = new ArrayList<>();
+
+        AtomicReference<String> authPrompt = new AtomicReference<>("");
+        DynatraceTelemetryClient client;
+        try {
+            client = new DynatraceMcpBridgeTelemetryClient(new DynatraceMcpEndpoint(uri, Map.of(), timeout),
+                    line -> authPrompt.compareAndSet("", line));
+        } catch (RuntimeException e) {
+            String detail = authPrompt.get().isEmpty() ? message(e) : authPrompt.get();
+            stages.add(StageResult.fail("Local bridge started", DynatraceMcpFailureClassifier.classify(e), detail));
+            return new Report(false, stages);
+        }
+
+        // A prompt seen but then resolved (e.g. an already-cached session still logging its usual
+        // startup lines) isn't worth surfacing — only a stalled/failed connect needs the detail, and
+        // that path attaches it above instead.
+        stages.add(StageResult.pass("Local bridge started"));
+
+        return discoverToolAndFinish(client, timeout, stages);
+    }
+
+    private Report discoverToolAndFinish(DynatraceTelemetryClient client, Duration timeout, List<StageResult> stages) {
         try {
             var tools = client.listTools(timeout);
             switch (tools) {

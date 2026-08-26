@@ -84,6 +84,7 @@ export interface LoadGeneratorSettings {
 }
 
 export type DynatraceMcpAuthMode = 'header' | 'oauth_client_credentials';
+export type DynatraceMcpConnectionMode = 'direct_https' | 'local_npx_bridge';
 
 export interface DynatraceMcpSettings {
   enabled: boolean;
@@ -95,6 +96,7 @@ export interface DynatraceMcpSettings {
   maskedClientSecret: string;
   scope: string;
   resource: string;
+  connectionMode: DynatraceMcpConnectionMode;
 }
 
 export interface DynatraceMcpAvailability {
@@ -181,6 +183,7 @@ export interface SaveDynatraceMcpRequest {
   clientSecret: string;
   scope: string;
   resource: string;
+  connectionMode: DynatraceMcpConnectionMode;
 }
 
 export interface SaveDynatraceMcpResponse {

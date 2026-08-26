@@ -66,6 +66,12 @@ public final class DynatraceMcpAvailability {
             return Availability.unavailable("No Dynatrace MCP endpoint is configured.",
                     "Paste the provided config, or enter the endpoint manually, under Settings.");
         }
+        if (settings.connectionMode() == DynatraceMcpSettings.ConnectionMode.LOCAL_NPX_BRIDGE) {
+            // The local bridge spawns a process and may pop a browser window for OAuth on first
+            // use — never trigger that as a side effect of a passive page view. Use Test Connection.
+            return Availability.unavailable("Local bridge mode is not checked automatically.",
+                    "Use Test Connection under Settings to check it.");
+        }
         try (DynatraceTelemetryClient client = clients.openIfConfigured()) {
             if (client == null) {
                 return Availability.unavailable("Dynatrace MCP is not configured.",

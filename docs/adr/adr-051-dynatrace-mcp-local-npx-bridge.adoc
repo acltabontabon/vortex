@@ -1,0 +1,87 @@
+= ADR-051: Dynatrace MCP can connect through a local npx/mcp-remote bridge, as a deliberate,
+narrow exception to "never spawns a process"
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+ADR-049 and ADR-050 give Vortex two ways to reach a Dynatrace MCP endpoint, both by connecting
+directly over HTTPS: a static bearer header, or an OAuth Client Credentials grant. Both assume
+Vortex can obtain a credential on its own, with no person involved at connection time.
+
+Testing the direct path against a real Dynatrace MCP endpoint using the config generated for an
+interactive editor client — a bare URL, no headers, no OAuth client — failed with a generic "MCP
+server unreachable." That was not a bug: neither auth mode had been configured, and Dynatrace's
+endpoint correctly refused a connection with no credential of any kind.
+
+The alternative raised was to spawn `npx mcp-remote <url>` the way an interactive MCP client
+effectively does: `mcp-remote` performs Dynatrace's interactive Authorization Code OAuth itself — a
+system browser opens on first use, the person signs in, and the resulting session is cached
+(typically under `~/.mcp-auth`) and refreshed headlessly after. This is a real reversal of part of
+ADR-049's decision: that ADR's whole point was that Vortex never spawns a process, specifically to
+rule out arbitrary-command-execution risk from an externally-supplied config. Doing so anyway was
+requested explicitly, after being told: it reverses that decision; it is enforced today by
+`DynatraceModuleArchitectureTest`; and it functionally requires a browser on the same machine
+running Vortex, so it does not help a genuinely headless or remote deployment. Vortex is explicitly
+a *local-first* tool — commonly run on the same machine as its own user's browser — which makes "a
+browser is available where Vortex runs" a reasonable assumption for at least some installs, unlike
+for a shared server.
+
+== Decision
+
+Add `DynatraceMcpSettings.ConnectionMode` (`DIRECT_HTTPS`, default, or `LOCAL_NPX_BRIDGE`), a second,
+narrower axis alongside `AuthMode` — the same pattern ADR-050 used to add OAuth Client Credentials
+without touching the shape of `ObservationSource`. `DynatraceMcpBridgeTelemetryClient` is the sole,
+deliberate exception to ADR-049's "never spawns a process" rule, kept as narrow as the boundary can
+make it:
+
+* It is only ever invoked when a user explicitly selects the local bridge connection mode under
+  Settings — never inferred from a pasted config or any other input. `DynatraceMcpConfigImport` is
+  completely unchanged by this decision: it still only ever extracts a URL, never a command.
+* The command is always the literal `"npx"`; the package is always the fixed, version-pinned
+  `mcp-remote@0.2.5` constant. Only the already-validated `https://` endpoint URL reaches the child
+  process's argument list — nothing from headers, `AuthMode`, or the OAuth fields can reach it, and
+  those fields are simply inert in this mode (`mcp-remote` performs its own OAuth; Vortex's own
+  auth settings are never consulted).
+* `DynatraceModuleArchitectureTest`'s ArchUnit rule is narrowed, not removed: it now also names the
+  MCP SDK's `StdioClientTransport`/`ServerParameters` (which build a `ProcessBuilder` inside their
+  own class, invisible to a check against only `java.lang.ProcessBuilder`/`Runtime`), and excludes
+  exactly `DynatraceMcpBridgeTelemetryClient` by name. Every other class in the module — config
+  import, the direct-HTTP client, settings, the connection test's own orchestration — stays provably
+  unable to spawn anything.
+* `DynatraceMcpAvailability`'s passive, cached Settings-page probe explicitly skips this mode rather
+  than opening a bridge client on every page view — that path exists for a status badge, and it must
+  never be what pops a browser window for OAuth.
+* Testing the connection surfaces a first stage, "Local bridge started," and — only when the
+  connection is stalled or fails, not when it succeeds — an actionable message with the URL
+  `mcp-remote` printed to authorize, captured from its stderr and passed through a redaction
+  heuristic (mirroring `modules/k6`'s `ProcessExecution.mask`) before it ever reaches a log, an
+  artifact, or the browser.
+
+== Consequences
+
+A team whose only realistic path to a Dynatrace MCP endpoint is the interactive login their editor
+already uses can now reuse it from Vortex, as long as Vortex itself is running somewhere with a
+browser — matching Vortex's local-first framing. A team running Vortex as a shared, headless service
+gets no benefit from this mode and should use a platform token or an OAuth Client Credentials client
+instead; the Settings UI and docs say so explicitly rather than letting the mode silently fail there.
+
+The cost is real and stated plainly rather than hidden: every call in this mode is an `npx` cold
+start plus a Node process boot, materially slower than the direct-HTTP client's connection open, and
+`DynatraceMcpObservationSource`'s multiple call sites can spawn several such processes sequentially
+for one calibration action — an accepted cost of correctness (no pooling, no stale-config risk) over
+performance, matching `DynatraceMcpClientFactory`'s existing "one client per call" contract
+unchanged in shape. Vortex also cannot force-kill a child that ignores its close signal: the SDK's
+`StdioClientTransport` has no `destroyForcibly()` fallback and exposes no handle to the live
+`Process`, so an unusually stuck `mcp-remote` can outlive Vortex's own wait — a limitation stated
+here rather than a guarantee Vortex cannot actually keep.
+
+Reversible at low cost: dropping `DynatraceMcpBridgeTelemetryClient` and the `LOCAL_NPX_BRIDGE` value
+falls back cleanly to the direct-HTTPS-only behavior ADR-049/050 already describe, with zero change
+to the header or OAuth Client Credentials paths.
+
+Interactive Authorization Code OAuth implemented *by Vortex itself* remains explicitly out of scope,
+as it was in ADR-050 — this decision reuses an existing third-party tool's implementation of that
+flow rather than building one.

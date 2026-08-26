@@ -33,6 +33,7 @@ import type {
   ChooseLoadGeneratorBudgetRequest,
   DynatraceMcpAuthMode,
   DynatraceMcpAvailability,
+  DynatraceMcpConnectionMode,
   DynatraceMcpSettings,
 } from '../api/settings';
 import { Fact, Facts } from '../components/Fact';
@@ -478,6 +479,7 @@ function DynatraceMcpCard({
   const [clientSecretMasked, setClientSecretMasked] = useState(Boolean(settings.maskedClientSecret));
   const [scope, setScope] = useState(settings.scope);
   const [resource, setResource] = useState(settings.resource);
+  const [connectionMode, setConnectionMode] = useState<DynatraceMcpConnectionMode>(settings.connectionMode);
 
   function headerArrays() {
     const named = headerRows.filter((row) => row.name.trim());
@@ -485,11 +487,15 @@ function DynatraceMcpCard({
   }
 
   function payload() {
-    return { enabled, endpoint, defaultWindow, ...headerArrays(), authMode, clientId, clientSecret, scope, resource };
+    return {
+      enabled, endpoint, defaultWindow, ...headerArrays(), authMode, clientId, clientSecret, scope,
+      resource, connectionMode,
+    };
   }
 
+  const usingBridge = connectionMode === 'local_npx_bridge';
   const usingOAuth = authMode === 'oauth_client_credentials';
-  const oauthCredentialsIncomplete = usingOAuth && (!clientId.trim() || !clientSecret.trim());
+  const oauthCredentialsIncomplete = !usingBridge && usingOAuth && (!clientId.trim() || !clientSecret.trim());
 
   function onImport() {
     doImport.mutate(pasted, {
@@ -559,6 +565,17 @@ function DynatraceMcpCard({
       <SegmentedControl
         mt="md"
         size="xs"
+        value={connectionMode}
+        onChange={(v) => setConnectionMode(v as DynatraceMcpConnectionMode)}
+        data={[
+          { label: 'Direct HTTPS', value: 'direct_https' },
+          { label: 'Local bridge (npx mcp-remote)', value: 'local_npx_bridge' },
+        ]}
+      />
+
+      <SegmentedControl
+        mt="md"
+        size="xs"
         value={mode}
         onChange={(v) => setMode(v as 'manual' | 'paste')}
         data={[
@@ -611,66 +628,80 @@ function DynatraceMcpCard({
         </Stack>
       )}
 
-      <SegmentedControl
-        mt="md"
-        size="xs"
-        value={authMode}
-        onChange={(v) => setAuthMode(v as DynatraceMcpAuthMode)}
-        data={[
-          { label: 'Bearer header', value: 'header' },
-          { label: 'OAuth client credentials', value: 'oauth_client_credentials' },
-        ]}
-      />
+      {usingBridge ? (
+        <Alert color="neutral" title="Local bridge mode" mt="md">
+          <Text size="sm">
+            Vortex spawns <code>npx mcp-remote</code> locally and lets it sign in to Dynatrace itself
+            — the first connection opens a browser to complete that login, and the session is reused
+            after. This needs Node.js and a browser on the same machine as Vortex, so it only makes
+            sense for a local, single-machine install. The authentication method and headers below
+            aren&apos;t used in this mode.
+          </Text>
+        </Alert>
+      ) : (
+        <>
+          <SegmentedControl
+            mt="md"
+            size="xs"
+            value={authMode}
+            onChange={(v) => setAuthMode(v as DynatraceMcpAuthMode)}
+            data={[
+              { label: 'Bearer header', value: 'header' },
+              { label: 'OAuth client credentials', value: 'oauth_client_credentials' },
+            ]}
+          />
 
-      {usingOAuth && (
-        <Stack gap="sm" mt="sm">
-          <TextInput
-            label="Client ID"
-            value={clientId}
-            onChange={(e) => setClientId(e.currentTarget.value)}
-          />
-          {clientSecretMasked ? (
-            <div>
-              <Text size="sm" fw={600} mb={4}>
-                Client secret
-              </Text>
-              <Group gap={6} wrap="nowrap">
-                <Text size="sm" c="dimmed" ff="monospace">
-                  {SECRET_MASK}
-                </Text>
-                <Button
-                  size="compact-xs"
-                  variant="subtle"
-                  onClick={() => {
-                    setClientSecret('');
-                    setClientSecretMasked(false);
-                  }}
-                >
-                  Replace
-                </Button>
-              </Group>
-            </div>
-          ) : (
-            <TextInput
-              label="Client secret"
-              placeholder={'Secret value, or ${NAME} for a secret'}
-              value={clientSecret}
-              onChange={(e) => setClientSecret(e.currentTarget.value)}
-            />
+          {usingOAuth && (
+            <Stack gap="sm" mt="sm">
+              <TextInput
+                label="Client ID"
+                value={clientId}
+                onChange={(e) => setClientId(e.currentTarget.value)}
+              />
+              {clientSecretMasked ? (
+                <div>
+                  <Text size="sm" fw={600} mb={4}>
+                    Client secret
+                  </Text>
+                  <Group gap={6} wrap="nowrap">
+                    <Text size="sm" c="dimmed" ff="monospace">
+                      {SECRET_MASK}
+                    </Text>
+                    <Button
+                      size="compact-xs"
+                      variant="subtle"
+                      onClick={() => {
+                        setClientSecret('');
+                        setClientSecretMasked(false);
+                      }}
+                    >
+                      Replace
+                    </Button>
+                  </Group>
+                </div>
+              ) : (
+                <TextInput
+                  label="Client secret"
+                  placeholder={'Secret value, or ${NAME} for a secret'}
+                  value={clientSecret}
+                  onChange={(e) => setClientSecret(e.currentTarget.value)}
+                />
+              )}
+              <TextInput
+                label="Scope"
+                placeholder="storage:events:read storage:logs:read ..."
+                value={scope}
+                onChange={(e) => setScope(e.currentTarget.value)}
+              />
+              <TextInput
+                label="Resource"
+                placeholder="https://your-environment.apps.dynatrace.com"
+                value={resource}
+                onChange={(e) => setResource(e.currentTarget.value)}
+              />
+            </Stack>
           )}
-          <TextInput
-            label="Scope"
-            placeholder="storage:events:read storage:logs:read ..."
-            value={scope}
-            onChange={(e) => setScope(e.currentTarget.value)}
-          />
-          <TextInput
-            label="Resource"
-            placeholder="https://your-environment.apps.dynatrace.com"
-            value={resource}
-            onChange={(e) => setResource(e.currentTarget.value)}
-          />
-        </Stack>
+        </>
       )}
 
       {test.data && (

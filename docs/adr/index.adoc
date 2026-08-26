@@ -159,6 +159,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-050-dynatrace-mcp-oauth-client-credentials.adoc[050]
 | Dynatrace MCP authenticates via a static header or OAuth client credentials, never an interactive browser flow
+
+| xref:adr-051-dynatrace-mcp-local-npx-bridge.adoc[051]
+| Dynatrace MCP can connect through a local npx/mcp-remote bridge, as a deliberate, narrow exception to "never spawns a process"
 |===
 
 == Format

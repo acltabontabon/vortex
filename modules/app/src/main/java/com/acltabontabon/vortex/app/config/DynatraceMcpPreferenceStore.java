@@ -39,7 +39,8 @@ public class DynatraceMcpPreferenceStore {
 
     /** Rewrites {@code vortex.dynatrace-mcp} in the file, leaving every other key untouched. */
     public void save(boolean enabled, String endpoint, Map<String, String> headers, String defaultWindow,
-            String authMode, String clientId, String clientSecret, String scope, String resource) {
+            String authMode, String clientId, String clientSecret, String scope, String resource,
+            String connectionMode) {
         ObjectNode root = load();
         ObjectNode node = root.withObject("/vortex/dynatrace-mcp");
         node.put("enabled", enabled);
@@ -50,6 +51,8 @@ public class DynatraceMcpPreferenceStore {
         node.put("clientSecret", clientSecret == null ? "" : clientSecret);
         node.put("scope", scope == null ? "" : scope);
         node.put("resource", resource == null ? "" : resource);
+        node.put("connectionMode", connectionMode == null || connectionMode.isBlank()
+                ? "direct_https" : connectionMode);
         ObjectNode headerNode = node.withObject("/headers");
         headerNode.removeAll();
         if (headers != null) {

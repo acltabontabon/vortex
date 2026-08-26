@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- Dynatrace MCP can now be reached through a local `npx mcp-remote` bridge instead of connecting
+  directly, for setups where direct HTTPS access or an OAuth client isn't an option — pick "Local
+  bridge" under Settings → Dynatrace → Connection mode. The first connection opens a browser to sign
+  in to Dynatrace; Vortex reuses that session afterward. This requires Node.js and a browser on the
+  same machine as Vortex, so it's meant for local, single-machine use.
+
 ## [0.1.0-alpha.5] - 2026-08-26
 
 ### Added

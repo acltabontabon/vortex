@@ -123,7 +123,8 @@ public class SettingsApiController {
 
     public record DynatraceMcpSettingsDto(boolean enabled, String endpoint,
             Map<String, String> maskedHeaders, String defaultWindowDisplay, String authMode,
-            String clientId, String maskedClientSecret, String scope, String resource) {}
+            String clientId, String maskedClientSecret, String scope, String resource,
+            String connectionMode) {}
 
     public record DynatraceMcpAvailabilityDto(boolean available, String problem, String remedy) {}
 
@@ -172,12 +173,17 @@ public class SettingsApiController {
         return new DynatraceMcpSettingsDto(settings.enabled(), settings.endpoint(),
                 settings.maskedHeaders(), Durations.display(settings.defaultWindow()),
                 authModeWire(settings.authMode()), settings.clientId(), settings.maskedClientSecret(),
-                settings.scope(), settings.resource());
+                settings.scope(), settings.resource(), connectionModeWire(settings.connectionMode()));
     }
 
     private static String authModeWire(DynatraceMcpSettings.AuthMode authMode) {
         return authMode == DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
                 ? "oauth_client_credentials" : "header";
+    }
+
+    private static String connectionModeWire(DynatraceMcpSettings.ConnectionMode connectionMode) {
+        return connectionMode == DynatraceMcpSettings.ConnectionMode.LOCAL_NPX_BRIDGE
+                ? "local_npx_bridge" : "direct_https";
     }
 
     private DynatraceMcpAvailabilityDto toDto(DynatraceMcpAvailability.Availability availability) {
@@ -338,7 +344,7 @@ public class SettingsApiController {
 
     public record SaveDynatraceMcpRequest(boolean enabled, String endpoint, String defaultWindow,
             List<String> headerName, List<String> headerValue, String authMode, String clientId,
-            String clientSecret, String scope, String resource) {
+            String clientSecret, String scope, String resource, String connectionMode) {
         public SaveDynatraceMcpRequest {
             clientId = clientId == null ? "" : clientId;
             scope = scope == null ? "" : scope;
@@ -360,12 +366,14 @@ public class SettingsApiController {
                     parseHeaders(request.headerName(), request.headerValue()), dynatraceMcpSettings.headers());
             String clientSecret = resolveSecretField(request.clientSecret(), dynatraceMcpSettings.clientSecret());
             DynatraceMcpSettings.AuthMode authMode = parseAuthMode(request.authMode());
+            DynatraceMcpSettings.ConnectionMode connectionMode = parseConnectionMode(request.connectionMode());
             Duration window = parseWindow(request.defaultWindow());
             dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), headers, window,
-                    authMode, request.clientId(), clientSecret, request.scope(), request.resource());
+                    authMode, request.clientId(), clientSecret, request.scope(), request.resource(),
+                    connectionMode);
             dynatraceMcpPreferences.save(request.enabled(), request.endpoint(), headers,
                     Durations.display(window), authModeWire(authMode), request.clientId(), clientSecret,
-                    request.scope(), request.resource());
+                    request.scope(), request.resource(), connectionModeWire(connectionMode));
             dynatraceMcpAvailability.refresh();
             return new SaveDynatraceMcpResponse(request.enabled()
                     ? "Saved. Test the connection, then map a service to a Dynatrace entity."
@@ -379,6 +387,12 @@ public class SettingsApiController {
         return "oauth_client_credentials".equals(value)
                 ? DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
                 : DynatraceMcpSettings.AuthMode.HEADER;
+    }
+
+    private DynatraceMcpSettings.ConnectionMode parseConnectionMode(String value) {
+        return "local_npx_bridge".equals(value)
+                ? DynatraceMcpSettings.ConnectionMode.LOCAL_NPX_BRIDGE
+                : DynatraceMcpSettings.ConnectionMode.DIRECT_HTTPS;
     }
 
     public record DynatraceMcpStageDto(String stage, boolean succeeded, String category, String detail) {}
@@ -399,17 +413,9 @@ public class SettingsApiController {
                     "Enter the Dynatrace MCP endpoint before testing the connection.");
         }
         try {
-            Map<String, String> headers = resolveHeaders(
-                    parseHeaders(request.headerName(), request.headerValue()), dynatraceMcpSettings.headers());
-            DynatraceMcpConnectionTest.OAuthCredentials oauth = null;
-            if ("oauth_client_credentials".equals(request.authMode())) {
-                String clientSecret =
-                        resolveSecretField(request.clientSecret(), dynatraceMcpSettings.clientSecret());
-                oauth = new DynatraceMcpConnectionTest.OAuthCredentials(request.clientId(), clientSecret,
-                        request.scope(), request.resource());
-            }
-            var report = dynatraceMcpConnectionTest.run(request.endpoint(), headers,
-                    dynatraceMcpSettings.queryTimeout(), oauth);
+            var report = "local_npx_bridge".equals(request.connectionMode())
+                    ? dynatraceMcpConnectionTest.runBridge(request.endpoint(), dynatraceMcpSettings.queryTimeout())
+                    : testDirectHttps(request);
             List<DynatraceMcpStageDto> stages = report.stages().stream()
                     .map(stage -> new DynatraceMcpStageDto(stage.stage(), stage.succeeded(),
                             stage.category() == null ? null : stage.category().name(), stage.detail()))
@@ -418,6 +424,19 @@ public class SettingsApiController {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
+    }
+
+    private DynatraceMcpConnectionTest.Report testDirectHttps(SaveDynatraceMcpRequest request) {
+        Map<String, String> headers = resolveHeaders(
+                parseHeaders(request.headerName(), request.headerValue()), dynatraceMcpSettings.headers());
+        DynatraceMcpConnectionTest.OAuthCredentials oauth = null;
+        if ("oauth_client_credentials".equals(request.authMode())) {
+            String clientSecret = resolveSecretField(request.clientSecret(), dynatraceMcpSettings.clientSecret());
+            oauth = new DynatraceMcpConnectionTest.OAuthCredentials(request.clientId(), clientSecret,
+                    request.scope(), request.resource());
+        }
+        return dynatraceMcpConnectionTest.run(request.endpoint(), headers,
+                dynatraceMcpSettings.queryTimeout(), oauth);
     }
 
     public record ImportDynatraceMcpRequest(String pastedConfig) {}

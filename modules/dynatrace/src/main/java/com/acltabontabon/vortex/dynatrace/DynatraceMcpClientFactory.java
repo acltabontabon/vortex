@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * Opens a fresh {@link DynatraceTelemetryClient} per call and nothing more.
@@ -43,6 +44,9 @@ public class DynatraceMcpClientFactory {
         if (!settings.enabled() || settings.endpoint().isBlank()) {
             return null;
         }
+        if (settings.connectionMode() == DynatraceMcpSettings.ConnectionMode.LOCAL_NPX_BRIDGE) {
+            return openBridge(settings.endpoint(), settings.queryTimeout(), null);
+        }
         Map<String, String> headers = settings.authMode() == DynatraceMcpSettings.AuthMode.OAUTH_CLIENT_CREDENTIALS
                 ? withOAuthBearer(settings.headers(), settings.clientId(), settings.clientSecret(),
                         settings.scope(), settings.resource(), settings.queryTimeout())
@@ -55,6 +59,15 @@ public class DynatraceMcpClientFactory {
      *  this overload never itself talks to Dynatrace's SSO endpoint. */
     public DynatraceTelemetryClient open(String uri, Map<String, String> headers, Duration timeout) {
         return new DynatraceMcpTelemetryClient(new DynatraceMcpEndpoint(uri, headers, timeout));
+    }
+
+    /** Opens a client that speaks MCP over a locally-spawned {@code npx mcp-remote <uri>} process
+     *  instead of connecting directly — see {@link DynatraceMcpBridgeTelemetryClient}. Headers are
+     *  never involved: {@code mcp-remote} performs its own OAuth. {@code onAuthPrompt}, if given, is
+     *  invoked with an actionable message the moment a browser-authorization prompt is seen on the
+     *  child process's stderr — including when this call ultimately throws. */
+    public DynatraceTelemetryClient openBridge(String uri, Duration timeout, Consumer<String> onAuthPrompt) {
+        return new DynatraceMcpBridgeTelemetryClient(new DynatraceMcpEndpoint(uri, Map.of(), timeout), onAuthPrompt);
     }
 
     /**

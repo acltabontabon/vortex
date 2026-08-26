@@ -145,7 +145,8 @@ class SettingsApiControllerTest {
     @BeforeEach
     void wiring() {
         dynatraceMcpSettings.reconfigure(false, "", Map.of(), null,
-                DynatraceMcpSettings.AuthMode.HEADER, "", "", "", "");
+                DynatraceMcpSettings.AuthMode.HEADER, "", "", "", "",
+                DynatraceMcpSettings.ConnectionMode.DIRECT_HTTPS);
         when(properties.version()).thenReturn("0.1.0-SNAPSHOT");
         when(properties.engine()).thenReturn(
                 new VortexProperties.Engine("local", "k6", "docker", "grafana/k6:1.3.0", true, null));
@@ -317,7 +318,7 @@ class SettingsApiControllerTest {
         assertThat(dynatraceMcpSettings.enabled()).isTrue();
         assertThat(dynatraceMcpSettings.endpoint()).isEqualTo("https://dynatrace-mcp.internal/mcp");
         verify(dynatraceMcpPreferences).save(true, "https://dynatrace-mcp.internal/mcp", Map.of(), "30d",
-                "header", "", "", "", "");
+                "header", "", "", "", "", "direct_https");
         verify(dynatraceMcpAvailability).refresh();
     }
 
@@ -345,7 +346,7 @@ class SettingsApiControllerTest {
         assertThat(dynatraceMcpSettings.headers()).containsEntry("Authorization", "Api-Token abc123");
         verify(dynatraceMcpPreferences, org.mockito.Mockito.times(2)).save(true,
                 "https://dynatrace-mcp.internal/mcp", Map.of("Authorization", "Api-Token abc123"), "30d",
-                "header", "", "", "", "");
+                "header", "", "", "", "", "direct_https");
     }
 
     @Test

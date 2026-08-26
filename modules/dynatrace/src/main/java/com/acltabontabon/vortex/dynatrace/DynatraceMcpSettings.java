@@ -24,9 +24,22 @@ public final class DynatraceMcpSettings {
         OAUTH_CLIENT_CREDENTIALS
     }
 
+    /**
+     * How Vortex reaches the MCP endpoint at the transport level. {@link #LOCAL_NPX_BRIDGE} spawns
+     * {@code npx mcp-remote <endpoint>} and speaks MCP over its stdio instead of connecting directly
+     * — see {@code DynatraceMcpBridgeTelemetryClient}. {@code mcp-remote} performs Dynatrace's own
+     * interactive OAuth itself (a browser login on first use, cached and refreshed after), so
+     * {@link AuthMode}, {@link #headers()}, and the OAuth fields below are inert in that mode: they
+     * are not read, sent, or otherwise consulted.
+     */
+    public enum ConnectionMode {
+        DIRECT_HTTPS,
+        LOCAL_NPX_BRIDGE
+    }
+
     private record State(boolean enabled, String endpoint, Map<String, String> headers,
             Duration defaultWindow, AuthMode authMode, String clientId, String clientSecret,
-            String scope, String resource) {
+            String scope, String resource, ConnectionMode connectionMode) {
     }
 
     private final AtomicReference<State> state;
@@ -34,7 +47,7 @@ public final class DynatraceMcpSettings {
 
     public DynatraceMcpSettings(boolean enabled, String endpoint, Map<String, String> headers,
             Duration defaultWindow, Duration queryTimeout, AuthMode authMode, String clientId,
-            String clientSecret, String scope, String resource) {
+            String clientSecret, String scope, String resource, ConnectionMode connectionMode) {
         this.state = new AtomicReference<>(new State(enabled, normalize(endpoint),
                 headers == null ? Map.of() : Map.copyOf(headers),
                 defaultWindow == null ? Duration.ofDays(30) : defaultWindow,
@@ -42,14 +55,17 @@ public final class DynatraceMcpSettings {
                 clientId == null ? "" : clientId.trim(),
                 clientSecret == null ? "" : clientSecret.trim(),
                 scope == null ? "" : scope.trim(),
-                resource == null ? "" : resource.trim()));
+                resource == null ? "" : resource.trim(),
+                connectionMode == null ? ConnectionMode.DIRECT_HTTPS : connectionMode));
         this.queryTimeout = queryTimeout == null ? Duration.ofSeconds(30) : queryTimeout;
     }
 
-    /** Every existing caller means header auth — OAuth is opted into explicitly, never inferred. */
+    /** Every existing caller means header auth over a direct connection — anything else is opted
+     *  into explicitly, never inferred. */
     public DynatraceMcpSettings(boolean enabled, String endpoint, Map<String, String> headers,
             Duration defaultWindow, Duration queryTimeout) {
-        this(enabled, endpoint, headers, defaultWindow, queryTimeout, AuthMode.HEADER, "", "", "", "");
+        this(enabled, endpoint, headers, defaultWindow, queryTimeout, AuthMode.HEADER, "", "", "", "",
+                ConnectionMode.DIRECT_HTTPS);
     }
 
     public boolean enabled() {
@@ -89,6 +105,10 @@ public final class DynatraceMcpSettings {
         return state.get().resource();
     }
 
+    public ConnectionMode connectionMode() {
+        return state.get().connectionMode();
+    }
+
     /** Fixed at startup, unlike the other fields — a mid-flight timeout change has no safe moment to apply. */
     public Duration queryTimeout() {
         return queryTimeout;
@@ -97,14 +117,15 @@ public final class DynatraceMcpSettings {
     /** Takes effect on the next call. Does not itself persist anything — the caller's job. */
     public void reconfigure(boolean enabled, String endpoint, Map<String, String> headers,
             Duration defaultWindow, AuthMode authMode, String clientId, String clientSecret,
-            String scope, String resource) {
+            String scope, String resource, ConnectionMode connectionMode) {
         state.set(new State(enabled, normalize(endpoint), headers == null ? Map.of() : Map.copyOf(headers),
                 defaultWindow == null ? Duration.ofDays(30) : defaultWindow,
                 authMode == null ? AuthMode.HEADER : authMode,
                 clientId == null ? "" : clientId.trim(),
                 clientSecret == null ? "" : clientSecret.trim(),
                 scope == null ? "" : scope.trim(),
-                resource == null ? "" : resource.trim()));
+                resource == null ? "" : resource.trim(),
+                connectionMode == null ? ConnectionMode.DIRECT_HTTPS : connectionMode));
     }
 
     public Set<String> referencedSecretNames() {
