@@ -280,10 +280,10 @@ export interface FetchAndSaveProductionResponse {
   production: Production | null;
 }
 
-/** Re-fetches from the observation source and, only on success, saves exactly what it retrieved —
- *  never the previously-shown preview, so what gets saved is evidence just verified, not one that
- *  aged between the preview and the click. Invalidates the service query on success so the rest of
- *  the page (Overview's "production observed" fact, calibration suggestions) picks it up too. */
+/** Persists exactly what the most recent `/production/fetch` for this service already retrieved —
+ *  no second live query against the observation source. Invalidates the service query on success so
+ *  the rest of the page (Overview's "production observed" fact, calibration suggestions) picks it up
+ *  too. */
 export function useFetchAndSaveProductionMutation(id: string) {
   const queryClient = useQueryClient();
   return useMutation({

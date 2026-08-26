@@ -81,6 +81,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -124,6 +125,11 @@ public class ConfigurationApiController {
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
+
+    /** What {@code /production/fetch} most recently retrieved for a service, so
+     *  {@code /production/fetch-and-save} can persist exactly that instead of querying the
+     *  observation source a second time — see the Javadoc on that method. */
+    private final Map<ProjectId, Retrieved> lastFetchedProduction = new ConcurrentHashMap<>();
 
     public ConfigurationApiController(ProjectService projects, CatalogImportService catalogs,
             CalibrationPolicy calibration, CalibrationService calibrationService,
@@ -733,7 +739,10 @@ public class ConfigurationApiController {
         }
     }
 
-    /** Never saves — see the class-level note on fetch/test being read-only actions. */
+    /** Never saves — see the class-level note on fetch/test being read-only actions. Remembers a
+     *  successful retrieval so a following {@code /production/fetch-and-save} can reuse it instead of
+     *  querying the observation source again; a failed retrieval clears whatever was remembered,
+     *  since the preview now shown on screen no longer has anything successful behind it either. */
     @PostMapping("/production/fetch")
     public FetchProductionResponse fetchProductionObservation(@PathVariable String id) {
         ProjectId projectId = ProjectId.of(id);
@@ -742,17 +751,23 @@ public class ConfigurationApiController {
 
         var retrieval = calibrationService.fetch(configuration, catalog, null);
         return switch (retrieval) {
-            case Retrieved retrieved ->
-                    new FetchProductionResponse(true, null, assembler.production(retrieved.observation(), catalog));
-            case NotRetrieved notRetrieved -> new FetchProductionResponse(false, notRetrieved.describe(), null);
+            case Retrieved retrieved -> {
+                lastFetchedProduction.put(projectId, retrieved);
+                yield new FetchProductionResponse(true, null, assembler.production(retrieved.observation(), catalog));
+            }
+            case NotRetrieved notRetrieved -> {
+                lastFetchedProduction.remove(projectId);
+                yield new FetchProductionResponse(false, notRetrieved.describe(), null);
+            }
         };
     }
 
     /**
-     * Fetches from the configured observation source and, only on success, persists exactly what it
-     * retrieved. Deliberately re-fetches rather than accepting a previously-shown preview to save:
-     * the saved observation must be evidence Vortex just verified, never one that quietly aged between
-     * the moment a preview was shown and the moment somebody clicked to keep it.
+     * Persists exactly what the most recent successful {@code /production/fetch} for this service
+     * already retrieved, consuming that remembered result — the preview shown to a person and what
+     * gets saved are the same evidence, with no second live query. Falls back to a fresh fetch when
+     * nothing is remembered (called without a prior fetch, or a source change invalidated it in
+     * {@link #setObservationSource}), so the endpoint still works on its own.
      *
      * <p>Persists the adapter's own {@link ProductionObservation} directly — carrying its real {@code
      * provenance}, {@code mixCoverage} and {@code sampleResolution} — rather than routing through
@@ -766,7 +781,8 @@ public class ConfigurationApiController {
         ProjectConfiguration configuration = projects.configuration(projectId);
         ServiceCatalog catalog = projects.catalog(projectId).orElse(null);
 
-        var retrieval = calibrationService.fetch(configuration, catalog, null);
+        Retrieved remembered = lastFetchedProduction.remove(projectId);
+        var retrieval = remembered != null ? remembered : calibrationService.fetch(configuration, catalog, null);
         return switch (retrieval) {
             case Retrieved retrieved -> {
                 projects.saveConfiguration(projectId,
@@ -793,6 +809,9 @@ public class ConfigurationApiController {
         try {
             ObservationSource source = observationSourceFrom(request);
             projects.saveConfiguration(projectId, configuration.withObservationSource(source));
+            // Whatever fetch-and-save might otherwise reuse was retrieved from a source this service
+            // no longer points at.
+            lastFetchedProduction.remove(projectId);
             return new MessageResponse("Saved. Vortex can now fetch observed production traffic from "
                     + source.kind().label() + " — test the connection, then fetch when you are ready.");
         } catch (IllegalArgumentException e) {

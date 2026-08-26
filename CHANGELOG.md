@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- "Save this observation" on a service's Production reality panel no longer re-fetches from
+  Dynatrace before saving — it now saves exactly what the preview already showed, so a click there
+  no longer spawns a second, redundant MCP connection.
+
 ## [0.1.0-alpha.16] - 2026-08-27
 
 ### Fixed

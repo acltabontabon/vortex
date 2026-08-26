@@ -622,6 +622,65 @@ class ConfigurationApiControllerTest {
 
             verify(projects, org.mockito.Mockito.never()).saveConfiguration(any(), any());
         }
+
+        @Test
+        @DisplayName("fetch-and-save persists a prior fetch's result without querying the source again")
+        void fetchAndSaveReusesAPriorFetchInsteadOfQueryingAgain() throws Exception {
+            var observation = new ProductionObservation(
+                    RequestsPerSecond.of(120), RequestsPerSecond.of(150), RequestsPerSecond.of(200),
+                    null, null, Duration.ofHours(1), "Dynatrace MCP (SERVICE-1)", Observation.unknown(),
+                    new ObservationProvenance("dynatrace-mcp", "dynatrace.throughput.v1", "SERVICE-1", ""),
+                    "");
+            when(calibrationService.fetch(any(), any(), any())).thenReturn(new Retrieved(observation));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/production/fetch")).andExpect(status().isOk());
+            mvc.perform(post("/api/services/" + SERVICE + "/production/fetch-and-save"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.succeeded").value(true));
+
+            verify(calibrationService, org.mockito.Mockito.times(1)).fetch(any(), any(), any());
+            assertThat(saved().productionObservation().peakRate().display()).isEqualTo("200");
+        }
+
+        @Test
+        @DisplayName("fetch-and-save consumes the remembered fetch — a second call queries again")
+        void fetchAndSaveConsumesTheRememberedFetch() throws Exception {
+            var observation = new ProductionObservation(
+                    RequestsPerSecond.of(120), RequestsPerSecond.of(150), RequestsPerSecond.of(200),
+                    null, null, Duration.ofHours(1), "Dynatrace MCP (SERVICE-1)", Observation.unknown(),
+                    new ObservationProvenance("dynatrace-mcp", "dynatrace.throughput.v1", "SERVICE-1", ""),
+                    "");
+            when(calibrationService.fetch(any(), any(), any())).thenReturn(new Retrieved(observation));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/production/fetch")).andExpect(status().isOk());
+            mvc.perform(post("/api/services/" + SERVICE + "/production/fetch-and-save")).andExpect(status().isOk());
+            mvc.perform(post("/api/services/" + SERVICE + "/production/fetch-and-save")).andExpect(status().isOk());
+
+            verify(calibrationService, org.mockito.Mockito.times(2)).fetch(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("changing the observation source clears a previously remembered fetch")
+        void settingObservationSourceClearsARememberedFetch() throws Exception {
+            var observation = new ProductionObservation(
+                    RequestsPerSecond.of(120), RequestsPerSecond.of(150), RequestsPerSecond.of(200),
+                    null, null, Duration.ofHours(1), "Dynatrace MCP (SERVICE-1)", Observation.unknown(),
+                    new ObservationProvenance("dynatrace-mcp", "dynatrace.throughput.v1", "SERVICE-1", ""),
+                    "");
+            when(calibrationService.fetch(any(), any(), any())).thenReturn(new Retrieved(observation));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/production/fetch")).andExpect(status().isOk());
+            mvc.perform(post("/api/services/" + SERVICE + "/observation")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"source":"prometheus","endpoint":"http://prometheus.internal:9090",
+                                     "serviceIdentifier":"checkout-service","window":"30d"}
+                                    """))
+                    .andExpect(status().isOk());
+            mvc.perform(post("/api/services/" + SERVICE + "/production/fetch-and-save")).andExpect(status().isOk());
+
+            verify(calibrationService, org.mockito.Mockito.times(2)).fetch(any(), any(), any());
+        }
     }
 
     @Nested
