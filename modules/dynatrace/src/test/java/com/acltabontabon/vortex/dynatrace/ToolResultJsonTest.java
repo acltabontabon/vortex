@@ -60,6 +60,20 @@ class ToolResultJsonTest {
     }
 
     @Test
+    void theLargestCandidateWinsOverAnEarlierSmallUnrelatedJsonFragment() {
+        // A small, syntactically-valid JSON object earlier in surrounding prose (e.g. client
+        // formatting metadata) must not be mistaken for the real payload, which is virtually always
+        // the biggest JSON blob in the text.
+        var found = ToolResultJson.extractStructured("""
+                Query settings: {"interval": "1h"}
+
+                DQL Response: {"dt.entity.service": "SERVICE-1", "requests": [1080, 1082, 1090]}""");
+
+        assertThat(found).isPresent();
+        assertThat(found.get().at("/requests/2").asInt()).isEqualTo(1090);
+    }
+
+    @Test
     void aFenceWithNoLanguageTagIsStillRecognized() {
         var found = ToolResultJson.extractStructured("""
                 Result:

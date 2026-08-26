@@ -11,12 +11,15 @@ import java.util.Optional;
  * <p>Dynatrace's real {@code execute_dql} tool answers with prose wrapped around the actual JSON —
  * observed in two different shapes: a fenced <code>```json ... ```</code> block, and a bare prefix
  * like {@code "DQL Response: [...]"} with no fence at all. Rather than special-case each wrapping
- * style, this scans the text for the first syntactically complete JSON object or array — the same
- * thing a fence or a "Response: " prefix is doing for a human reader, just without the marker — and
- * parses exactly that substring. Still deterministic extraction of data the tool returned, never a
- * guess at a number from unstructured prose, the line {@code TelemetryNormalizer} refuses to cross:
- * text with no syntactically complete JSON value anywhere in it (a markdown table, a plain-language
- * summary) yields nothing here, on purpose.
+ * style, this scans the text for every syntactically complete top-level JSON object or array and
+ * parses the largest one — the same thing a fence or a "Response: " prefix is doing for a human
+ * reader, just without the marker. Preferring the largest match, rather than the first, guards
+ * against a small, syntactically-valid-but-irrelevant JSON-looking fragment earlier in surrounding
+ * prose (a client's own formatting metadata, a code sample) being mistaken for the real payload,
+ * which is virtually always the biggest JSON blob in the text. Still deterministic extraction of
+ * data the tool returned, never a guess at a number from unstructured prose, the line
+ * {@code TelemetryNormalizer} refuses to cross: text with no syntactically complete JSON value
+ * anywhere in it (a markdown table, a plain-language summary) yields nothing here, on purpose.
  */
 final class ToolResultJson {
 
@@ -33,21 +36,31 @@ final class ToolResultJson {
         if (direct.isPresent()) {
             return direct;
         }
-        for (int i = 0; i < text.length(); i++) {
+        String bestSpan = null;
+        JsonNode best = null;
+        int i = 0;
+        while (i < text.length()) {
             char c = text.charAt(i);
             if (c != '{' && c != '[') {
+                i++;
                 continue;
             }
             Optional<String> balanced = balancedSpan(text, i);
             if (balanced.isEmpty()) {
+                i++;
                 continue;
             }
-            Optional<JsonNode> parsed = tryParse(balanced.get());
-            if (parsed.isPresent()) {
-                return parsed;
+            String span = balanced.get();
+            Optional<JsonNode> parsed = tryParse(span);
+            if (parsed.isPresent() && (bestSpan == null || span.length() > bestSpan.length())) {
+                bestSpan = span;
+                best = parsed.get();
             }
+            // Skip past this span entirely rather than rescanning its interior character by
+            // character — any '{'/'[' inside it was already considered as part of this candidate.
+            i += span.length();
         }
-        return Optional.empty();
+        return Optional.ofNullable(best);
     }
 
     /** The substring from {@code start} (an opening {@code {} or {@code [}) to its matching close,
