@@ -27,6 +27,14 @@ class TelemetryNormalizerTest {
     }
 
     @Test
+    void theRejectionIncludesASnippetOfWhatWasActuallyReturned() {
+        var result = new DynatraceTelemetryResult(JSON.getNodeFactory().textNode("about 120 req/s"), false);
+        var outcome = normalizer.normalize(DynatraceQueries.THROUGHPUT_V1, result, WINDOW, "SERVICE-1");
+        assertThat(outcome).isInstanceOfSatisfying(TelemetryNormalizer.Rejected.class,
+                rejected -> assertThat(rejected.reason().detail()).contains("about 120 req/s"));
+    }
+
+    @Test
     void aResponseWithNoMatchingFieldIsRejected() throws Exception {
         JsonNode payload = JSON.readTree("""
                 {"records": [{"somethingElse": 42}]}""");

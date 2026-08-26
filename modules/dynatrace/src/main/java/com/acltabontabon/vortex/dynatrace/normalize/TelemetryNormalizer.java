@@ -50,8 +50,9 @@ public final class TelemetryNormalizer {
 
         if (!raw.wasStructured()) {
             return new Rejected(new NormalizationFailure.SchemaInvalid(
-                    "the tool returned text instead of structured data for "
-                            + definition.id() + "; Vortex will not guess a number out of prose"));
+                    "the tool returned text instead of structured data for " + definition.id()
+                            + "; Vortex will not guess a number out of prose. What it returned: "
+                            + snippet(raw.payload())));
         }
 
         List<Double> samples = new ArrayList<>();
@@ -94,6 +95,19 @@ public final class TelemetryNormalizer {
         }
 
         return new Normalized(new NormalizedTelemetry(definition.id(), List.copyOf(samples), unit));
+    }
+
+    /** A bounded preview of what an unstructured response actually said, so a person debugging this
+     *  rejection sees what Dynatrace returned instead of guessing — never the full text, which could
+     *  be arbitrarily long prose. */
+    private static final int SNIPPET_LIMIT = 300;
+
+    private String snippet(JsonNode payload) {
+        String text = (payload.isTextual() ? payload.asText() : payload.toString()).strip();
+        if (text.isEmpty()) {
+            return "(empty response)";
+        }
+        return text.length() > SNIPPET_LIMIT ? text.substring(0, SNIPPET_LIMIT) + "…" : text;
     }
 
     // ------------------------------------------------------------------ walking

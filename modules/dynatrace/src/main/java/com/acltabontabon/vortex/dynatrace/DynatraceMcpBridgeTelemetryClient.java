@@ -1,6 +1,5 @@
 package com.acltabontabon.vortex.dynatrace;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -168,13 +167,9 @@ final class DynatraceMcpBridgeTelemetryClient implements DynatraceTelemetryClien
         if (text == null || text.isBlank()) {
             return new DynatraceTelemetryResult(JSON.createObjectNode(), false);
         }
-        try {
-            JsonNode parsed = JSON.readTree(text);
-            boolean structured = parsed.isObject() || parsed.isArray();
-            return new DynatraceTelemetryResult(parsed, structured);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            return new DynatraceTelemetryResult(JSON.getNodeFactory().textNode(text), false);
-        }
+        return ToolResultJson.extractStructured(text)
+                .map(parsed -> new DynatraceTelemetryResult(parsed, true))
+                .orElseGet(() -> new DynatraceTelemetryResult(JSON.getNodeFactory().textNode(text), false));
     }
 
     private String textContentOf(McpSchema.CallToolResult result) {

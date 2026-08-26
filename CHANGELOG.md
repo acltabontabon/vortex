@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- Dynatrace MCP's `execute_dql` responses are now parsed correctly when the server wraps its JSON
+  result in explanatory prose and a fenced code block, rather than returning bare JSON — the shape
+  Dynatrace's real MCP server actually answers with. Vortex previously treated that whole response as
+  unparseable prose and refused it outright ("the tool returned text instead of structured data").
+  The rejection message also now includes a snippet of what was actually returned, for easier
+  diagnosis if this happens again in some other shape.
+
 ## [0.1.0-alpha.9] - 2026-08-27
 
 ### Fixed
