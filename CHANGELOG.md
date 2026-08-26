@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## [0.1.0-alpha.12] - 2026-08-27
+
+### Fixed
+
+- Dynatrace MCP's `execute_dql` extraction now prefers the largest syntactically valid JSON
+  fragment found in the tool's text response, instead of the first one. A `timeseries` query with a
+  fine interval can return thousands of per-bucket values wrapped in Dynatrace's explanatory prose,
+  which made it possible for an earlier, smaller, incidentally-valid JSON fragment to be mistaken for
+  the real payload — surfacing as "no numeric value was found" even though the real data was present
+  further along in the same response.
+
 ## [0.1.0-alpha.11] - 2026-08-27
 
 ### Fixed
