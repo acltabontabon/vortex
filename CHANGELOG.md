@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## [0.1.0-alpha.13] - 2026-08-27
+
 ### Changed
 
 - Dynatrace MCP throughput now trusts Dynatrace's own `summarize` statistics (`max`/`avg`/
