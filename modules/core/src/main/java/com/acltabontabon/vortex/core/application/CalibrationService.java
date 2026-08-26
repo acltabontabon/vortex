@@ -66,9 +66,10 @@ public final class CalibrationService {
         if (adapter == null) {
             return new NotRetrieved(
                     "Cannot fetch production traffic",
-                    "no adapter in this build answers for " + source.kind().label() + ".",
-                    "Vortex supports Prometheus and Dynatrace. Set observation.source to one of "
-                            + "those.");
+                    "no adapter in this build answers for " + source.kind().label() + " over "
+                            + source.transport().label() + ".",
+                    "Vortex supports Prometheus (REST) and Dynatrace (REST or MCP). Set "
+                            + "observation.source and observation.transport accordingly.");
         }
 
         Duration window = windowOverride != null ? windowOverride : source.window();
@@ -124,8 +125,9 @@ public final class CalibrationService {
         if (adapter == null) {
             return new NotRetrieved(
                     "Cannot test a source",
-                    "no adapter in this build answers for " + source.kind().label() + ".",
-                    "Vortex supports Prometheus and Dynatrace.");
+                    "no adapter in this build answers for " + source.kind().label() + " over "
+                            + source.transport().label() + ".",
+                    "Vortex supports Prometheus (REST) and Dynatrace (REST or MCP).");
         }
 
         Duration window = windowOverride != null ? windowOverride : source.window();

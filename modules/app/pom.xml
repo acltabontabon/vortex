@@ -19,6 +19,7 @@
     <dependency><groupId>com.acltabontabon</groupId><artifactId>vortex-openapi</artifactId></dependency>
     <dependency><groupId>com.acltabontabon</groupId><artifactId>vortex-k6</artifactId></dependency>
     <dependency><groupId>com.acltabontabon</groupId><artifactId>vortex-ai</artifactId></dependency>
+    <dependency><groupId>com.acltabontabon</groupId><artifactId>vortex-dynatrace</artifactId></dependency>
     <dependency><groupId>com.acltabontabon</groupId><artifactId>vortex-persistence</artifactId></dependency>
 
     <dependency>

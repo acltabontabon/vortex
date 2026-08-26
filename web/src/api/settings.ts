@@ -83,6 +83,19 @@ export interface LoadGeneratorSettings {
   automaticPreview: ResolvedLoadGeneratorBudget;
 }
 
+export interface DynatraceMcpSettings {
+  enabled: boolean;
+  endpoint: string;
+  maskedHeaders: Record<string, string>;
+  defaultWindowDisplay: string;
+}
+
+export interface DynatraceMcpAvailability {
+  available: boolean;
+  problem: string;
+  remedy: string;
+}
+
 export interface Settings {
   vortexVersion: string;
   engine: EngineSettings;
@@ -93,6 +106,8 @@ export interface Settings {
   labStatus: LabStatus;
   workspacePath: string;
   loadGenerator: LoadGeneratorSettings;
+  dynatraceMcp: DynatraceMcpSettings;
+  dynatraceMcpAvailability: DynatraceMcpAvailability;
 }
 
 export function useSettingsQuery() {
@@ -145,5 +160,62 @@ export function useChooseLoadGeneratorBudgetMutation() {
     mutationFn: (request: ChooseLoadGeneratorBudgetRequest) =>
       apiClient.post<ChooseLoadGeneratorBudgetResponse>('/api/settings/load-generator', request),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+  });
+}
+
+export interface SaveDynatraceMcpRequest {
+  enabled: boolean;
+  endpoint: string;
+  defaultWindow: string;
+  headerName: string[];
+  headerValue: string[];
+}
+
+export interface SaveDynatraceMcpResponse {
+  message: string;
+}
+
+export function useSaveDynatraceMcpMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: SaveDynatraceMcpRequest) =>
+      apiClient.post<SaveDynatraceMcpResponse>('/api/settings/dynatrace-mcp', request),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+  });
+}
+
+export interface DynatraceMcpStage {
+  stage: string;
+  succeeded: boolean;
+  category: string | null;
+  detail: string;
+}
+
+export interface TestDynatraceMcpResponse {
+  succeeded: boolean;
+  stages: DynatraceMcpStage[];
+}
+
+/** Tests what is in the form, not what has been saved — never invalidates the settings query. */
+export function useTestDynatraceMcpMutation() {
+  return useMutation({
+    mutationFn: (request: SaveDynatraceMcpRequest) =>
+      apiClient.post<TestDynatraceMcpResponse>('/api/settings/dynatrace-mcp/test', request),
+  });
+}
+
+export interface ImportDynatraceMcpResponse {
+  recognized: boolean;
+  endpoint: string | null;
+  headerName: string[];
+  headerValue: string[];
+  reason: string | null;
+}
+
+/** Parses a pasted config and returns what Vortex would configure — nothing is saved. */
+export function useImportDynatraceMcpMutation() {
+  return useMutation({
+    mutationFn: (pastedConfig: string) =>
+      apiClient.post<ImportDynatraceMcpResponse>('/api/settings/dynatrace-mcp/import', { pastedConfig }),
   });
 }

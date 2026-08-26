@@ -81,6 +81,7 @@ export interface WorkloadSuggestion {
 
 export interface ObservationSource {
   kind: string;
+  transport: string;
   endpoint: string;
   serviceIdentifier: string;
   windowDisplay: string;
@@ -274,6 +275,7 @@ export function useFetchProductionMutation(id: string) {
 
 export interface ObservationSourceRequest {
   source: string;
+  transport?: string;
   endpoint: string;
   serviceIdentifier: string;
   window: string;

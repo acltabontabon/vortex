@@ -4,9 +4,11 @@ import com.acltabontabon.vortex.ai.AiSettings;
 import com.acltabontabon.vortex.ai.OllamaAvailability;
 import com.acltabontabon.vortex.app.VortexProperties;
 import com.acltabontabon.vortex.app.config.AiModelPreferenceStore;
+import com.acltabontabon.vortex.app.config.DynatraceMcpPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetSettings;
 import com.acltabontabon.vortex.app.service.LocalLabRunner;
+import com.acltabontabon.vortex.core.environment.SecretReferences;
 import com.acltabontabon.vortex.core.evidence.HostShape;
 import com.acltabontabon.vortex.core.port.PerformanceAssistant;
 import com.acltabontabon.vortex.core.port.PerformanceEngine;
@@ -16,9 +18,18 @@ import com.acltabontabon.vortex.core.resource.ResolvedLoadGeneratorBudget;
 import com.acltabontabon.vortex.core.target.CpuAllocation;
 import com.acltabontabon.vortex.core.target.MemoryAllocation;
 import com.acltabontabon.vortex.core.target.ResourceEnvelopeRequest;
+import com.acltabontabon.vortex.core.threshold.Durations;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpAvailability;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpClientFactory;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpConfigImport;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpConnectionTest;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpSettings;
 import com.acltabontabon.vortex.persistence.VortexWorkspace;
+import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -51,13 +62,20 @@ public class SettingsApiController {
     private final LoadGeneratorBudgetSettings loadGeneratorBudgetSettings;
     private final LoadGeneratorBudgetPreferenceStore loadGeneratorBudgetPreferences;
     private final LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver;
+    private final DynatraceMcpSettings dynatraceMcpSettings;
+    private final DynatraceMcpPreferenceStore dynatraceMcpPreferences;
+    private final DynatraceMcpAvailability dynatraceMcpAvailability;
+    private final DynatraceMcpClientFactory dynatraceMcpClients;
+    private final DynatraceMcpConnectionTest dynatraceMcpConnectionTest = new DynatraceMcpConnectionTest();
 
     public SettingsApiController(VortexProperties properties, PerformanceEngine engine,
             PerformanceAssistant assistant, OllamaAvailability ollama, AiSettings aiSettings,
             AiModelPreferenceStore aiModelPreferences, LocalLabRunner lab, VortexWorkspace workspace,
             LoadGeneratorBudgetSettings loadGeneratorBudgetSettings,
             LoadGeneratorBudgetPreferenceStore loadGeneratorBudgetPreferences,
-            LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver) {
+            LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver,
+            DynatraceMcpSettings dynatraceMcpSettings, DynatraceMcpPreferenceStore dynatraceMcpPreferences,
+            DynatraceMcpAvailability dynatraceMcpAvailability, DynatraceMcpClientFactory dynatraceMcpClients) {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.engine = Objects.requireNonNull(engine, "engine");
         this.assistant = Objects.requireNonNull(assistant, "assistant");
@@ -72,6 +90,12 @@ public class SettingsApiController {
                 Objects.requireNonNull(loadGeneratorBudgetPreferences, "loadGeneratorBudgetPreferences");
         this.loadGeneratorResourceBudgetResolver = Objects.requireNonNull(
                 loadGeneratorResourceBudgetResolver, "loadGeneratorResourceBudgetResolver");
+        this.dynatraceMcpSettings = Objects.requireNonNull(dynatraceMcpSettings, "dynatraceMcpSettings");
+        this.dynatraceMcpPreferences =
+                Objects.requireNonNull(dynatraceMcpPreferences, "dynatraceMcpPreferences");
+        this.dynatraceMcpAvailability =
+                Objects.requireNonNull(dynatraceMcpAvailability, "dynatraceMcpAvailability");
+        this.dynatraceMcpClients = Objects.requireNonNull(dynatraceMcpClients, "dynatraceMcpClients");
     }
 
     public record EngineSettingsDto(boolean usesDocker, String runner, String executable,
@@ -91,7 +115,13 @@ public class SettingsApiController {
     public record SettingsDto(String vortexVersion, EngineSettingsDto engine,
             EngineAvailabilityDto engineAvailability, AiSettingsDto aiSettings,
             AiAvailabilityDto aiAvailability, List<String> installedModels, LabStatusDto labStatus,
-            String workspacePath, LoadGeneratorSettingsDto loadGenerator) {}
+            String workspacePath, LoadGeneratorSettingsDto loadGenerator,
+            DynatraceMcpSettingsDto dynatraceMcp, DynatraceMcpAvailabilityDto dynatraceMcpAvailability) {}
+
+    public record DynatraceMcpSettingsDto(boolean enabled, String endpoint,
+            Map<String, String> maskedHeaders, String defaultWindowDisplay) {}
+
+    public record DynatraceMcpAvailabilityDto(boolean available, String problem, String remedy) {}
 
     /** As saved — {@code cpuMillicores}/{@code memoryMebibytes} are only meaningful when
      *  {@code mode} is {@code "custom"}. */
@@ -129,7 +159,19 @@ public class SettingsApiController {
                 ollama.installedModels(),
                 toDto(lab.status()),
                 workspace.root().toString(),
-                loadGeneratorSettings());
+                loadGeneratorSettings(),
+                toDto(dynatraceMcpSettings),
+                toDto(dynatraceMcpAvailability.check()));
+    }
+
+    private DynatraceMcpSettingsDto toDto(DynatraceMcpSettings settings) {
+        return new DynatraceMcpSettingsDto(settings.enabled(), settings.endpoint(),
+                settings.maskedHeaders(), Durations.display(settings.defaultWindow()));
+    }
+
+    private DynatraceMcpAvailabilityDto toDto(DynatraceMcpAvailability.Availability availability) {
+        return new DynatraceMcpAvailabilityDto(availability.available(), availability.problem(),
+                availability.remedy());
     }
 
     public record RetryAiResponse(AiAvailabilityDto availability, String message,
@@ -279,5 +321,102 @@ public class SettingsApiController {
     private HostShapeDto toHostShapeDto(HostShape host) {
         return new HostShapeDto(host.operatingSystem(), host.osVersion(), host.architecture(),
                 host.availableProcessors(), host.totalMemoryBytes());
+    }
+
+    // ==================================================================== Dynatrace MCP
+
+    public record SaveDynatraceMcpRequest(boolean enabled, String endpoint, String defaultWindow,
+            List<String> headerName, List<String> headerValue) {}
+
+    public record SaveDynatraceMcpResponse(String message) {}
+
+    /**
+     * Saves the Dynatrace MCP connection, effective immediately, and writes it to
+     * {@code ~/.vortex/config.yaml} so it survives a restart — the same pattern as
+     * {@link #chooseModel}.
+     */
+    @PostMapping("/dynatrace-mcp")
+    public SaveDynatraceMcpResponse saveDynatraceMcp(@RequestBody SaveDynatraceMcpRequest request) {
+        Map<String, String> headers = parseHeaders(request.headerName(), request.headerValue());
+        Duration window = parseWindow(request.defaultWindow());
+        dynatraceMcpSettings.reconfigure(request.enabled(), request.endpoint(), headers, window);
+        dynatraceMcpPreferences.save(request.enabled(), request.endpoint(), headers,
+                Durations.display(window));
+        dynatraceMcpAvailability.refresh();
+        return new SaveDynatraceMcpResponse(request.enabled()
+                ? "Saved. Test the connection, then map a service to a Dynatrace entity."
+                : "Saved. Dynatrace MCP is disabled.");
+    }
+
+    public record DynatraceMcpStageDto(String stage, boolean succeeded, String category, String detail) {}
+
+    public record TestDynatraceMcpResponse(boolean succeeded, List<DynatraceMcpStageDto> stages) {}
+
+    /**
+     * Tests what is in the form, not what has been saved — the same contract
+     * {@code ConfigurationApiController.testObservationSource} already has, and for the same reason:
+     * testing only a saved configuration would make the button useless for the case it exists to
+     * serve.
+     */
+    @PostMapping("/dynatrace-mcp/test")
+    public TestDynatraceMcpResponse testDynatraceMcp(@RequestBody SaveDynatraceMcpRequest request) {
+        if (request.endpoint() == null || request.endpoint().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Enter the Dynatrace MCP endpoint before testing the connection.");
+        }
+        Map<String, String> headers = parseHeaders(request.headerName(), request.headerValue());
+        var report = dynatraceMcpConnectionTest.run(request.endpoint(), headers,
+                dynatraceMcpSettings.queryTimeout(), null);
+        List<DynatraceMcpStageDto> stages = report.stages().stream()
+                .map(stage -> new DynatraceMcpStageDto(stage.stage(), stage.succeeded(),
+                        stage.category() == null ? null : stage.category().name(), stage.detail()))
+                .toList();
+        return new TestDynatraceMcpResponse(report.succeeded(), stages);
+    }
+
+    public record ImportDynatraceMcpRequest(String pastedConfig) {}
+
+    public record ImportDynatraceMcpResponse(boolean recognized, String endpoint,
+            List<String> headerName, List<String> headerValue, String reason) {}
+
+    /**
+     * Parses a pasted MCP configuration and extracts a remote endpoint from it. Never executes
+     * anything the pasted text describes; never saves anything — the resolved fields are returned for
+     * review, and only {@link #saveDynatraceMcp} persists them.
+     */
+    @PostMapping("/dynatrace-mcp/import")
+    public ImportDynatraceMcpResponse importDynatraceMcp(@RequestBody ImportDynatraceMcpRequest request) {
+        var result = DynatraceMcpConfigImport.parse(request.pastedConfig());
+        return switch (result) {
+            case DynatraceMcpConfigImport.Recognized recognized -> new ImportDynatraceMcpResponse(
+                    true, recognized.endpoint(), List.copyOf(recognized.candidateHeaders().keySet()),
+                    List.copyOf(recognized.candidateHeaders().values()), null);
+            case DynatraceMcpConfigImport.Unrecognized unrecognized ->
+                    new ImportDynatraceMcpResponse(false, null, List.of(), List.of(), unrecognized.reason());
+        };
+    }
+
+    private Map<String, String> parseHeaders(List<String> names, List<String> values) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (names == null || values == null) {
+            return headers;
+        }
+        for (int i = 0; i < Math.min(names.size(), values.size()); i++) {
+            String name = names.get(i) == null ? "" : names.get(i).trim();
+            String value = values.get(i) == null ? "" : values.get(i).trim();
+            if (!name.isEmpty() && !value.isEmpty() && !SecretReferences.MASK.equals(value)) {
+                headers.put(name, value);
+            }
+        }
+        return headers;
+    }
+
+    private Duration parseWindow(String display) {
+        try {
+            return display == null || display.isBlank() ? Duration.ofDays(30) : Durations.parse(display);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "'" + display + "' is not a period Vortex understands, e.g. 30d.", e);
+        }
     }
 }

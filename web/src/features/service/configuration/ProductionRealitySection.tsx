@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Alert, Button, Group, NumberInput, Select, Stack, Table, Text, TextInput, Textarea } from '@mantine/core';
+import { Alert, Anchor, Button, Group, NumberInput, Select, Stack, Table, Text, TextInput, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { Link } from 'react-router-dom';
 import type { Catalog, ObservationSource, WorkloadSuggestion } from '../../../api/configuration';
 import {
   useFetchProductionMutation,
@@ -8,6 +9,7 @@ import {
   useSaveObservationSourceMutation,
   useTestObservationSourceMutation,
 } from '../../../api/configuration';
+import { useSettingsQuery } from '../../../api/settings';
 import { useApplyProductionMutation } from '../../../api/tests';
 import type { Production } from '../../../api/workspace';
 import { Fact, Facts } from '../../../components/Fact';
@@ -58,7 +60,7 @@ export function ProductionRealitySection({
 
   const provenance = production
     ? observationSource
-      ? `${observationSource.kind} · ${observationSource.endpoint} · ${observationSource.windowDisplay} window`
+      ? `${observationSource.kind} · ${observationSource.transport === 'MCP' ? 'via MCP' : observationSource.endpoint} · ${observationSource.windowDisplay} window`
       : (production.source ?? (production.fetched ? 'observation source' : 'recorded manually'))
     : null;
 
@@ -309,8 +311,10 @@ function ObservationSourcePanel({
 }) {
   const save = useSaveObservationSourceMutation(serviceId);
   const test = useTestObservationSourceMutation(serviceId);
+  const settingsQuery = useSettingsQuery();
 
   const [kind, setKind] = useState(source?.kind.toLowerCase() ?? 'prometheus');
+  const [transport, setTransport] = useState(source?.transport?.toLowerCase() ?? 'rest');
   const [endpoint, setEndpoint] = useState(source?.endpoint ?? '');
   const [serviceIdentifier, setServiceIdentifier] = useState(source?.serviceIdentifier ?? '');
   const [window, setWindow] = useState(source?.windowDisplay ?? '30d');
@@ -318,8 +322,18 @@ function ObservationSourcePanel({
     source ? rowsFromMasked(source.maskedHeaders) : []
   );
 
+  const usingMcp = kind === 'dynatrace' && transport === 'mcp';
+  const mcpConfigured = settingsQuery.data?.dynatraceMcp.enabled ?? false;
+
   function payload() {
-    return { source: kind, endpoint, serviceIdentifier, window, ...headerArrays(headerRows) };
+    return {
+      source: kind,
+      transport: kind === 'dynatrace' ? transport : undefined,
+      endpoint: usingMcp ? '' : endpoint,
+      serviceIdentifier,
+      window,
+      ...(usingMcp ? {} : headerArrays(headerRows)),
+    };
   }
 
   function onSave() {
@@ -337,8 +351,11 @@ function ObservationSourcePanel({
     <div>
       {source && (
         <Facts>
-          <Fact label="System">{source.kind}</Fact>
-          <Fact label="Endpoint">{source.endpoint}</Fact>
+          <Fact label="System">
+            {source.kind}
+            {source.transport === 'MCP' ? ' (via MCP)' : ''}
+          </Fact>
+          {source.transport !== 'MCP' && <Fact label="Endpoint">{source.endpoint}</Fact>}
           <Fact label={source.kind === 'DYNATRACE' ? 'Entity' : 'Service label'}>
             {source.serviceIdentifier}
           </Fact>
@@ -368,13 +385,42 @@ function ObservationSourcePanel({
             value={kind}
             onChange={(v) => setKind(v ?? 'prometheus')}
           />
+          {kind === 'dynatrace' && (
+            <Select
+              label="Connect via"
+              data={[
+                { value: 'rest', label: 'REST API (token)' },
+                { value: 'mcp', label: 'MCP (uses global Dynatrace settings)' },
+              ]}
+              value={transport}
+              onChange={(v) => setTransport(v ?? 'rest')}
+            />
+          )}
+        </Group>
+
+        {usingMcp ? (
+          <Alert color={mcpConfigured ? 'live' : 'warn'} title="Using the global Dynatrace MCP connection">
+            {mcpConfigured ? (
+              'Vortex will reach Dynatrace through the endpoint configured under Settings.'
+            ) : (
+              <>
+                Dynatrace MCP is not enabled yet.{' '}
+                <Anchor component={Link} to="/settings" size="sm">
+                  Configure it under Settings
+                </Anchor>{' '}
+                first.
+              </>
+            )}
+          </Alert>
+        ) : (
           <TextInput
             label="Endpoint"
             placeholder="http://prometheus.internal:9090"
             value={endpoint}
             onChange={(e) => setEndpoint(e.currentTarget.value)}
           />
-        </Group>
+        )}
+
         <Group grow>
           <TextInput
             label={kind === 'dynatrace' ? 'Entity id' : 'Service label'}
@@ -385,7 +431,7 @@ function ObservationSourcePanel({
           <TextInput label="Window" placeholder="30d" value={window} onChange={(e) => setWindow(e.currentTarget.value)} />
         </Group>
 
-        <HeaderRows rows={headerRows} onChange={setHeaderRows} />
+        {!usingMcp && <HeaderRows rows={headerRows} onChange={setHeaderRows} />}
 
         <Group mt="sm">
           <Button onClick={onSave} loading={save.isPending}>

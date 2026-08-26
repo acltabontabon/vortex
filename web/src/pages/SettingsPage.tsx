@@ -6,23 +6,33 @@ import {
   Card,
   Container,
   Group,
+  List,
   NumberInput,
   SegmentedControl,
   Select,
   Skeleton,
   Stack,
   Text,
+  Textarea,
+  TextInput,
+  ThemeIcon,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { IconCheck, IconX } from '@tabler/icons-react';
 import {
   useChooseLoadGeneratorBudgetMutation,
   useChooseModelMutation,
+  useImportDynatraceMcpMutation,
   useRetryAiMutation,
+  useSaveDynatraceMcpMutation,
   useSettingsQuery,
+  useTestDynatraceMcpMutation,
 } from '../api/settings';
-import type { ChooseLoadGeneratorBudgetRequest } from '../api/settings';
+import type { ChooseLoadGeneratorBudgetRequest, DynatraceMcpAvailability, DynatraceMcpSettings } from '../api/settings';
 import { Fact, Facts } from '../components/Fact';
+import { HeaderRows } from '../features/service/configuration/HeaderRows';
+import { rowsFromMasked, type HeaderRow } from '../features/service/configuration/headerRowUtils';
 import { errorFallback } from '../lib/queryFallback';
 import classes from './SettingsPage.module.css';
 
@@ -380,6 +390,8 @@ export function SettingsPage() {
           </details>
         </Card>
 
+        <DynatraceMcpCard settings={data.dynatraceMcp} availability={data.dynatraceMcpAvailability} />
+
         <Card withBorder radius="md">
           <Title order={2} size="h4" mb="sm">
             Docker
@@ -428,5 +440,213 @@ export function SettingsPage() {
         </Card>
       </Stack>
     </Container>
+  );
+}
+
+/**
+ * The global Dynatrace MCP connection, shared by every service whose production observation is
+ * configured to reach Dynatrace via MCP. Mirrors the "Local AI" card's shape: status, facts, a
+ * form to change them, and a test-connection action — except the test reports a stage-by-stage
+ * breakdown rather than one message, since the four things that can be wrong (the endpoint, the
+ * credential, the server's tool, and Vortex's own request) each need a different remedy.
+ */
+function DynatraceMcpCard({
+  settings,
+  availability,
+}: {
+  settings: DynatraceMcpSettings;
+  availability: DynatraceMcpAvailability;
+}) {
+  const save = useSaveDynatraceMcpMutation();
+  const test = useTestDynatraceMcpMutation();
+  const doImport = useImportDynatraceMcpMutation();
+
+  const [mode, setMode] = useState<'manual' | 'paste'>('manual');
+  const [pasted, setPasted] = useState('');
+  const [enabled, setEnabled] = useState(settings.enabled);
+  const [endpoint, setEndpoint] = useState(settings.endpoint);
+  const [defaultWindow, setDefaultWindow] = useState(settings.defaultWindowDisplay);
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>(rowsFromMasked(settings.maskedHeaders));
+
+  function headerArrays() {
+    const named = headerRows.filter((row) => row.name.trim());
+    return { headerName: named.map((row) => row.name), headerValue: named.map((row) => row.value) };
+  }
+
+  function payload() {
+    return { enabled, endpoint, defaultWindow, ...headerArrays() };
+  }
+
+  function onImport() {
+    doImport.mutate(pasted, {
+      onSuccess: (r) => {
+        if (r.recognized && r.endpoint) {
+          setEndpoint(r.endpoint);
+          setHeaderRows(
+            r.headerName.map((name, i) => ({ id: `${name}-${i}`, name, value: r.headerValue[i] ?? '', masked: false }))
+          );
+          setMode('manual');
+          notifications.show({
+            message: 'Recognized the endpoint below. Review it, then Save.',
+            color: 'pass',
+          });
+        }
+      },
+    });
+  }
+
+  function onSave() {
+    save.mutate(payload(), {
+      onSuccess: (r) => notifications.show({ message: r.message, color: 'pass' }),
+    });
+  }
+
+  return (
+    <Card withBorder radius="md">
+      <Group justify="space-between" align="flex-start" mb="sm">
+        <div>
+          <Title order={2} size="h4">
+            Dynatrace
+          </Title>
+          <Text size="sm" c="dimmed">
+            Optional. Used to calibrate workloads from real production traffic over MCP.
+          </Text>
+        </div>
+        <Badge color={availability.available ? 'pass' : 'neutral'}>
+          {availability.available ? 'Connected' : 'Unavailable'}
+        </Badge>
+      </Group>
+
+      <Facts>
+        <Fact label="Endpoint">
+          <span className={classes.mono}>{settings.endpoint || 'not configured'}</span>
+        </Fact>
+        <Fact label="Default window">{settings.defaultWindowDisplay}</Fact>
+      </Facts>
+
+      {!availability.available && (
+        <Alert color="neutral" title={availability.problem} mt="md">
+          <Text size="sm">{availability.remedy}</Text>
+        </Alert>
+      )}
+
+      <SegmentedControl
+        mt="md"
+        size="xs"
+        value={mode}
+        onChange={(v) => setMode(v as 'manual' | 'paste')}
+        data={[
+          { label: 'Endpoint URL', value: 'manual' },
+          { label: 'MCP configuration', value: 'paste' },
+        ]}
+      />
+
+      {mode === 'paste' ? (
+        <Stack gap="xs" mt="sm">
+          <Textarea
+            label="MCP configuration"
+            description={'Paste an MCP server entry — e.g. {"command": "npx", "args": ["mcp-remote", "https://..."]} — or just the endpoint URL. Vortex only reads the URL out of it; it never runs the command.'}
+            placeholder='{"command": "npx", "args": ["mcp-remote", "https://your-endpoint/mcp"]}'
+            minRows={3}
+            value={pasted}
+            onChange={(e) => setPasted(e.currentTarget.value)}
+          />
+          <Group>
+            <Button size="xs" variant="default" onClick={onImport} loading={doImport.isPending}>
+              Parse
+            </Button>
+          </Group>
+          {doImport.data && !doImport.data.recognized && (
+            <Alert color="warn" title="Not recognized">
+              {doImport.data.reason}
+            </Alert>
+          )}
+        </Stack>
+      ) : (
+        <Stack gap="sm" mt="sm">
+          <TextInput
+            label="Endpoint"
+            placeholder="https://sre-mcp-server.internal/mcp"
+            value={endpoint}
+            onChange={(e) => setEndpoint(e.currentTarget.value)}
+          />
+          <Group grow>
+            <TextInput
+              label="Default observation window"
+              placeholder="30d"
+              value={defaultWindow}
+              onChange={(e) => setDefaultWindow(e.currentTarget.value)}
+            />
+            <Select
+              label="Enabled"
+              data={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
+              value={enabled ? 'yes' : 'no'}
+              onChange={(v) => setEnabled(v !== 'no')}
+            />
+          </Group>
+          <HeaderRows rows={headerRows} onChange={setHeaderRows} />
+        </Stack>
+      )}
+
+      {test.data && (
+        <div style={{ marginTop: 'var(--mantine-spacing-md)' }}>
+          <List spacing={4} size="sm" center>
+            {test.data.stages.map((stage) => (
+              <List.Item
+                key={stage.stage}
+                icon={
+                  <ThemeIcon color={stage.succeeded ? 'pass' : 'fail'} size={18} radius="xl">
+                    {stage.succeeded ? <IconCheck size={12} /> : <IconX size={12} />}
+                  </ThemeIcon>
+                }
+              >
+                {stage.stage}
+                {!stage.succeeded && stage.detail && (
+                  <Text size="xs" c="dimmed">
+                    {stage.detail}
+                  </Text>
+                )}
+              </List.Item>
+            ))}
+          </List>
+        </div>
+      )}
+
+      <Group mt="md">
+        <Button size="sm" onClick={onSave} loading={save.isPending}>
+          Save
+        </Button>
+        <Button
+          size="sm"
+          variant="default"
+          onClick={() => test.mutate(payload())}
+          loading={test.isPending}
+          disabled={mode === 'paste'}
+        >
+          Test connection
+        </Button>
+      </Group>
+
+      <details className={classes.advanced}>
+        <summary>What Vortex sends</summary>
+        <div className={classes.advancedBody}>
+          <p>
+            Vortex connects directly to the endpoint above over HTTPS. It never runs the
+            <code> npx mcp-remote</code> command an SRE-provided config may describe — that bridge
+            exists for MCP clients that only support stdio, and Vortex is not one.
+          </p>
+          <p>
+            Only the deterministic queries below travel to Dynatrace: throughput, request latency
+            and failure rate for the entity mapped from a service&apos;s Configuration page. Vortex
+            never asks Dynatrace or any AI tool to interpret, summarise or decide what a baseline
+            means.
+          </p>
+          <p>
+            Header values may reference environment variables as <code>${'{NAME}'}</code>. The
+            reference is stored; the resolved secret is never sent back to this browser.
+          </p>
+        </div>
+      </details>
+    </Card>
   );
 }

@@ -83,8 +83,8 @@ public final class ConfigurationDtos {
 
     // ---------------------------------------------------------------- observation
 
-    public record ObservationSourceDto(String kind, String endpoint, String serviceIdentifier,
-            String windowDisplay, Map<String, String> maskedHeaders) {
+    public record ObservationSourceDto(String kind, String transport, String endpoint,
+            String serviceIdentifier, String windowDisplay, Map<String, String> maskedHeaders) {
     }
 
     public record TestConnectionResponse(boolean succeeded, String message) {

@@ -250,8 +250,9 @@ public class ConfigurationApiController {
     }
 
     private ObservationSourceDto toDto(ObservationSource source) {
-        return new ObservationSourceDto(source.kind().name(), source.endpoint(),
-                source.serviceIdentifier(), Durations.display(source.window()), maskedHeaders(source));
+        return new ObservationSourceDto(source.kind().name(), source.transport().name(),
+                source.endpoint(), source.serviceIdentifier(), Durations.display(source.window()),
+                maskedHeaders(source));
     }
 
     private Map<String, String> maskedHeaders(ObservationSource source) {
@@ -748,8 +749,9 @@ public class ConfigurationApiController {
 
     // ==================================================================== observation source
 
-    public record ObservationSourceRequest(String source, String endpoint, String serviceIdentifier,
-            String window, List<String> headerName, List<String> headerValue) {
+    public record ObservationSourceRequest(String source, String transport, String endpoint,
+            String serviceIdentifier, String window, List<String> headerName,
+            List<String> headerValue) {
     }
 
     @PostMapping("/observation")
@@ -791,9 +793,16 @@ public class ConfigurationApiController {
             default -> throw new IllegalArgumentException("'" + request.source()
                     + "' is not a system Vortex can ask. Choose Prometheus or Dynatrace.");
         };
+        ObservationSource.Transport transport =
+                switch (request.transport() == null ? "" : request.transport().toLowerCase()) {
+                    case "", "rest" -> ObservationSource.Transport.REST;
+                    case "mcp" -> ObservationSource.Transport.MCP;
+                    default -> throw new IllegalArgumentException("'" + request.transport()
+                            + "' is not a transport Vortex knows. Choose REST or MCP.");
+                };
         String names = request.headerName() == null ? "" : String.join("\n", request.headerName());
         String values = request.headerValue() == null ? "" : String.join("\n", request.headerValue());
-        return new ObservationSource(kind, request.endpoint(), request.serviceIdentifier(),
+        return new ObservationSource(kind, transport, request.endpoint(), request.serviceIdentifier(),
                 Durations.parse(request.window()), parseHeaders(names, values), Map.of());
     }
 

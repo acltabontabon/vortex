@@ -22,6 +22,7 @@ public record VortexProperties(
         Workspace workspace,
         Engine engine,
         Ai ai,
+        DynatraceMcp dynatraceMcp,
         LoadGenerator loadGenerator,
         Safety safety,
         Observability observability) {
@@ -31,6 +32,7 @@ public record VortexProperties(
         workspace = workspace == null ? new Workspace(null) : workspace;
         engine = engine == null ? new Engine(null, null, null, null, true, null) : engine;
         ai = ai == null ? new Ai(null, null, null, null, false) : ai;
+        dynatraceMcp = dynatraceMcp == null ? new DynatraceMcp(false, null, null, null, null) : dynatraceMcp;
         loadGenerator = loadGenerator == null ? new LoadGenerator(null, null, null) : loadGenerator;
         safety = safety == null ? new Safety(null, null, null) : safety;
         observability = observability == null ? new Observability(null, null, null) : observability;
@@ -138,6 +140,36 @@ public record VortexProperties(
 
         public boolean hasModel() {
             return !model.isBlank();
+        }
+    }
+
+    /**
+     * The Dynatrace MCP connection: one endpoint, reached directly over HTTPS, shared by every
+     * project whose {@code observation.transport} is {@code mcp}.
+     *
+     * <p>Static install-wide defaults only — the runtime-mutable value a call actually reads is
+     * {@code com.acltabontabon.vortex.dynatrace.DynatraceMcpSettings}, seeded from this at startup
+     * and then updatable from the Settings page without a restart, the same split {@link Ai} and
+     * {@code AiSettings} already use.
+     *
+     * @param enabled       whether Dynatrace MCP is available for use
+     * @param endpoint      the MCP server's base URL. Never a command — Vortex connects to this URL
+     *                      directly and never spawns a local process to reach it
+     * @param headers       request headers, whose values may be {@code ${NAME}} references — empty
+     *                      when the server needs no credential, the common case behind a VPN
+     * @param defaultWindow how far back a fetch looks when a service does not override it
+     * @param queryTimeout  how long a single MCP tool call may take before Vortex gives up on it
+     */
+    public record DynatraceMcp(boolean enabled, String endpoint, java.util.Map<String, String> headers,
+            Duration defaultWindow, Duration queryTimeout) {
+
+        public DynatraceMcp {
+            endpoint = endpoint == null ? "" : endpoint.trim();
+            headers = headers == null ? java.util.Map.of() : java.util.Map.copyOf(headers);
+            defaultWindow = defaultWindow == null || defaultWindow.isZero() || defaultWindow.isNegative()
+                    ? Duration.ofDays(30) : defaultWindow;
+            queryTimeout = queryTimeout == null || queryTimeout.isZero() || queryTimeout.isNegative()
+                    ? Duration.ofSeconds(30) : queryTimeout;
         }
     }
 

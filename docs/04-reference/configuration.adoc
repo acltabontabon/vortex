@@ -599,16 +599,26 @@ observation:
     Authorization: "Api-Token ${DT_TOKEN}"
 ----
 
+[source,yaml]
+----
+observation:
+  source: dynatrace
+  transport: mcp                       # reach Dynatrace through the MCP endpoint configured
+  entity: SERVICE-1A2B3C4D5E6F7890      # under Settings, instead of this endpoint/headers pair
+  window: 30d
+----
+
 [cols="1,1,3", options="header"]
 |===
 | Key | Type | Meaning
 
 | `source` | enum | Required. `prometheus` or `dynatrace`
-| `endpoint` | url | Required. The API root, not a dashboard URL
+| `transport` | enum | `rest` (default) or `mcp` — Dynatrace only. See <<dynatrace-via-mcp,Dynatrace via MCP>>
+| `endpoint` | url | Required unless `transport: mcp`. The API root, not a dashboard URL
 | `service` | string | Required for Prometheus. The value of the service label
 | `entity` | string | Required for Dynatrace. The entity id, e.g. `SERVICE-1A2B3C4D5E6F7890`
 | `window` | duration | Required. How far back to look, e.g. `30d`
-| `headers` | map | Request headers. Values may be `${NAME}` references
+| `headers` | map | Request headers. Values may be `${NAME}` references. Ignored when `transport: mcp`
 | `labels` | map | Prometheus label names for `service`, `route` and `method`. Ignored by Dynatrace
 |===
 
@@ -638,6 +648,59 @@ when somebody has one and needs it.
 OpenTelemetry is not a third source. It is how a service *emits* telemetry, not something Vortex
 queries: a service instrumented with it is already reachable through whichever system ingests it.
 Vortex will not build a collector or a telemetry pipeline of its own.
+
+[[dynatrace-via-mcp]]
+=== Dynatrace via MCP
+
+Some teams' only route to Dynatrace is an MCP server their SRE team runs, often reachable only over
+a corporate VPN and with no separate credential — the VPN is the perimeter. `transport: mcp` on a
+Dynatrace source points Vortex at that server instead of Dynatrace's REST API, without changing
+anything else about how `observation`, `production` or calibration behave.
+
+*What it does not do.* Vortex connects to the MCP endpoint directly over HTTPS, as a full MCP
+client. The config an SRE team hands out is often shaped for a different kind of client and looks
+like this:
+
+[source,json]
+----
+{"our-sre": {"command": "npx", "args": ["mcp-remote", "https://sre-mcp-server.internal/mcp"]}}
+----
+
+`mcp-remote` is a local bridge for MCP clients that only speak stdio. *Vortex never runs it* — it is
+not that kind of client. If you paste this exact shape into Settings → Dynatrace, Vortex recognises
+it, extracts the URL, and shows it for review before anything is saved; it never executes the
+command. Anything Vortex cannot reduce to "here is the remote URL" is refused with an explanation
+rather than run.
+
+*Setup.*
+
+1. Get the MCP endpoint URL from SRE — either the bare URL, or their `mcp-remote`-shaped config.
+2. Under *Settings → Dynatrace*, paste the config (or enter the URL directly) and *Save*.
+3. *Test connection* — this checks the endpoint is reachable, authentication succeeds if a
+   credential is configured, and the server offers the `execute_dql` tool Vortex needs.
+4. On a service's Configuration page, under *Production reality*, set the source to Dynatrace and
+   *Connect via* MCP, and give the service's entity id as usual.
+
+*What travels to Dynatrace.* Only three fixed, versioned queries — throughput, request latency and
+failure rate, each a hand-written DQL statement Vortex composes itself. Nothing asks Dynatrace or
+any MCP tool to interpret, summarise, or decide what a baseline means; that stays Vortex's own
+`ProductionObservation` calculation, identical to the REST path.
+
+*Known limitation.* Operation mix (the per-endpoint traffic breakdown) is not yet available over
+MCP — `production.observedMix` is absent for an MCP-sourced observation, the same as it would be for
+a REST-sourced one Dynatrace could not attribute.
+
+*Troubleshooting.*
+
+[cols="1,3", options="header"]
+|===
+| Test connection fails at | Usual cause
+
+| MCP server reachable | Not on the VPN, or the endpoint URL is wrong
+| Authentication | The credential referenced under Settings is unset or wrong
+| Dynatrace tool discovered | The server does not offer `execute_dql` — check with SRE
+| Telemetry access | The entity id is wrong, or there is no traffic in the requested window
+|===
 
 === What each number means
 

@@ -890,6 +890,11 @@ public final class YamlConfigurationStore implements ConfigurationStore {
         ObservationSource.Kind kind =
                 enumValue(ObservationSource.Kind.class, rawKind, "observation.source");
 
+        String rawTransport = node.path("transport").asText("rest").trim();
+        ObservationSource.Transport transport = enumValue(
+                ObservationSource.Transport.class, rawTransport.isEmpty() ? "rest" : rawTransport,
+                "observation.transport");
+
         // Prometheus is asked about a label value, Dynatrace about an entity. Same field in the
         // domain, different words in the file, because using the wrong one is a mistake worth
         // catching here rather than in a 404 from the vendor.
@@ -911,7 +916,7 @@ public final class YamlConfigurationStore implements ConfigurationStore {
         }
 
         try {
-            return new ObservationSource(kind, node.path("endpoint").asText(""), identifier,
+            return new ObservationSource(kind, transport, node.path("endpoint").asText(""), identifier,
                     ConfigText.duration("observation.window", node.path("window").asText()),
                     stringMap(node.path("headers")),
                     stringMap(node.path("labels")));
@@ -1452,7 +1457,11 @@ public final class YamlConfigurationStore implements ConfigurationStore {
                     observation:
                     """);
             out.append("  source: ").append(source.kind().name().toLowerCase(Locale.ROOT)).append('\n');
-            out.append("  endpoint: ").append(quote(source.endpoint())).append('\n');
+            if (source.transport() == ObservationSource.Transport.MCP) {
+                out.append("  transport: mcp\n");
+            } else {
+                out.append("  endpoint: ").append(quote(source.endpoint())).append('\n');
+            }
             out.append(source.kind() == ObservationSource.Kind.DYNATRACE ? "  entity: " : "  service: ")
                     .append(quote(source.serviceIdentifier())).append('\n');
             out.append("  window: ")

@@ -28,9 +28,15 @@ import com.acltabontabon.vortex.core.target.CpuAllocation;
 import com.acltabontabon.vortex.core.target.MemoryAllocation;
 import com.acltabontabon.vortex.core.target.ResourceEnvelopeRequest;
 import com.acltabontabon.vortex.core.workload.RateAllocator;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpAvailability;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpClientFactory;
+import com.acltabontabon.vortex.dynatrace.DynatraceMcpSettings;
+import com.acltabontabon.vortex.app.config.DynatraceMcpPreferenceStore;
 import com.acltabontabon.vortex.persistence.VortexWorkspace;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +69,11 @@ class SettingsApiControllerTest {
         LoadGeneratorBudgetSettings loadGeneratorBudgetSettings() {
             return LoadGeneratorBudgetSettings.seeded(LoadGeneratorResourceBudget.automatic());
         }
+
+        @Bean
+        DynatraceMcpSettings dynatraceMcpSettings() {
+            return new DynatraceMcpSettings(false, "", Map.of(), null, null);
+        }
     }
 
     @Autowired
@@ -73,6 +84,9 @@ class SettingsApiControllerTest {
 
     @Autowired
     private LoadGeneratorBudgetSettings loadGeneratorBudgetSettings;
+
+    @Autowired
+    private DynatraceMcpSettings dynatraceMcpSettings;
 
     @MockitoBean
     private VortexProperties properties;
@@ -101,6 +115,15 @@ class SettingsApiControllerTest {
     @MockitoBean
     private LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver;
 
+    @MockitoBean
+    private DynatraceMcpPreferenceStore dynatraceMcpPreferences;
+
+    @MockitoBean
+    private DynatraceMcpAvailability dynatraceMcpAvailability;
+
+    @MockitoBean
+    private DynatraceMcpClientFactory dynatraceMcpClients;
+
     private static ResolvedLoadGeneratorBudget resolvedAutomaticBudget() {
         return new ResolvedLoadGeneratorBudget(
                 LoadGeneratorResourceBudget.BudgetMode.AUTOMATIC,
@@ -128,6 +151,9 @@ class SettingsApiControllerTest {
         when(workspace.root()).thenReturn(Path.of("/tmp/vortex-workspace"));
         when(loadGeneratorResourceBudgetResolver.resolve(any(), anyBoolean()))
                 .thenReturn(resolvedAutomaticBudget());
+        when(dynatraceMcpAvailability.check()).thenReturn(
+                new DynatraceMcpAvailability.Availability(false, "Dynatrace MCP is not enabled.",
+                        "Turn it on and set the endpoint under Settings."));
     }
 
     @Test
@@ -151,7 +177,9 @@ class SettingsApiControllerTest {
                         .value(12))
                 .andExpect(jsonPath("$.loadGenerator.effective.colocatedWithManagedSut").value(true))
                 .andExpect(jsonPath("$.loadGenerator.automaticPreview.allocation.cpuMillicores")
-                        .value(4000));
+                        .value(4000))
+                .andExpect(jsonPath("$.dynatraceMcp.enabled").value(false))
+                .andExpect(jsonPath("$.dynatraceMcpAvailability.available").value(false));
     }
 
     @Test
@@ -265,5 +293,55 @@ class SettingsApiControllerTest {
                                 {"mode":"custom","cpuMillicores":0,"memoryMebibytes":2048}
                                 """))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void savingDynatraceMcpTakesEffectImmediatelyAndPersists() throws Exception {
+        mockMvc.perform(post("/api/settings/dynatrace-mcp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"enabled":true,"endpoint":"https://sre-mcp-server.internal/mcp",
+                                 "defaultWindow":"30d","headerName":[],"headerValue":[]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value(
+                        "Saved. Test the connection, then map a service to a Dynatrace entity."));
+
+        assertThat(dynatraceMcpSettings.enabled()).isTrue();
+        assertThat(dynatraceMcpSettings.endpoint()).isEqualTo("https://sre-mcp-server.internal/mcp");
+        verify(dynatraceMcpPreferences).save(true, "https://sre-mcp-server.internal/mcp", Map.of(), "30d");
+        verify(dynatraceMcpAvailability).refresh();
+    }
+
+    @Test
+    void importingARecognizedMcpRemoteConfigExtractsTheUrl() throws Exception {
+        String pastedConfig = """
+                {"our-sre":{"command":"npx","args":["mcp-remote","https://sre-mcp-server.internal/mcp"]}}""";
+        mockMvc.perform(post("/api/settings/dynatrace-mcp/import")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(importRequestBody(pastedConfig)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recognized").value(true))
+                .andExpect(jsonPath("$.endpoint").value("https://sre-mcp-server.internal/mcp"));
+    }
+
+    @Test
+    void importingAnUnrecognizedCommandIsRefusedRatherThanExecuted() throws Exception {
+        String pastedConfig = """
+                {"command":"rm","args":["-rf","/"]}""";
+        mockMvc.perform(post("/api/settings/dynatrace-mcp/import")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(importRequestBody(pastedConfig)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recognized").value(false))
+                .andExpect(jsonPath("$.reason").isNotEmpty());
+    }
+
+    private static String importRequestBody(String pastedConfig) throws Exception {
+        return new com.fasterxml.jackson.databind.ObjectMapper()
+                .writeValueAsString(new ImportDynatraceMcpBody(pastedConfig));
+    }
+
+    private record ImportDynatraceMcpBody(String pastedConfig) {
     }
 }

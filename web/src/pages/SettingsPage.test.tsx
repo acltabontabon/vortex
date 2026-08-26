@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/renderWithProviders';
 import type { Settings } from '../api/settings';
+
+/** Scopes queries to the card titled `heading` — several cards share button labels like "Save". */
+function withinCard(heading: string) {
+  const card = screen.getByText(heading).closest('.mantine-Card-root');
+  if (!card) throw new Error(`No card found for heading "${heading}"`);
+  return within(card as HTMLElement);
+}
 import { SettingsPage } from './SettingsPage';
 
 let queryResult: { data: Settings | undefined; isError: boolean } = {
@@ -12,6 +19,9 @@ let queryResult: { data: Settings | undefined; isError: boolean } = {
 const retryMutate = vi.fn();
 const chooseModelMutate = vi.fn();
 const chooseLoadGeneratorBudgetMutate = vi.fn();
+const saveDynatraceMcpMutate = vi.fn();
+const testDynatraceMcpMutate = vi.fn();
+const importDynatraceMcpMutate = vi.fn();
 
 vi.mock('../api/settings', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/settings')>();
@@ -24,6 +34,9 @@ vi.mock('../api/settings', async (importOriginal) => {
       mutate: chooseLoadGeneratorBudgetMutate,
       isPending: false,
     }),
+    useSaveDynatraceMcpMutation: () => ({ mutate: saveDynatraceMcpMutate, isPending: false }),
+    useTestDynatraceMcpMutation: () => ({ mutate: testDynatraceMcpMutate, isPending: false, data: undefined }),
+    useImportDynatraceMcpMutation: () => ({ mutate: importDynatraceMcpMutate, isPending: false, data: undefined }),
   };
 });
 
@@ -87,6 +100,12 @@ function aSettings(overrides: Partial<Settings> = {}): Settings {
         colocatedWithManagedSut: true,
       },
     },
+    dynatraceMcp: { enabled: false, endpoint: '', maskedHeaders: {}, defaultWindowDisplay: '30d' },
+    dynatraceMcpAvailability: {
+      available: false,
+      problem: 'Dynatrace MCP is not enabled.',
+      remedy: 'Turn it on and set the endpoint under Settings.',
+    },
     ...overrides,
   };
 }
@@ -122,7 +141,7 @@ describe('the settings page', () => {
     queryResult = { data: aSettings(), isError: false };
     renderWithProviders(<SettingsPage />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await userEvent.click(withinCard('Local AI').getByRole('button', { name: 'Test connection' }));
     expect(retryMutate).toHaveBeenCalled();
   });
 
@@ -130,8 +149,7 @@ describe('the settings page', () => {
     queryResult = { data: aSettings(), isError: false };
     renderWithProviders(<SettingsPage />);
 
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' });
-    await userEvent.click(saveButtons[saveButtons.length - 1]);
+    await userEvent.click(withinCard('Local AI').getByRole('button', { name: 'Save' }));
     expect(chooseModelMutate).toHaveBeenCalledWith('qwen3:4b', expect.anything());
   });
 
@@ -190,6 +208,61 @@ describe('the settings page', () => {
       expect(
         screen.getByText('This leaves little headroom for the host and anything else running on it.'),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe('Dynatrace', () => {
+    it('shows the unconfigured state with its remedy', () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Dynatrace');
+      expect(card.getByText('Unavailable')).toBeInTheDocument();
+      expect(card.getByText('Dynatrace MCP is not enabled.')).toBeInTheDocument();
+    });
+
+    it('shows the connected state and the configured endpoint', () => {
+      queryResult = {
+        data: aSettings({
+          dynatraceMcp: {
+            enabled: true,
+            endpoint: 'https://sre-mcp-server.internal/mcp',
+            maskedHeaders: {},
+            defaultWindowDisplay: '30d',
+          },
+          dynatraceMcpAvailability: { available: true, problem: '', remedy: '' },
+        }),
+        isError: false,
+      };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Dynatrace');
+      expect(card.getByText('Connected')).toBeInTheDocument();
+      expect(card.getByText('https://sre-mcp-server.internal/mcp')).toBeInTheDocument();
+    });
+
+    it('saves the endpoint entered manually', async () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Dynatrace');
+      await userEvent.type(card.getByLabelText('Endpoint'), 'https://sre-mcp-server.internal/mcp');
+      await userEvent.click(card.getByRole('button', { name: 'Save' }));
+
+      expect(saveDynatraceMcpMutate).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: 'https://sre-mcp-server.internal/mcp' }),
+        expect.anything(),
+      );
+    });
+
+    it('the test connection button is disabled while pasting a config', async () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Dynatrace');
+      await userEvent.click(card.getByText('MCP configuration'));
+
+      expect(card.getByRole('button', { name: 'Test connection' })).toBeDisabled();
     });
   });
 });

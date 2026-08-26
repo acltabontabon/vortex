@@ -50,6 +50,7 @@ function aProduction(overrides: Partial<Production> = {}): Production {
 function anObservationSource(overrides: Partial<ObservationSource> = {}): ObservationSource {
   return {
     kind: 'PROMETHEUS',
+    transport: 'REST',
     endpoint: 'http://prometheus.internal:9090',
     serviceIdentifier: 'checkout-service',
     windowDisplay: '30d',

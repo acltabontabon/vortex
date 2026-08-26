@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.acltabontabon</groupId>
+    <artifactId>vortex-parent</artifactId>
+    <version>0.1.0-alpha.3</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>vortex-dynatrace</artifactId>
+  <name>Vortex :: Dynatrace MCP</name>
+  <description>MCP client adapter for Dynatrace production telemetry. Quarantines the MCP Java SDK,
+    exactly as vortex-ai quarantines Spring AI: nothing outside this module knows an MCP SDK type
+    exists.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.acltabontabon</groupId>
+      <artifactId>vortex-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.modelcontextprotocol.sdk</groupId>
+      <artifactId>mcp</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.acltabontabon</groupId>
+      <artifactId>vortex-core</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

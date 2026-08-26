@@ -1,0 +1,84 @@
+= ADR-049: Dynatrace MCP is a parallel transport, not a new domain concept
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+An SRE team's Dynatrace access is exposed only through an MCP server reachable over the corporate
+VPN. The config they hand out is shaped like the standard `mcp-remote` stdio bridge:
+
+[source,json]
+----
+"our-sre": { "command": "npx", "args": ["mcp-remote", "https://sre-mcp-server.internal/.../mcp"] }
+----
+
+`mcp-remote` exists so MCP clients that only speak stdio (editor plugins, chat clients) can reach a
+remote HTTP(S) server. Vortex is not such a client — it can be a full MCP client itself and speak
+Streamable-HTTP directly to the URL that command names. Running the command instead would mean
+executing a shell command an external, untrusted config supplied: exactly the arbitrary-command-
+execution risk the task that produced this ADR called out explicitly.
+
+Separately, Vortex already has a complete, working REST-based Dynatrace integration:
+`core.capacity.ObservationSource` (`Kind.DYNATRACE`), the `ProductionObservationSource` port,
+`DynatraceObservationSource`, and a "Production reality" panel on a service's Configuration page
+feeding `CalibrationService`. Adding Dynatrace-over-MCP as a second, unrelated integration would
+duplicate that domain model for no reason — the question ("what does production see") does not
+change; only how the answer is fetched does.
+
+== Decision
+
+MCP is a `Transport` on the existing `ObservationSource` record (`REST` or `MCP`, Dynatrace-only —
+`ObservationSource`'s own Javadoc is explicit that it models "two kinds, not a plugin framework",
+and `Transport` is a narrower, second axis that does not reopen that decision), not a third `Kind`
+and not a parallel type. `DynatraceMcpObservationSource` is a second implementation of
+`ProductionObservationSource`, selected by `CalibrationService`'s existing `supports(source)`
+dispatch exactly like the REST adapter is — no change to that service.
+
+Vortex connects to the Dynatrace MCP endpoint directly over HTTPS, as a full MCP client
+(`io.modelcontextprotocol.sdk:mcp`, Streamable-HTTP transport). It never spawns `npx`, `mcp-remote`,
+or any local process. The paste-import feature (`DynatraceMcpConfigImport`) recognises the
+`npx`/`mcp-remote`/URL shape in a pasted config and extracts the URL for review — it never executes
+what it parses, a guarantee an ArchUnit rule enforces at the module boundary
+(`DynatraceModuleArchitectureTest`: no class in `com.acltabontabon.vortex.dynatrace` may depend on
+`ProcessBuilder` or `Runtime`).
+
+A new module, `modules/dynatrace` (`vortex-dynatrace`), quarantines the MCP SDK dependency —
+applying the same rule that justified `vortex-ai` and `vortex-openapi`: a module exists to quarantine
+a substantial external dependency or enforce a real dependency direction. The REST Dynatrace adapter
+stays in `modules/app` because it needs only `RestClient`, already an `app` dependency; MCP needed a
+dependency nothing else in the tree has.
+
+Telemetry is fetched through a small, fixed, versioned set of deterministic queries
+(`dynatrace.throughput.v1`, `dynatrace.request-latency.v1`, `dynatrace.failure-rate.v1`), each a
+hand-written DQL statement calling the Dynatrace MCP server's `execute_dql` tool — never a free-text
+prompt asking an MCP tool to summarise, analyse, or decide what "typical traffic" means. A
+`TelemetryNormalizer` rejects a response that is prose instead of structured data, an unrecognised
+unit, a window or entity that does not match what was asked, or an empty/zero result, rather than
+guessing. Only the throughput query is currently wired into `ProductionObservation`: that record has
+no field for latency percentiles (deliberately, per ADR-017) or a failure-rate fraction, so the other
+two definitions exist — versioned, ready — without a retrieval consuming them yet. Extending the
+domain to carry them is a separate decision this ADR does not make.
+
+== Consequences
+
+A second, VPN-friendly path to the same `ProductionObservation` domain model, with zero changes to
+`CalibrationService`, the calibration UI, or anything downstream of an observation — they cannot tell
+which transport answered. Existing installations and existing `vortex.yaml` files are unaffected: a
+missing `transport:` key parses as `REST`, exactly as before this change.
+
+The cost is two Dynatrace adapters to maintain instead of one, and an MCP tool response's shape is
+far less contractually stable than Dynatrace's versioned REST Metrics API v2 — the normalizer
+therefore carries more defensive validation than the REST adapter ever needed, and the DQL statements
+in `Dql.java` are provisional pending verification against the real SRE-provided endpoint (VPN-gated,
+not reachable from the automated test suite).
+
+Reversible at low cost: dropping `modules/dynatrace` removes the MCP path entirely, and
+`Transport.MCP` staying in `ObservationSource` with no adapter registered simply falls back to
+`CalibrationService`'s existing "no adapter answers for this transport" refusal.
+
+Entity search/autocomplete, operation-mix over MCP, a direct-DQL-API transport
+(`Transport.DQL`), connection pooling, and retries are explicitly out of scope for this decision —
+see the paragraph on known limitations in the implementation notes rather than this ADR, since none
+of them change the architecture recorded here.

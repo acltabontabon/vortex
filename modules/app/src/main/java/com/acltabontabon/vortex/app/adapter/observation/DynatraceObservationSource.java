@@ -68,7 +68,8 @@ public final class DynatraceObservationSource implements ProductionObservationSo
 
     @Override
     public boolean supports(ObservationSource source) {
-        return source != null && source.kind() == ObservationSource.Kind.DYNATRACE;
+        return source != null && source.kind() == ObservationSource.Kind.DYNATRACE
+                && source.transport() == ObservationSource.Transport.REST;
     }
 
     @Override

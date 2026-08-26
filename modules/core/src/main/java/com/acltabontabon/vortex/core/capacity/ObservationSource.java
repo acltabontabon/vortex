@@ -20,7 +20,14 @@ import java.util.TreeSet;
  * two real adapters written against them are worth more than an extension point with two names
  * attached to it. A third becomes worth building when somebody has one and needs it.
  *
+ * <p>{@code transport} is a narrower, second axis that only Dynatrace uses: the same question —
+ * "what does production see" — can be answered over Dynatrace's REST metrics API or over an MCP
+ * server an SRE team already runs. That is a detail of how the answer is fetched, not a third kind
+ * of question, so it does not reopen the "two kinds" decision above.
+ *
  * @param kind              which system answers
+ * @param transport         how that system is reached. Defaults to {@link Transport#REST} when
+ *                          omitted, so every existing configuration keeps meaning what it always meant
  * @param endpoint          its base URL
  * @param serviceIdentifier what the system calls this service — a label value for Prometheus, an
  *                          entity id for Dynatrace. Its meaning is the adapter's business
@@ -32,6 +39,7 @@ import java.util.TreeSet;
  */
 public record ObservationSource(
         Kind kind,
+        Transport transport,
         String endpoint,
         String serviceIdentifier,
         Duration window,
@@ -54,27 +62,59 @@ public record ObservationSource(
         }
     }
 
+    /** How the system is reached. */
+    public enum Transport {
+        REST("REST API"),
+        MCP("MCP");
+
+        private final String label;
+
+        Transport(String label) {
+            this.label = label;
+        }
+
+        public String label() {
+            return label;
+        }
+    }
+
     /** Label names a Micrometer-instrumented Spring service publishes by default. */
     public static final Map<String, String> DEFAULT_LABELS =
             Map.of("service", "application", "route", "uri", "method", "method");
 
+    /** Every existing caller means REST — MCP is opted into explicitly, never inferred. */
+    public ObservationSource(Kind kind, String endpoint, String serviceIdentifier, Duration window,
+            Map<String, String> headers, Map<String, String> labels) {
+        this(kind, Transport.REST, endpoint, serviceIdentifier, window, headers, labels);
+    }
+
     public ObservationSource {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(window, "window");
+        transport = transport == null ? Transport.REST : transport;
         endpoint = endpoint == null ? "" : endpoint.trim();
         serviceIdentifier = serviceIdentifier == null ? "" : serviceIdentifier.trim();
         headers = headers == null ? Map.of() : Map.copyOf(headers);
         labels = labels == null || labels.isEmpty() ? DEFAULT_LABELS : Map.copyOf(labels);
 
-        if (endpoint.isBlank()) {
+        if (kind == Kind.PROMETHEUS && transport == Transport.MCP) {
             throw new IllegalArgumentException(
-                    "an observation source needs an endpoint — the base URL of the " + kind.label()
-                            + " that can answer questions about this service");
+                    "Prometheus has no MCP transport — only Dynatrace does. Use transport REST, or "
+                            + "choose Dynatrace if you meant to reach it over MCP.");
         }
-        if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-            throw new IllegalArgumentException(
-                    "observation source endpoint must be an absolute http or https URL but was: "
-                            + endpoint);
+        // An MCP transport's endpoint lives in the global Dynatrace MCP settings, not here — this
+        // record only records which entity to ask that shared connection about.
+        if (transport == Transport.REST) {
+            if (endpoint.isBlank()) {
+                throw new IllegalArgumentException(
+                        "an observation source needs an endpoint — the base URL of the " + kind.label()
+                                + " that can answer questions about this service");
+            }
+            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                throw new IllegalArgumentException(
+                        "observation source endpoint must be an absolute http or https URL but was: "
+                                + endpoint);
+            }
         }
         if (serviceIdentifier.isBlank()) {
             throw new IllegalArgumentException(
@@ -118,7 +158,8 @@ public record ObservationSource(
     }
 
     public String describe() {
-        return kind.label() + " at " + endpoint + ", over the last "
+        String reached = transport == Transport.MCP ? "via MCP" : "at " + endpoint;
+        return kind.label() + " " + reached + ", over the last "
                 + com.acltabontabon.vortex.core.threshold.Durations.display(window);
     }
 }

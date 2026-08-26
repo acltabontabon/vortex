@@ -38,6 +38,7 @@
     <module>modules/openapi</module>
     <module>modules/k6</module>
     <module>modules/ai</module>
+    <module>modules/dynatrace</module>
     <module>modules/persistence</module>
     <module>modules/app</module>
     <module>examples/demo-service</module>
@@ -52,6 +53,7 @@
     <swagger-parser.version>2.1.47</swagger-parser.version>
     <archunit.version>1.5.0</archunit.version>
     <commons-csv.version>1.14.1</commons-csv.version>
+    <mcp-java-sdk.version>2.0.1</mcp-java-sdk.version>
   </properties>
 
   <dependencyManagement>
@@ -94,6 +96,11 @@
       </dependency>
       <dependency>
         <groupId>com.acltabontabon</groupId>
+        <artifactId>vortex-dynatrace</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.acltabontabon</groupId>
         <artifactId>vortex-persistence</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -103,6 +110,11 @@
         <groupId>org.apache.commons</groupId>
         <artifactId>commons-csv</artifactId>
         <version>${commons-csv.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.modelcontextprotocol.sdk</groupId>
+        <artifactId>mcp</artifactId>
+        <version>${mcp-java-sdk.version}</version>
       </dependency>
       <dependency>
         <groupId>io.swagger.parser.v3</groupId>
