@@ -44,7 +44,12 @@ jobs:
         if: always()
         with:
           name: Docker/k6 integration test results
-          path: 'modules/{k6,app}/target/surefire-reports/TEST-*.xml'
+          # One glob per line, not a brace-expanded pattern: dorny/test-reporter resolves paths
+          # via @actions/glob, which does not expand `{k6,app}`-style braces, so that combined
+          # pattern silently matched nothing.
+          path: |
+            modules/k6/target/surefire-reports/TEST-*.xml
+            modules/app/target/surefire-reports/TEST-*.xml
           reporter: java-junit
           list-tests: failed
           fail-on-error: false
