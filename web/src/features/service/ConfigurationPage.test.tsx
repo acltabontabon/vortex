@@ -26,6 +26,7 @@ vi.mock('../../api/tests', async (importOriginal) => {
 
 function aConfiguration(overrides: Partial<Configuration> = {}): Configuration {
   return {
+    name: 'checkout-service',
     serviceVersion: '2.17.0',
     environments: [
       {

@@ -1,0 +1,64 @@
+= ADR-058: Dynatrace entity id can be looked up by service name, as a suggestion, never a
+replacement for manual entry
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+Configuring a Dynatrace observation source has always required an entity id
+(`SERVICE-1A2B3C4D5E6F7890`) that has no relationship to anything else Vortex knows about the
+service — a person has to leave Vortex, find the service in Dynatrace's own UI, and copy the id back
+in, guided by nothing more than a placeholder example. Vortex already has the service's own name,
+entered when the service was created; if Dynatrace's entity name matches or resembles it, Vortex can
+try to resolve the id itself instead of requiring the round trip every time.
+
+There is no dedicated entity-search MCP tool: every capability this integration has ever used goes
+through `execute_dql` (ADR-049 through ADR-057, without exception). The only way to implement a
+lookup is another hand-written DQL statement — `fetch dt.entity.service | filter
+matchesPhrase(entity.name, "...")` — carrying the same "unverified against a live tenant" caveat
+every DQL statement in `Dql.java` already does.
+
+== Decision
+
+`DynatraceEntitySearch` (in the `query` package, alongside `Dql`) builds this lookup and parses its
+response; `DynatraceEntityLookup` (top-level, mirroring `DynatraceMcpObservationSource`'s shape —
+same constructor pattern, same fail-fast-before-connecting checks, same organization resolution via
+`DqlToolSchema`) orchestrates it against the client factory. A new endpoint,
+`POST /api/services/{id}/observation/dynatrace/entities`, exposes it to the Configuration page's
+Production reality panel.
+
+Three properties keep this a strictly additive, low-risk feature:
+
+* *A suggestion, never authoritative.* The manual "Entity id" field is untouched — always visible,
+  always editable, regardless of what a lookup returns. Picking a match just fills the field with a
+  value a person can still overwrite; `ObservationSource.serviceIdentifier()`'s own contract ("the
+  adapter's business") is unchanged.
+* *A sanity filter against a wrong envelope match.* `execute_dql`'s response shape is not
+  contractually documented (the same reason `TelemetryNormalizer` walks its tree defensively rather
+  than assuming a fixed shape) — an `id`-named field could legitimately belong to something else in
+  the envelope (a request id, a tool-call id). `DynatraceEntitySearch.parse` only accepts an `id`
+  value starting with `SERVICE-`, the format already asserted in `ObservationSource`'s own validation
+  message, before treating it as a candidate.
+* *Always-visible manual guidance, not just an error-path fallback.* A short, permanent note under
+  the Entity id field explains where to find it by hand in Dynatrace's own UI — necessary regardless
+  of lookup outcome, since the REST transport has no MCP connection to search through at all, and an
+  MCP lookup can legitimately find nothing.
+
+== Consequences
+
+Most Dynatrace setups skip the manual copy-paste entirely when the service's Dynatrace name is close
+enough to its Vortex name. When it isn't, or when Dynatrace MCP isn't configured yet, nothing is worse
+off than before — the same manual field and the same (now clearer) guidance are still there.
+
+The DQL grammar (`matchesPhrase`, the `fetch dt.entity.service` source) is unverified against a real
+Dynatrace tenant, the same caveat every other statement in `Dql.java` carries — if the real grammar or
+response envelope differs, `DynatraceEntitySearch`'s query and parser are the only places that need
+correcting, isolated from everything else. The organization-resolution logic is duplicated, not
+shared, from `DynatraceMcpObservationSource.resolveOrganization`: the two classes want different
+error phrasing for the same underlying schema read, and the schema-reading itself is already isolated
+in the shared, public `DqlToolSchema.resolveOrganization`.
+
+Reversible at low cost: dropping the new endpoint, `DynatraceEntityLookup`, and `DynatraceEntitySearch`
+removes the lookup entirely, leaving the manual field and its guidance exactly as they already are.

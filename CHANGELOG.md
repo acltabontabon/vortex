@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- Configuring a Dynatrace observation source can now try to look up the entity id from the service's
+  name instead of requiring it to be copied in by hand — pick a match if Vortex finds one, or enter
+  it manually as before; guidance on finding it in Dynatrace directly is now shown either way.
+
 ## [0.1.0-alpha.17] - 2026-08-27
 
 ### Fixed

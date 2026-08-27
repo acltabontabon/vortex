@@ -121,6 +121,7 @@ export interface Catalog {
 }
 
 export interface Configuration {
+  name: string;
   serviceVersion: string | null;
   environments: Environment[];
   environmentTypes: EnvironmentOption[];
@@ -319,6 +320,26 @@ export function useTestObservationSourceMutation(id: string) {
   return useMutation({
     mutationFn: (request: ObservationSourceRequest) =>
       apiClient.post<TestConnectionResponse>(`/api/services/${id}/observation/test`, request),
+  });
+}
+
+export interface EntityCandidate {
+  id: string;
+  name: string;
+}
+
+export interface EntityLookupResponse {
+  succeeded: boolean;
+  candidates: EntityCandidate[];
+  problem: string | null;
+  remedy: string | null;
+}
+
+/** A best-effort search, not a save — never invalidates the service query. */
+export function useLookupDynatraceEntityMutation(id: string) {
+  return useMutation({
+    mutationFn: (query: string) =>
+      apiClient.post<EntityLookupResponse>(`/api/services/${id}/observation/dynatrace/entities`, { query }),
   });
 }
 

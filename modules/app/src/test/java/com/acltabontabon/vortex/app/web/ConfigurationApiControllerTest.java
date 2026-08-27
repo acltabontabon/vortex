@@ -87,6 +87,8 @@ class ConfigurationApiControllerTest {
     private WorkloadDrift drift;
     @MockitoBean
     private TargetExecutor targetExecutor;
+    @MockitoBean
+    private com.acltabontabon.vortex.dynatrace.DynatraceEntityLookup dynatraceEntityLookup;
 
     @BeforeEach
     void aConfiguredService() {
@@ -734,6 +736,56 @@ class ConfigurationApiControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.detail").value(
                             org.hamcrest.Matchers.containsString("Choose Prometheus or Dynatrace")));
+        }
+
+        @Test
+        @DisplayName("entity lookup rejects a blank query without calling Dynatrace")
+        void entityLookupRejectsABlankQuery() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/observation/dynatrace/entities")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"query":"  "}
+                                    """))
+                    .andExpect(status().isBadRequest());
+
+            verify(dynatraceEntityLookup, org.mockito.Mockito.never()).lookup(any());
+        }
+
+        @Test
+        @DisplayName("entity lookup returns candidates found by name")
+        void entityLookupReturnsCandidates() throws Exception {
+            when(dynatraceEntityLookup.lookup("checkout")).thenReturn(new com.acltabontabon.vortex.dynatrace
+                    .DynatraceEntityLookup.Found(List.of(new com.acltabontabon.vortex.dynatrace.query
+                    .DynatraceEntitySearch.Candidate("SERVICE-1A2B3C4D5E6F7890", "checkout-service"))));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/observation/dynatrace/entities")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"query":"checkout"}
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.succeeded").value(true))
+                    .andExpect(jsonPath("$.candidates[0].id").value("SERVICE-1A2B3C4D5E6F7890"))
+                    .andExpect(jsonPath("$.candidates[0].name").value("checkout-service"));
+        }
+
+        @Test
+        @DisplayName("entity lookup surfaces a failure's problem and remedy")
+        void entityLookupSurfacesAFailure() throws Exception {
+            when(dynatraceEntityLookup.lookup("checkout")).thenReturn(new com.acltabontabon.vortex.dynatrace
+                    .DynatraceEntityLookup.Failed("Dynatrace MCP is not enabled.",
+                    "Enable it and set the endpoint under Settings first."));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/observation/dynatrace/entities")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"query":"checkout"}
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.succeeded").value(false))
+                    .andExpect(jsonPath("$.candidates").isEmpty())
+                    .andExpect(jsonPath("$.problem").value("Dynatrace MCP is not enabled."))
+                    .andExpect(jsonPath("$.remedy").value("Enable it and set the endpoint under Settings first."));
         }
     }
 

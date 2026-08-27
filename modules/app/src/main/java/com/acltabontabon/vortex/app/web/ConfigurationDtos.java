@@ -95,6 +95,14 @@ public final class ConfigurationDtos {
     public record TestConnectionResponse(boolean succeeded, String message) {
     }
 
+    public record EntityCandidateDto(String id, String name) {
+    }
+
+    /** {@code problem}/{@code remedy} are only set when {@code succeeded} is false. */
+    public record EntityLookupResponse(boolean succeeded, List<EntityCandidateDto> candidates,
+            String problem, String remedy) {
+    }
+
     // ---------------------------------------------------------------- objectives
 
     public record ThresholdEditDto(Long p95Millis, Long p99Millis, Double errorPercent,
@@ -119,6 +127,7 @@ public final class ConfigurationDtos {
     // ---------------------------------------------------------------- the aggregate read
 
     public record ConfigurationDto(
+            String name,
             String serviceVersion,
             List<EnvironmentDto> environments,
             List<EnvironmentTypeOptionDto> environmentTypes,

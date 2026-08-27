@@ -6,6 +6,7 @@ import { ConfigurationCompleteness } from './ConfigurationCompleteness';
 
 function aConfiguration(overrides: Partial<Configuration> = {}): Configuration {
   return {
+    name: 'checkout-service',
     serviceVersion: null,
     environments: [],
     environmentTypes: [],

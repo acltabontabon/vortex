@@ -5,6 +5,8 @@ import com.acltabontabon.vortex.app.web.ConfigurationDtos.CatalogDto;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.ConfigurationDto;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.ConfigurationFileDto;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.DependencyModeOptionDto;
+import com.acltabontabon.vortex.app.web.ConfigurationDtos.EntityCandidateDto;
+import com.acltabontabon.vortex.app.web.ConfigurationDtos.EntityLookupResponse;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.EnvironmentDto;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.EnvironmentTypeOptionDto;
 import com.acltabontabon.vortex.app.web.ConfigurationDtos.ExecutionTargetSummaryDto;
@@ -67,6 +69,7 @@ import com.acltabontabon.vortex.core.threshold.ThresholdSet;
 import com.acltabontabon.vortex.core.workload.OperationMix;
 import com.acltabontabon.vortex.core.workload.Observation;
 import com.acltabontabon.vortex.core.workload.WeightedOperation;
+import com.acltabontabon.vortex.dynatrace.DynatraceEntityLookup;
 import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.time.Duration;
@@ -121,6 +124,7 @@ public class ConfigurationApiController {
     private final LocalLabRunner lab;
     private final WorkspaceAssembler assembler;
     private final List<TargetExecutor> targetExecutors;
+    private final DynatraceEntityLookup dynatraceEntityLookup;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -133,7 +137,8 @@ public class ConfigurationApiController {
 
     public ConfigurationApiController(ProjectService projects, CatalogImportService catalogs,
             CalibrationPolicy calibration, CalibrationService calibrationService,
-            LocalLabRunner lab, WorkspaceAssembler assembler, List<TargetExecutor> targetExecutors) {
+            LocalLabRunner lab, WorkspaceAssembler assembler, List<TargetExecutor> targetExecutors,
+            DynatraceEntityLookup dynatraceEntityLookup) {
         this.projects = Objects.requireNonNull(projects, "projects");
         this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
         this.calibration = Objects.requireNonNull(calibration, "calibration");
@@ -141,6 +146,7 @@ public class ConfigurationApiController {
         this.lab = Objects.requireNonNull(lab, "lab");
         this.assembler = Objects.requireNonNull(assembler, "assembler");
         this.targetExecutors = List.copyOf(Objects.requireNonNull(targetExecutors, "targetExecutors"));
+        this.dynatraceEntityLookup = Objects.requireNonNull(dynatraceEntityLookup, "dynatraceEntityLookup");
     }
 
     // ==================================================================== the read
@@ -154,6 +160,7 @@ public class ConfigurationApiController {
         ServiceCatalog catalog = projects.catalog(projectId).orElse(null);
 
         return new ConfigurationDto(
+                project.name(),
                 configuration.serviceVersionIfPresent().orElse(null),
                 configuration.environments().stream().map(this::toDto).toList(),
                 environmentTypeOptions(),
@@ -834,6 +841,32 @@ public class ConfigurationApiController {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
+    }
+
+    public record EntityLookupRequest(String query) {
+    }
+
+    /**
+     * Best-effort resolves a Dynatrace entity id from a name, over the global Dynatrace MCP
+     * connection — a suggestion for the "Entity id" field, never authoritative; the field stays
+     * manually editable regardless of what this returns. See {@link DynatraceEntityLookup}.
+     */
+    @PostMapping("/observation/dynatrace/entities")
+    public EntityLookupResponse lookupDynatraceEntity(@PathVariable String id, @RequestBody EntityLookupRequest request) {
+        if (request.query() == null || request.query().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Enter a service name to search for before looking it up.");
+        }
+        var result = dynatraceEntityLookup.lookup(request.query());
+        return switch (result) {
+            case DynatraceEntityLookup.Found found -> new EntityLookupResponse(true,
+                    found.candidates().stream()
+                            .map(c -> new EntityCandidateDto(c.id(), c.name()))
+                            .toList(),
+                    null, null);
+            case DynatraceEntityLookup.Failed failed ->
+                    new EntityLookupResponse(false, List.of(), failed.problem(), failed.remedy());
+        };
     }
 
     private ObservationSource observationSourceFrom(ObservationSourceRequest request) {

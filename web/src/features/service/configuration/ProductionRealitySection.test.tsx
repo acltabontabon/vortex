@@ -12,9 +12,13 @@ const recordMutate = vi.fn();
 const saveSourceMutate = vi.fn();
 const testSourceMutate = vi.fn();
 const applyMutate = vi.fn();
+const lookupMutate = vi.fn();
 
 let fetchResultData: { succeeded: boolean; error: string | null; preview: Production | null } | undefined =
   undefined;
+let lookupResultData:
+  | { succeeded: boolean; candidates: { id: string; name: string }[]; problem: string | null; remedy: string | null }
+  | undefined = undefined;
 
 vi.mock('../../../api/configuration', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../api/configuration')>();
@@ -32,6 +36,7 @@ vi.mock('../../../api/configuration', async (importOriginal) => {
     useRecordProductionMutation: () => ({ mutate: recordMutate, isPending: false, isError: false }),
     useSaveObservationSourceMutation: () => ({ mutate: saveSourceMutate, isPending: false, isError: false }),
     useTestObservationSourceMutation: () => ({ mutate: testSourceMutate, isPending: false, data: undefined }),
+    useLookupDynatraceEntityMutation: () => ({ mutate: lookupMutate, isPending: false, data: lookupResultData }),
   };
 });
 
@@ -85,10 +90,12 @@ function render(props: Partial<Parameters<typeof ProductionRealitySection>[0]> =
   saveSourceMutate.mockReset();
   testSourceMutate.mockReset();
   applyMutate.mockReset();
+  lookupMutate.mockReset();
   settingsQueryData = undefined;
   return renderWithProviders(
     <ProductionRealitySection
       serviceId="checkout"
+      serviceName="checkout-service"
       production={null}
       observationSource={null}
       calibrationSuggestions={[]}
@@ -101,6 +108,7 @@ function render(props: Partial<Parameters<typeof ProductionRealitySection>[0]> =
 describe('ProductionRealitySection', () => {
   beforeEach(() => {
     fetchResultData = undefined;
+    lookupResultData = undefined;
   });
 
   it('says plainly that nothing is recorded yet', () => {
@@ -226,5 +234,76 @@ describe('ProductionRealitySection', () => {
     expect(payload).toMatchObject({ source: 'dynatrace', transport: 'mcp', endpoint: '' });
     expect(payload.headerName).toBeUndefined();
     expect(payload.headerValue).toBeUndefined();
+  });
+
+  it('offers a "Look up" affordance only for a Dynatrace MCP source, pre-filled from the service name', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: aDynatraceMcpSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+
+    expect(screen.getByLabelText('Look up entity id by name')).toHaveValue('checkout-service');
+    expect(screen.getByRole('button', { name: 'Look up' })).toBeInTheDocument();
+  });
+
+  it('does not offer entity lookup for a Prometheus source', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: anObservationSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+
+    expect(screen.queryByRole('button', { name: 'Look up' })).not.toBeInTheDocument();
+  });
+
+  it('calls the lookup mutation with the search text', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: aDynatraceMcpSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+    await user.click(screen.getByRole('button', { name: 'Look up' }));
+
+    expect(lookupMutate).toHaveBeenCalledWith('checkout-service');
+  });
+
+  it('picking a lookup match fills in the entity id, without locking the field', async () => {
+    const user = userEvent.setup();
+    lookupResultData = {
+      succeeded: true,
+      candidates: [{ id: 'SERVICE-AAAA', name: 'checkout-service' }],
+      problem: null,
+      remedy: null,
+    };
+    render({ observationSource: aDynatraceMcpSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+    await user.click(screen.getByRole('combobox', { name: 'Matches found' }));
+    await user.click(screen.getByText('checkout-service (SERVICE-AAAA)'));
+
+    const entityIdField = screen.getByLabelText('Entity id') as HTMLInputElement;
+    expect(entityIdField.value).toBe('SERVICE-AAAA');
+    expect(entityIdField).not.toBeDisabled();
+
+    await user.clear(entityIdField);
+    await user.type(entityIdField, 'SERVICE-BBBB');
+    expect(entityIdField.value).toBe('SERVICE-BBBB');
+  });
+
+  it('shows the failure remedy when lookup finds nothing to pick from', async () => {
+    const user = userEvent.setup();
+    lookupResultData = { succeeded: true, candidates: [], problem: null, remedy: null };
+    render({ observationSource: aDynatraceMcpSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+
+    expect(screen.getByText('No matches found')).toBeInTheDocument();
+  });
+
+  it('always shows manual entity id guidance for a Dynatrace source, regardless of transport', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: anObservationSource({ kind: 'DYNATRACE', transport: 'REST' }) });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+
+    expect(screen.getByText(/its entity id \(starting with/)).toBeInTheDocument();
   });
 });

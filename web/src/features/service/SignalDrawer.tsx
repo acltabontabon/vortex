@@ -175,6 +175,7 @@ function SignalPanel({
       return (
         <ProductionRealitySection
           serviceId={serviceId}
+          serviceName={data.name}
           production={data.production}
           observationSource={data.observationSource}
           calibrationSuggestions={data.calibrationSuggestions}

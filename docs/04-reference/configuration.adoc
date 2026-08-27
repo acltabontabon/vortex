@@ -680,7 +680,16 @@ URL" is refused with an explanation rather than run.
 3. *Test connection* — this checks the endpoint is reachable, authentication succeeds if a
    credential is configured, and the server offers the `execute_dql` tool Vortex needs.
 4. On a service's Configuration page, under *Production reality*, set the source to Dynatrace and
-   *Connect via* MCP, and give the service's entity id as usual.
+   *Connect via* MCP, and give the service's entity id — see *Finding the entity id* below.
+
+*Finding the entity id.* Under *Configure source*, *Look up entity id by name* (pre-filled with the
+service's own name in Vortex, editable) tries to resolve a matching Dynatrace entity for you — pick
+a result to fill in the id below it, or keep typing the id in by hand regardless of what the lookup
+finds; a lookup result is only ever a suggestion. This needs a working Dynatrace MCP connection, so
+it isn't available when *Connect via* is REST, and it can find nothing if the name in Dynatrace
+doesn't resemble the one in Vortex closely enough. Either way, the entity id can always be found by
+hand: open the service in Dynatrace directly — its id (starting with `SERVICE-`) is in the URL and
+under Properties. See docs/adr/adr-058-dynatrace-entity-lookup-by-name.adoc.
 
 *Authentication.* Dynatrace's MCP endpoint accepts a bearer token from either of two mechanisms:
 

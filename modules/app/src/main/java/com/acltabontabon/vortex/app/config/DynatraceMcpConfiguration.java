@@ -2,6 +2,7 @@ package com.acltabontabon.vortex.app.config;
 
 import com.acltabontabon.vortex.app.VortexProperties;
 import com.acltabontabon.vortex.core.port.ProductionObservationSource;
+import com.acltabontabon.vortex.dynatrace.DynatraceEntityLookup;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpAvailability;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpClientFactory;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpConnectionTest;
@@ -50,5 +51,10 @@ public class DynatraceMcpConfiguration {
     ProductionObservationSource dynatraceMcpObservationSource(DynatraceMcpClientFactory clients,
             DynatraceMcpSettings settings) {
         return new DynatraceMcpObservationSource(clients, settings);
+    }
+
+    @Bean
+    DynatraceEntityLookup dynatraceEntityLookup(DynatraceMcpClientFactory clients, DynatraceMcpSettings settings) {
+        return new DynatraceEntityLookup(clients, settings);
     }
 }

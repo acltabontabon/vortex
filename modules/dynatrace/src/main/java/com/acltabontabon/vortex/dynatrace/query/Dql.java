@@ -66,6 +66,20 @@ final class Dql {
                 + "from: " + instant(window.start()) + ", to: " + instant(window.end());
     }
 
+    /**
+     * Finds service entities whose name matches a phrase — how {@code DynatraceEntitySearch} looks
+     * up a candidate entity id from a service name instead of requiring one to already be known.
+     * Unverified against a live tenant, same as every other statement in this class: this one has no
+     * exercised caller yet to have proven its grammar or {@code execute_dql}'s response envelope for
+     * it.
+     */
+    static String entitySearch(String namePhrase) {
+        return "fetch dt.entity.service"
+                + " | filter matchesPhrase(entity.name, \"" + escape(namePhrase) + "\")"
+                + " | fields id, name = entity.name"
+                + " | limit 20";
+    }
+
     private static String iso(Duration resolution) {
         return resolution.toSeconds() % 60 == 0 ? (resolution.toMinutes()) + "m" : resolution.toSeconds() + "s";
     }

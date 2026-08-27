@@ -6,6 +6,7 @@ import type { Catalog, ObservationSource, WorkloadSuggestion } from '../../../ap
 import {
   useFetchAndSaveProductionMutation,
   useFetchProductionMutation,
+  useLookupDynatraceEntityMutation,
   useRecordProductionMutation,
   useSaveObservationSourceMutation,
   useTestObservationSourceMutation,
@@ -32,12 +33,14 @@ function headerArrays(rows: HeaderRow[]): { headerName?: string[]; headerValue?:
  */
 export function ProductionRealitySection({
   serviceId,
+  serviceName,
   production,
   observationSource,
   calibrationSuggestions,
   catalog,
 }: {
   serviceId: string;
+  serviceName: string;
   production: Production | null;
   observationSource: ObservationSource | null;
   calibrationSuggestions: WorkloadSuggestion[];
@@ -200,6 +203,7 @@ export function ProductionRealitySection({
       {configuringSource && (
         <ObservationSourcePanel
           serviceId={serviceId}
+          serviceName={serviceName}
           source={observationSource}
           onSaved={() => setConfiguringSource(false)}
         />
@@ -323,15 +327,18 @@ function RecordedTrafficPanel({
 
 function ObservationSourcePanel({
   serviceId,
+  serviceName,
   source,
   onSaved,
 }: {
   serviceId: string;
+  serviceName: string;
   source: ObservationSource | null;
   onSaved: () => void;
 }) {
   const save = useSaveObservationSourceMutation(serviceId);
   const test = useTestObservationSourceMutation(serviceId);
+  const lookup = useLookupDynatraceEntityMutation(serviceId);
   const settingsQuery = useSettingsQuery();
 
   const [kind, setKind] = useState(source?.kind.toLowerCase() ?? 'prometheus');
@@ -342,6 +349,7 @@ function ObservationSourcePanel({
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>(
     source ? rowsFromMasked(source.maskedHeaders) : []
   );
+  const [lookupQuery, setLookupQuery] = useState(serviceName);
 
   const usingMcp = kind === 'dynatrace' && transport === 'mcp';
   const mcpConfigured = settingsQuery.data?.dynatraceMcp.enabled ?? false;
@@ -442,13 +450,58 @@ function ObservationSourcePanel({
           />
         )}
 
-        <Group grow>
-          <TextInput
-            label={kind === 'dynatrace' ? 'Entity id' : 'Service label'}
-            placeholder={kind === 'dynatrace' ? 'SERVICE-1A2B3C4D5E6F7890' : 'checkout-service'}
-            value={serviceIdentifier}
-            onChange={(e) => setServiceIdentifier(e.currentTarget.value)}
+        {usingMcp && (
+          <Group align="flex-end" gap="xs">
+            <TextInput
+              style={{ flex: 1 }}
+              label="Look up entity id by name"
+              description="Vortex searches Dynatrace for a service whose name matches this — pick a result, or enter the id below by hand."
+              value={lookupQuery}
+              onChange={(e) => setLookupQuery(e.currentTarget.value)}
+            />
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => lookup.mutate(lookupQuery)}
+              loading={lookup.isPending}
+              disabled={!lookupQuery.trim()}
+            >
+              Look up
+            </Button>
+          </Group>
+        )}
+        {usingMcp && lookup.data?.succeeded && lookup.data.candidates.length > 0 && (
+          <Select
+            label="Matches found"
+            description="Pick one to fill in the entity id below."
+            placeholder="Choose a match"
+            data={lookup.data.candidates.map((c) => ({ value: c.id, label: `${c.name} (${c.id})` }))}
+            onChange={(v) => v && setServiceIdentifier(v)}
           />
+        )}
+        {usingMcp && lookup.data && (!lookup.data.succeeded || lookup.data.candidates.length === 0) && (
+          <Alert color="warn" title={lookup.data.succeeded ? 'No matches found' : lookup.data.problem}>
+            {lookup.data.succeeded
+              ? 'Nothing in Dynatrace matched that name closely enough — try a different phrase, or enter the entity id manually below.'
+              : lookup.data.remedy}
+          </Alert>
+        )}
+
+        <Group grow align="flex-start">
+          <div>
+            <TextInput
+              label={kind === 'dynatrace' ? 'Entity id' : 'Service label'}
+              placeholder={kind === 'dynatrace' ? 'SERVICE-1A2B3C4D5E6F7890' : 'checkout-service'}
+              value={serviceIdentifier}
+              onChange={(e) => setServiceIdentifier(e.currentTarget.value)}
+            />
+            {kind === 'dynatrace' && (
+              <Text size="xs" c="dimmed" mt={4}>
+                Finding this by hand: open the service in Dynatrace — its entity id (starting with{' '}
+                <code>SERVICE-</code>) is in the URL and under Properties.
+              </Text>
+            )}
+          </div>
           <TextInput label="Window" placeholder="30d" value={window} onChange={(e) => setWindow(e.currentTarget.value)} />
         </Group>
 

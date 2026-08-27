@@ -86,6 +86,7 @@ export function ConfigurationPage() {
         <Group title="Production reality" id="production">
           <ProductionRealitySection
             serviceId={id}
+            serviceName={data.name}
             production={data.production}
             observationSource={data.observationSource}
             calibrationSuggestions={data.calibrationSuggestions}
