@@ -183,6 +183,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-058-dynatrace-entity-lookup-by-name.adoc[058]
 | Dynatrace entity id can be looked up by service name, as a suggestion, never a replacement for manual entry
+
+| xref:adr-059-production-fetch-does-not-require-a-catalog.adoc[059]
+| Fetching production traffic no longer requires an imported operation catalog
 |===
 
 == Format

@@ -84,21 +84,16 @@ public final class CalibrationService {
         TimeWindow absolute = new TimeWindow(now.minus(window), now);
         Duration resolution = ObservationResolution.forWindow(window);
 
+        // No catalog just means no operation mix to attribute traffic to — every adapter already
+        // tolerates an empty operations list the same way it tolerates a source that cannot report
+        // mix at all (e.g. Dynatrace over MCP), returning the aggregate rates with an empty mix
+        // rather than failing. Requiring a catalog import before ever seeing a peak rate would block
+        // the case a person most wants this for: checking what production looks like before doing
+        // anything else with it.
         List<ObservedOperation> operations = catalog == null ? List.of() : catalog.operations()
                 .stream()
                 .map(CalibrationService::describe)
                 .toList();
-
-        if (operations.isEmpty()) {
-            // Without a catalog the rates could still be fetched, but the composition could not be
-            // attributed to anything — and a volume with no composition is the workload Vortex
-            // refuses to guess at. Better to say so now than to return half an observation.
-            return new NotRetrieved(
-                    "Cannot fetch production traffic",
-                    "no operations have been imported for this service, so observed traffic could "
-                            + "not be attributed to anything.",
-                    "Import an API description first, then calibrate.");
-        }
 
         return adapter.retrieve(new ObservationRequest(source, absolute, resolution, operations));
     }

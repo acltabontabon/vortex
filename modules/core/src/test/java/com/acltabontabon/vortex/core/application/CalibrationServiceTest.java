@@ -254,20 +254,17 @@ class CalibrationServiceTest {
         }
 
         @Test
-        void noOperationsMeansTheCompositionCouldNotBeAttributedToAnything() {
-            // Rates alone could still be fetched, but a volume with no composition is exactly the
-            // workload Vortex refuses to guess at. Better to say so than return half an observation.
-            var service = new CalibrationService(
-                    List.of(new RecordingSource(ObservationSource.Kind.PROMETHEUS)),
-                    Clock.fixed(NOW));
+        void noCatalogStillFetchesRatesWithAnEmptyOperationsList() {
+            // A catalog is only needed to attribute the mix, not to see aggregate rates at all —
+            // every adapter already tolerates an empty operations list the same way it tolerates a
+            // source that cannot report mix at all (e.g. Dynatrace over MCP).
+            var recording = new RecordingSource(ObservationSource.Kind.PROMETHEUS);
+            var service = new CalibrationService(List.of(recording), Clock.fixed(NOW));
 
             var result = service.fetch(configuredWith(PROMETHEUS), null, null);
 
-            assertThat(result).isInstanceOfSatisfying(ProductionObservationSource.NotRetrieved.class,
-                    failure -> {
-                        assertThat(failure.why()).contains("no operations have been imported");
-                        assertThat(failure.remedy()).contains("Import an API description");
-                    });
+            assertThat(result).isInstanceOf(ProductionObservationSource.Retrieved.class);
+            assertThat(recording.seen.get().operations()).isEmpty();
         }
 
         @Test

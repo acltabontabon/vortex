@@ -188,10 +188,28 @@ export function ProductionRealitySection({
       )}
 
       <Group gap="sm">
-        <Button size="xs" variant="subtle" onClick={() => setRecording((v) => !v)}>
+        <Button
+          size="xs"
+          variant="subtle"
+          onClick={() =>
+            setRecording((v) => {
+              if (!v) setConfiguringSource(false);
+              return !v;
+            })
+          }
+        >
           {recording ? 'Cancel' : 'Record manually'}
         </Button>
-        <Button size="xs" variant="subtle" onClick={() => setConfiguringSource((v) => !v)}>
+        <Button
+          size="xs"
+          variant="subtle"
+          onClick={() =>
+            setConfiguringSource((v) => {
+              if (!v) setRecording(false);
+              return !v;
+            })
+          }
+        >
           {configuringSource ? 'Cancel' : observationSource ? 'Edit source' : 'Configure source'}
         </Button>
       </Group>

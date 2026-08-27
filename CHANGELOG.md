@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- Fetching production traffic no longer requires an operation catalog to already be imported —
+  aggregate rates (peak, average, p95) are now shown even before importing an API description, with
+  an empty operation mix rather than a refusal.
+- "Record manually" and "Configure/Edit source" on the Production reality panel could both be open at
+  once, showing two identical "Cancel" buttons — opening one now closes the other.
+
 ## [0.1.0-alpha.19] - 2026-08-27
 
 ### Fixed

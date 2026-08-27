@@ -1,0 +1,44 @@
+= ADR-059: Fetching production traffic no longer requires an imported operation catalog
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+`CalibrationService.fetch` refused outright whenever a service had no imported operations,
+regardless of whether an observation source was configured and reachable: "no operations have been
+imported for this service, so observed traffic could not be attributed to anything." The reasoning at
+the time was that a volume with no composition is the workload Vortex refuses to guess at, and that
+returning "half an observation" was worse than saying so plainly.
+
+In practice this blocked something with no relationship to that concern: seeing the aggregate rate a
+production system reports — peak, average, p95 — before doing anything else with it. A person
+configuring Dynatrace or Prometheus for the first time, or just checking what production traffic
+looks like, hit this refusal even though the observation source itself answered successfully; the
+catalog import is a separate, unrelated step, and requiring it first got in the way of exactly the
+"what does production actually look like" question fetching exists to answer.
+
+The mix-attribution adapters (`PrometheusObservationSource.attribute`,
+`DynatraceObservationSource.attribute`) already tolerate an empty operations list without failing —
+every series in the response simply finds no matching operation and is skipped, producing an empty
+mix rather than an error. Dynatrace over MCP already reports an empty mix unconditionally today
+(`production.observedMix` is absent — "Operation mix is not available over MCP yet.", ADR-049), so an
+empty mix from a missing catalog is not a new state the rest of the domain has to learn to handle; it
+is the same state a different, already-shipped limitation already produces.
+
+== Decision
+
+`CalibrationService.fetch` no longer refuses when the catalog is missing or empty. It passes an empty
+operations list to the adapter exactly as it always could, and the adapter answers with the rates it
+has and an empty mix — the same shape the Configuration page already renders correctly when mix is
+absent for any other reason.
+
+== Consequences
+
+Fetching production traffic now only depends on the observation source itself being configured and
+reachable, not on an unrelated setup step happening first. A service with no catalog imported yet
+still sees an empty operation mix on the Production reality panel, exactly as it would for any other
+source that cannot report one — no new UI state, no new failure mode.
+
+Reversible at low cost: reinstating the refusal is one guard clause back in `CalibrationService.fetch`.

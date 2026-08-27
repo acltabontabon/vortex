@@ -176,6 +176,20 @@ describe('ProductionRealitySection', () => {
     expect(recordMutate.mock.calls[0][0]).toMatchObject({ peakRate: 35 });
   });
 
+  it('recording manually and configuring the source are mutually exclusive, never both open', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: anObservationSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'Record manually' }));
+    expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Edit source' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save source' })).not.toBeInTheDocument();
+  });
+
   it('shows a failed connection test rather than a silent no-op', async () => {
     const user = userEvent.setup();
     render({ observationSource: anObservationSource() });
