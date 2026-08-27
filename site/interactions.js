@@ -705,18 +705,111 @@ if (spiral && !reduceMotion && 'IntersectionObserver' in window) {
   window.addEventListener('scroll', updateScrolled, { passive: true });
 })();
 
-fetch('release.json', { cache: 'no-store' })
-  .then(function (res) {
-    if (!res.ok) throw new Error('release.json not found');
-    return res.json();
-  })
-  .then(function (release) {
-    document.querySelector('[data-role="version"]').textContent = release.name || release.tag;
-    document.querySelector('[data-role="meta"]').textContent =
-      'Requires Java 25+' + (release.prerelease ? ' · Early alpha build' : '');
-  })
-  .catch(function () {
-    // release.json is generated at deploy time; if it's missing (e.g. local
-    // preview without a build step) the download button still works since
-    // its href is a static file, only the version label stays generic.
+// Only index.html has a #download section with these [data-role] targets — guarded so this
+// (shared) script doesn't throw when it runs on a page, like docs.html, that has neither.
+var versionEl = document.querySelector('[data-role="version"]');
+if (versionEl) {
+  fetch('release.json', { cache: 'no-store' })
+    .then(function (res) {
+      if (!res.ok) throw new Error('release.json not found');
+      return res.json();
+    })
+    .then(function (release) {
+      versionEl.textContent = release.name || release.tag;
+      document.querySelector('[data-role="meta"]').textContent =
+        'Requires Java 25+' + (release.prerelease ? ' · Early alpha build' : '');
+    })
+    .catch(function () {
+      // release.json is generated at deploy time; if it's missing (e.g. local
+      // preview without a build step) the download button still works since
+      // its href is a static file, only the version label stays generic.
+    });
+}
+
+// docs.html's baseline "fork" (Establish a production baseline): a plain click-to-switch tab
+// pair, not a hover reveal — the two paths are a real either/or (is the service live yet?), and
+// a reader picks one deliberately rather than discovering it by accident. Handles every .docs-fork
+// group on the page generically, in case another one is ever added.
+(function initDocsForks() {
+  var groups = document.querySelectorAll('.docs-fork');
+  groups.forEach(function (group) {
+    var tabs = Array.prototype.slice.call(group.querySelectorAll('.docs-fork-tab'));
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        tabs.forEach(function (t) {
+          var selected = t === tab;
+          t.classList.toggle('is-active', selected);
+          t.setAttribute('aria-selected', selected ? 'true' : 'false');
+          t.tabIndex = selected ? 0 : -1;
+          var panel = document.getElementById(t.getAttribute('aria-controls'));
+          if (panel) panel.hidden = !selected;
+        });
+      });
+    });
   });
+})();
+
+// docs.html's sticky section dot-nav: highlights the section currently in view, desktop only
+// (see .docs-nav's display:none breakpoint in styles.css — no point wiring scroll-spy for a
+// nav the reader can't see). Reuses the same inView() idiom as the reveal wiring above.
+(function initDocsNav() {
+  var nav = document.querySelector('.docs-nav');
+  if (!nav) return;
+  var dots = Array.prototype.slice.call(nav.querySelectorAll('.docs-nav-dot'));
+  var countEl = nav.querySelector('[data-role="docs-nav-count"]');
+  var sections = dots.map(function (dot) {
+    return document.getElementById(dot.getAttribute('href').slice(1));
+  });
+
+  // Deliberately not inView()'s "50% of the section is visible" — the tour section alone is
+  // several viewports tall, so jumping straight to its top via a nav click (or a hash reload)
+  // never gets halfway through it and the dot would never light up. Instead: whichever section's
+  // top has scrolled up past a fixed reading line is "current" — correct at any scroll position,
+  // reached by a gradual scroll or an instant jump alike, and re-derived on every scroll rather
+  // than only on a one-time visibility crossing.
+  function update() {
+    // A small fixed offset, not a fraction of viewport height — some sections (Quickstart,
+    // Objectives) are shorter than 30% of a tall viewport, so a generous threshold let the
+    // *next* section's top also qualify as "reached" the moment the short one finished landing,
+    // jumping the active dot one past where the reader actually is.
+    var readingLine = 80;
+    var atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+    var current = atBottom ? sections.length - 1 : 0;
+    if (!atBottom) {
+      sections.forEach(function (section, i) {
+        if (!section) return;
+        if (section.getBoundingClientRect().top <= readingLine) current = i;
+      });
+    }
+    dots.forEach(function (dot, j) {
+      dot.classList.toggle('is-active', j === current);
+      dot.classList.toggle('is-passed', j < current);
+    });
+    if (countEl) countEl.textContent = String(current);
+  }
+
+  update();
+  window.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
+
+  // Drive the jump ourselves instead of leaving it to the browser's native #hash navigation:
+  // a section further down the page can still be loading the lazy images just above or inside
+  // it at the moment of the click, and each one reserves more exact space than the browser knew
+  // about when it first computed the target position — confirmed by measurement, this alone was
+  // enough to land 400+px short of a section named directly by a nav click. A second, immediate
+  // scrollIntoView once those images have had time to settle corrects for it; re-running the
+  // same call is a no-op once the layout genuinely has stopped moving.
+  dots.forEach(function (dot, i) {
+    dot.addEventListener('click', function (event) {
+      var section = sections[i];
+      if (!section) return;
+      event.preventDefault();
+      history.pushState(null, '', dot.getAttribute('href'));
+      var behavior = reduceMotion ? 'auto' : 'smooth';
+      section.scrollIntoView({ behavior: behavior, block: 'start' });
+      setTimeout(function () {
+        section.scrollIntoView({ behavior: behavior, block: 'start' });
+      }, 500);
+    });
+  });
+})();

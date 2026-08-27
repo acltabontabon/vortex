@@ -797,6 +797,15 @@ p {
   border-top: 1px solid var(--border);
 }
 
+/* On index.html this sits below other content in the same section and needs its own divider —
+   in #config it's the section's only content, already separated by the section's own padding, so
+   that divider was just stacking extra empty space (and a redundant line) on top of it. */
+#config .portable-callout {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 .portable-callout-copy {
   flex: 1 1 320px;
 }
@@ -2271,79 +2280,746 @@ a {
   }
 }
 
-/* docs.html's "coming soon" placeholder: a static (non-animated, JS-independent) terminal window —
-   unlike .terminal-window, this page doesn't load interactions.js, so nothing here relies on
-   [data-reveal]/.in-view to become visible. */
-.docs-terminal {
-  margin: 24px 0;
-  border-radius: 10px;
-  overflow: hidden;
-  background: #0d1117;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 48px -28px rgba(0, 0, 0, 0.55);
+/* docs.html: a long-form reading page, not a slide deck — index.html's section rule above
+   (min-height: 100vh, scroll-snap-align, etc.) is built for full-viewport sections and reads as
+   broken (tall empty gaps, snap-jumps) applied to many short, information-dense sections in a
+   row. These overrides win on source order + the .docs-page scope, and only apply there —
+   index.html, which never carries that class, is untouched. */
+body.docs-page section {
+  min-height: 0;
+  padding: 56px 0;
+  display: block;
 }
 
-.docs-terminal .terminal-body {
-  padding: 18px 20px 22px;
+body.docs-page .wrap > section,
+body.docs-page .wrap > footer {
+  scroll-snap-align: none;
+  scroll-snap-stop: normal;
 }
 
-.docs-terminal-out {
-  padding-left: 24px;
-  color: rgba(201, 209, 217, 0.7);
+html:has(body.docs-page) {
+  scroll-snap-type: none;
 }
 
-.docs-terminal .terminal-line + .terminal-line {
-  margin-top: 12px;
-}
-
-.docs-progress {
-  margin: 28px 0 8px;
-}
-
-.docs-progress-label {
-  display: flex;
-  justify-content: space-between;
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--fg-muted);
-  margin-bottom: 8px;
-}
-
-.docs-progress-track {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-
-.docs-progress-fill {
-  width: 42%;
-  height: 100%;
-  border-radius: inherit;
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--accent) 0 8px,
-    color-mix(in srgb, var(--accent) 60%, transparent) 8px 16px
-  );
-  background-size: 200% 100%;
-  animation: docs-progress-stall 14s linear infinite;
-}
-
-@keyframes docs-progress-stall {
-  to {
-    background-position: -160px 0;
+@supports (min-height: 100svh) {
+  body.docs-page section {
+    min-height: 0;
   }
 }
 
+.docs-hero-explain {
+  max-width: 62ch;
+}
+
+/* Prerequisites, as two things instead of a card grid:
+   1. A recreation of Vortex's own bottom status bar (see the running app's <footer> — the same
+      "Runtime ready" trigger plus k6/Docker/AI checks), shown fully lit as the payoff for having
+      everything below in place. Not a screenshot — built from this site's own tokens so it holds
+      up in both themes — but a faithful one: same three-item shape, same quiet chrome-bar feel.
+   2. A borderless manifest list below it — icon, name, one-line why, a link — read top to bottom
+      like a spec sheet rather than scanned as a grid of boxes. */
+.docs-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 24px 0;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.docs-statusbar.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.docs-statusbar-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.docs-statusbar-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5);
+  animation: status-pulse 2s ease-out infinite;
+}
+
+.docs-statusbar-checks {
+  display: inline-flex;
+  gap: 16px;
+  color: var(--fg-muted);
+}
+
+.docs-statusbar-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.docs-statusbar-mark {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .docs-progress-fill {
+  .docs-statusbar {
+    transition: none;
+  }
+  .docs-statusbar-dot {
     animation: none;
   }
 }
 
-.docs-progress-caption {
-  font-size: 0.82rem;
+@media (max-width: 480px) {
+  .docs-statusbar {
+    font-size: 0.72rem;
+    gap: 10px;
+  }
+  .docs-statusbar-checks {
+    gap: 10px;
+  }
+}
+
+.docs-manifest {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+
+.docs-manifest-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+
+.docs-manifest-item:first-child {
+  border-top: none;
+  padding-top: 20px;
+}
+
+.prereq-icon {
+  display: flex;
+  flex: none;
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+.docs-manifest-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.docs-manifest-title {
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+
+.docs-manifest-req {
+  font-weight: 400;
   color: var(--fg-muted);
-  margin: 8px 0 0;
+  font-size: 0.85em;
+}
+
+.docs-manifest-req-optional {
+  font-style: italic;
+}
+
+.docs-manifest-body p {
+  margin: 0;
+  font-size: 0.88rem;
+  max-width: 56ch;
+}
+
+.prereq-link {
+  flex: none;
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  margin-top: 2px;
+}
+
+.prereq-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .docs-manifest-item {
+    flex-wrap: wrap;
+  }
+  .prereq-link {
+    margin-left: 34px;
+  }
+}
+
+/* A file excerpt shown inside a terminal window (see #config) rather than command output —
+   whitespace has to be preserved for the indentation to read as YAML. */
+.terminal-out-code {
+  white-space: pre;
+}
+
+/* .terminal-window's nth-of-type(2/3/4) stagger above was tuned for a command followed by 2-4
+   short output lines — applied unchanged to an 8-line file excerpt, lines 2-4 (the YAML's first
+   three) would wait out that stagger while 5-8 (no override reaches that far) pop in instantly,
+   an inverted reveal order. A single shared delay makes the whole excerpt appear together, right
+   after the "cat" command finishes typing, which is the truthful reading of a file dump anyway —
+   nothing about it was ever typed line by line. */
+.terminal-window.in-view .terminal-out-line.terminal-out-code {
+  animation-delay: 1.3s;
+}
+
+/* The five-minute tour: a numbered rail down the left edge, each step a short explanation next
+   to a real screenshot. Single column — order is the point, unlike the landing page's 3-up
+   showcase grid where nothing depends on reading left-to-right. */
+.docs-tour {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 32px;
+}
+
+.docs-step {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 20px;
+  padding-bottom: 40px;
+}
+
+.docs-step-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.docs-step-num {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg);
+}
+
+.docs-step-line {
+  flex: 1;
+  width: 2px;
+  background: var(--border);
+  margin-top: 8px;
+}
+
+.docs-step:last-child .docs-step-line {
+  display: none;
+}
+
+.docs-step figcaption {
+  min-height: 0;
+  margin-bottom: 12px;
+}
+
+.docs-step figcaption strong {
+  display: block;
+  font-size: 1.1rem;
+  color: var(--fg);
+  margin-bottom: 6px;
+}
+
+.docs-step figcaption p {
+  max-width: 62ch;
+  margin: 0;
+}
+
+.docs-step .window-frame {
+  margin-top: 4px;
+  max-width: fit-content;
+}
+
+.docs-step .window-frame img {
+  width: auto;
+  max-width: 100%;
+  max-height: 480px;
+}
+
+@media (max-width: 640px) {
+  .docs-step {
+    grid-template-columns: 28px 1fr;
+    gap: 14px;
+  }
+  .docs-step-num {
+    width: 26px;
+    height: 26px;
+    font-size: 0.72rem;
+  }
+}
+
+/* What makes it trustworthy: flat cards (not the sketchnote tilt used for the mental-model
+   diagram below) — these are claims to scan quickly, not a hand-drawn system sketch. */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  margin-top: 28px;
+}
+
+.feature-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  background: var(--bg-alt);
+}
+
+.feature-card strong {
+  display: block;
+  color: var(--fg);
+  margin-bottom: 6px;
+}
+
+.feature-card p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+/* The mental model, as one vertical read rather than a diagram plus a card grid repeating it —
+   the six terms only mean something in the order they run in, and two separate presentations of
+   the same six words said that twice without making the order any clearer. The sentence above
+   carries the story in plain English; the list below pairs the same six words, as sketchnote
+   nodes, directly against their one-line definition — nothing to hover or tab through to see it.
+   Always a single column: at .wrap's 760px, six nodes in a row either crowd or wrap unevenly no
+   matter how the gaps are tuned, and a vertical read has no such width to run out of. display:
+   contents on each row folds its node+definition into the chain's own grid, so the two columns
+   line up across all six rows instead of each row sizing its node column independently. */
+.docs-model-sentence {
+  font-size: 1.05rem;
+  color: var(--fg);
+  max-width: 68ch;
+}
+
+.docs-model-sentence strong {
+  color: var(--accent);
+}
+
+.docs-model-chain {
+  display: grid;
+  grid-template-columns: minmax(110px, max-content) 1fr;
+  align-items: center;
+  gap: 18px 24px;
+  margin: 36px 0 8px;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.docs-model-chain.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.docs-model-row {
+  display: contents;
+}
+
+.docs-model-row .arch-node {
+  justify-self: start;
+}
+
+.docs-model-row p {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--fg-muted);
+}
+
+@media (max-width: 560px) {
+  .docs-model-chain {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .docs-model-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-model-chain {
+    transition: none;
+  }
+}
+
+/* The baseline section is a real either/or (is the service live yet?), so it's presented as one —
+   a question and two tabs, not two sequential blocks of prose the reader has to read regardless
+   of which one applies to them. Picking a path is a click, not a hover: this hides nothing behind
+   an easily-missed gesture, and works identically with touch. See initDocsForks() in
+   interactions.js for the plain show/hide behind it. */
+.docs-fork {
+  margin: 32px 0 8px;
+}
+
+.docs-fork-question {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  margin: 0 0 12px;
+}
+
+.docs-fork-tabs {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 3px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+
+.docs-fork-tab {
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.docs-fork-tab:hover {
+  color: var(--fg);
+}
+
+.docs-fork-tab.is-active {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.docs-fork-panel p {
+  max-width: 68ch;
+}
+
+/* Same fix as .docs-step figcaption: the base min-height:7.5em is sized for the landing page's
+   3-up grid, keeping captions equal-height across a row — with one figure per panel here, that
+   reserved height was just dead space above the screenshot. */
+.docs-fork-panel .showcase-item figcaption {
+  min-height: 0;
+  margin-bottom: 12px;
+}
+
+.docs-fork-panel .showcase-item {
+  margin-top: 24px;
+}
+
+.docs-fork-panel .window-frame {
+  margin-top: 4px;
+  max-width: fit-content;
+}
+
+@media (max-width: 480px) {
+  .docs-fork-tabs {
+    flex-direction: column;
+    align-self: flex-start;
+  }
+  .docs-fork-tab {
+    text-align: left;
+  }
+}
+
+/* What makes it trustworthy: five contrast statements, not a card grid — reusing the site's own
+   copywriting device (see the hero: "Cool, you ran a load test. What did you actually prove?")
+   as the section's visual structure instead of inventing a widget for it. Each claim crosses out
+   what it isn't before saying what it is; the strikethrough does the work an icon or a card
+   border would otherwise be doing. */
+
+/* #trust is a plain (non-breakout) section, so its own border-bottom only spans .wrap's narrow
+   760px column — every neighboring boundary on this page is a breakout section's full-width
+   line, and next to those this one reads as short rather than intentional. Same breakout trick
+   as .breakout itself (100vw + negative margins), applied to a border-only pseudo-element so the
+   trust list's own content stays in its narrower reading column. */
+#trust {
+  position: relative;
+  border-bottom: none;
+}
+
+#trust::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  border-bottom: 1px solid var(--border);
+}
+
+.docs-trust-list {
+  margin: 32px 0 8px;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.docs-trust-list.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.docs-trust-item {
+  padding: 22px 0 22px 20px;
+  border-left: 3px solid var(--border);
+}
+
+.docs-trust-item + .docs-trust-item {
+  border-top: 1px solid var(--border);
+}
+
+.docs-trust-not {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+}
+
+.docs-trust-not s {
+  text-decoration-color: rgba(var(--accent-rgb), 0.5);
+  text-decoration-thickness: 1.5px;
+}
+
+.docs-trust-is {
+  margin: 0 0 8px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.01em;
+}
+
+.docs-trust-detail {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 0.92rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-trust-list {
+    transition: none;
+  }
+}
+
+/* Sticky section nav, styled as Vortex's own "Tests" list: each section is a question, marked
+   pending / passed / live the way a test row is marked waiting / passed / running — reading the
+   page borrows the same status vocabulary the screenshots on it already taught the reader,
+   instead of a generic sidebar. Desktop-only wayfinding, quiet until hovered. */
+.docs-nav {
+  position: fixed;
+  top: 50%;
+  right: 22px;
+  transform: translateY(-50%);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.docs-nav-counter {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+  color: var(--fg-muted);
+  text-align: right;
+  margin-bottom: 6px;
+  transition: color 0.2s ease;
+}
+
+.docs-nav-dot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 22px;
+  height: 22px;
+}
+
+.docs-nav-mark {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.docs-nav-dot:hover .docs-nav-mark,
+.docs-nav-dot:focus-visible .docs-nav-mark {
+  border-color: var(--fg-muted);
+}
+
+.docs-nav-dot.is-passed .docs-nav-mark {
+  background: var(--fg-muted);
+  border-color: var(--fg-muted);
+}
+
+.docs-nav-dot.is-active .docs-nav-mark {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.35);
+  animation: docs-nav-pulse 2s ease-out infinite;
+}
+
+@keyframes docs-nav-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0);
+  }
+}
+
+.docs-nav-label {
+  position: absolute;
+  right: 30px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.docs-nav-dot:hover .docs-nav-label,
+.docs-nav-dot:focus-visible .docs-nav-label {
+  opacity: 1;
+}
+
+.docs-nav-dot.is-active .docs-nav-label {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (max-width: 900px) {
+  .docs-nav {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-nav-mark {
+    transition: none;
+  }
+  .docs-nav-dot.is-active .docs-nav-mark {
+    animation: none;
+  }
+}
+
+/* A quiet, persistent reminder rather than a one-time banner: sits where the running app's own
+   status chrome does (see .docs-statusbar above — bottom-left, mono, a pulsing dot), so on a page
+   that spends most of its time proving these screens are real, this is the honest asterisk —
+   real today, not a promise about tomorrow. Present the whole read through, not just on arrival,
+   because "still moving" is true on paragraph one and just as true on the last one. */
+.docs-alpha-badge {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 15;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-alt);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+
+.docs-alpha-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5);
+  animation: status-pulse 2s ease-out infinite;
+}
+
+.docs-alpha-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  max-width: 240px;
+  font-family: var(--font);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--fg);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.docs-alpha-badge:hover .docs-alpha-tooltip,
+.docs-alpha-badge:focus-visible .docs-alpha-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (max-width: 640px) {
+  .docs-alpha-badge {
+    bottom: 12px;
+    left: 12px;
+    font-size: 0.68rem;
+    padding: 5px 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-alpha-dot {
+    animation: none;
+  }
+  .docs-alpha-tooltip {
+    transition: none;
+  }
 }

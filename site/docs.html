@@ -3,15 +3,83 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    // Runs inline, before the browser gets a chance to restore a reload/back-forward scroll
+    // position — otherwise a reload lands wherever the reader last scrolled to, with the section
+    // nav and its "N/8 read" counter reporting that stale position as if it were freshly reached.
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
+  </script>
   <title>Docs — Vortex</title>
-  <meta name="description" content="Vortex documentation is on its way. Until then, some known issues, filed against reality.">
+  <meta name="description" content="How to set up Vortex and use it: prerequisites, the five-minute tour from an OpenAPI spec to a verdict, and what makes the evidence trustworthy — with real screenshots.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://acltabontabon.com/vortex/docs.html">
+  <meta property="og:title" content="Vortex — Docs">
+  <meta property="og:description" content="How to set up Vortex and use it: prerequisites, the five-minute tour from an OpenAPI spec to a verdict, and what makes the evidence trustworthy.">
+  <meta property="og:image" content="https://acltabontabon.com/vortex/images/vortex-banner.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="600">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Vortex — Docs">
+  <meta name="twitter:description" content="How to set up Vortex and use it: prerequisites, the five-minute tour from an OpenAPI spec to a verdict, and what makes the evidence trustworthy.">
+  <meta name="twitter:image" content="https://acltabontabon.com/vortex/images/vortex-banner.png">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="docs-page">
   <nav class="topnav" aria-label="Primary">
-    <a class="topnav-link" href="docs.html">docs</a>
+    <a class="topnav-link" href="index.html">vortex</a>
   </nav>
+
+  <div class="docs-alpha-badge" tabindex="0">
+    <span class="docs-alpha-dot" aria-hidden="true"></span>
+    <span>alpha &middot; still moving</span>
+    <span class="docs-alpha-tooltip" role="tooltip">Vortex is pre-1.0. What&rsquo;s on this page
+      today is the truth for today &mdash; expect these screens to drift as it does.</span>
+  </div>
+
+  <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+    <filter id="sketch-edge" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="7" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.2" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </svg>
+
+  <nav class="docs-nav" aria-label="Sections on this page">
+    <div class="docs-nav-counter" aria-hidden="true">
+      <span data-role="docs-nav-count">0</span>/7 read
+    </div>
+    <a class="docs-nav-dot" href="#prerequisites" aria-label="What you need on your end">
+      <span class="docs-nav-mark" aria-hidden="true"></span>
+      <span class="docs-nav-label">Got what you need?</span>
+    </a>
+    <a class="docs-nav-dot" href="#quickstart" aria-label="Get it running">
+      <span class="docs-nav-mark" aria-hidden="true"></span>
+      <span class="docs-nav-label">Got it running?</span>
+    </a>
+    <a class="docs-nav-dot" href="#model" aria-label="The mental model">
+      <span class="docs-nav-mark" aria-hidden="true"></span>
+      <span class="docs-nav-label">Know the model?</span>
+    </a>
+    <a class="docs-nav-dot" href="#tour" aria-label="The five-minute tour">
+      <span class="docs-nav-mark" aria-hidden="true"></span>
+      <span class="docs-nav-label">Walked the tour?</span>
+    </a>
+    <a class="docs-nav-dot" href="#advanced" aria-label="Establish a production baseline">
+      <span class="docs-nav-mark" aria-hidden="true"></span>
+      <span class="docs-nav-label">Got a baseline?</span>
+    </a>
+    <a class="docs-nav-dot" href="#trust" aria-label="What makes it trustworthy">
+      <span class="docs-nav-mark" aria-hidden="true"></span>
+      <span class="docs-nav-label">Trust the evidence?</span>
+    </a>
+    <a class="docs-nav-dot" href="#config" aria-label="One file, shared by the whole team">
+      <span class="docs-nav-mark" aria-hidden="true"></span>
+      <span class="docs-nav-label">Shared with the team?</span>
+    </a>
+  </nav>
+
   <div class="wrap">
     <section>
       <div class="eyebrow">
@@ -19,57 +87,646 @@
         <span class="eyebrow-divider" aria-hidden="true">—</span>
         <span class="eyebrow-sub">Docs</span>
       </div>
-      <h1>Docs are coming. Right after someone writes a test for them.</h1>
-      <p class="hero-explain">Somewhere, a diagram is 80% finished and has been for a while. We're not
-        going to pretend otherwise — here's an honest progress report.</p>
+      <h1>From an OpenAPI spec to a verdict you can defend.</h1>
+      <p class="hero-explain docs-hero-explain">What to install, the ideas Vortex is built on, and
+        the actual screens you&rsquo;ll use — illustrated with real screenshots from a running
+        instance, not mockups. About a five-minute read for the tour itself.</p>
+    </section>
 
-      <div class="docs-progress" aria-hidden="true">
-        <div class="docs-progress-label">
-          <span>Documentation coverage</span>
-          <span>42%</span>
-        </div>
-        <div class="docs-progress-track">
-          <div class="docs-progress-fill"></div>
-        </div>
-        <p class="docs-progress-caption">Stalled at &ldquo;someone should really write this down&rdquo;
-          since roughly forever.</p>
+    <section id="prerequisites">
+      <h2>What you need on your end</h2>
+      <p>Two things are required. Two more unlock more of the product, but Vortex runs without
+        them. Vortex checks all four itself — this is its own status bar, once every light is
+        on:</p>
+
+      <div class="docs-statusbar" data-reveal role="img" aria-label="Vortex's status bar showing Java, k6, Docker, and AI all ready">
+        <span class="docs-statusbar-ready">
+          <span class="docs-statusbar-dot" aria-hidden="true"></span>
+          Runtime ready
+        </span>
+        <span class="docs-statusbar-checks">
+          <span class="docs-statusbar-check">Java<span class="docs-statusbar-mark" aria-hidden="true">&check;</span></span>
+          <span class="docs-statusbar-check">k6<span class="docs-statusbar-mark" aria-hidden="true">&check;</span></span>
+          <span class="docs-statusbar-check">Docker<span class="docs-statusbar-mark" aria-hidden="true">&check;</span></span>
+          <span class="docs-statusbar-check">AI<span class="docs-statusbar-mark" aria-hidden="true">&check;</span></span>
+        </span>
       </div>
 
-      <div class="docs-terminal" aria-hidden="true">
-        <div class="terminal-chrome">
-          <span></span><span></span><span></span>
-          <span class="terminal-title">bash</span>
-        </div>
-        <div class="terminal-body">
-          <div class="terminal-line">
-            <span class="terminal-prompt">$</span>
-            <span>man vortex-docs</span>
+      <ul class="docs-manifest">
+        <li class="docs-manifest-item">
+          <span class="prereq-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 8h11v6a5 5 0 0 1-5 5H9a4 4 0 0 1-4-4V8z" />
+              <path d="M16 9h1.5a2.5 2.5 0 0 1 0 5H16" />
+              <path d="M8 2c-.6.9.6 1.3 0 2.2" />
+              <path d="M12 2c-.6.9.6 1.3 0 2.2" />
+              <path d="M3 21h14" />
+            </svg>
+          </span>
+          <div class="docs-manifest-body">
+            <div class="docs-manifest-title">
+              Java 25 <span class="docs-manifest-req">· required</span>
+            </div>
+            <p>A Java 25 runtime (JRE) is enough to run the jar — the full JDK is only needed for
+              building Vortex itself from source.</p>
           </div>
-          <div class="docs-terminal-out">No manual entry for vortex-docs.</div>
-          <div class="docs-terminal-out">Try `man vortex`, or the five stages of grief.</div>
-          <div class="terminal-line">
-            <span class="terminal-prompt">$</span>
-            <span>git blame docs/ -- who-forgot-this.md</span>
+          <a class="prereq-link" href="https://adoptium.net/temurin/releases/?package=jre" target="_blank" rel="noopener">Get it &rarr;</a>
+        </li>
+        <li class="docs-manifest-item">
+          <span class="prereq-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 16a8 8 0 1 1 16 0" />
+              <path d="M12 16l4-5" />
+              <circle cx="12" cy="16" r="1" />
+              <path d="M3 20h18" />
+            </svg>
+          </span>
+          <div class="docs-manifest-body">
+            <div class="docs-manifest-title">
+              k6 <span class="docs-manifest-req">· required</span>
+            </div>
+            <p>The actual load generator — Vortex builds the workload and reads the results, k6
+              is what sends the traffic.</p>
           </div>
-          <div class="docs-terminal-out">fatal: no such path 'docs/who-forgot-this.md' — nobody wrote it,</div>
-          <div class="docs-terminal-out">so technically nobody can be blamed. Case closed.</div>
-          <div class="terminal-line">
-            <span class="terminal-prompt">$</span>
-            <span>cat known-issues.log</span>
+          <a class="prereq-link" href="https://k6.io" target="_blank" rel="noopener">Get it &rarr;</a>
+        </li>
+        <li class="docs-manifest-item">
+          <span class="prereq-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 8l9-5 9 5-9 5-9-5z" />
+              <path d="M3 8v8l9 5 9-5V8" />
+              <path d="M12 13v8" />
+            </svg>
+          </span>
+          <div class="docs-manifest-body">
+            <div class="docs-manifest-title">
+              Docker <span class="docs-manifest-req docs-manifest-req-optional">· optional</span>
+            </div>
+            <p>Spins up the service under test itself from an image (every screenshot in this
+              tour runs this way), or just its dependencies. Skip it if your service is already
+              running and reachable directly.</p>
           </div>
-          <div class="docs-terminal-out">it-works-on-my-machine.log — 14,207 lines and counting</div>
-          <div class="docs-terminal-out">flaky_test.spec — passed on the third try, called it a day</div>
-          <div class="docs-terminal-out">code_review.diff — approved without being opened</div>
-          <div class="docs-terminal-out">staging.env — structurally sound, morally unverified</div>
-          <div class="docs-terminal-out">test_final_v2_ACTUALLY_final.js — still in prod</div>
-          <div class="docs-terminal-out">load_test.log — 100% success rate (against localhost)</div>
-        </div>
-      </div>
-      <p class="hero-explain">The real docs won&rsquo;t be any of that. Audited, versioned, and —
-        unlike everything above — actually true.</p>
+          <a class="prereq-link" href="https://www.docker.com/products/docker-desktop/" target="_blank" rel="noopener">Get it &rarr;</a>
+        </li>
+        <li class="docs-manifest-item">
+          <span class="prereq-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="7" y="7" width="10" height="10" rx="1" />
+              <path d="M7 3v3M12 3v3M17 3v3M7 18v3M12 18v3M17 18v3M3 7h3M3 12h3M3 17h3M18 7h3M18 12h3M18 17h3" />
+            </svg>
+          </span>
+          <div class="docs-manifest-body">
+            <div class="docs-manifest-title">
+              Ollama <span class="docs-manifest-req docs-manifest-req-optional">· optional</span>
+            </div>
+            <p>Local AI-assisted interpretation. Skip it and Vortex stays fully usable — findings
+              are deterministic either way.</p>
+          </div>
+          <a class="prereq-link" href="https://ollama.com" target="_blank" rel="noopener">Get it &rarr;</a>
+        </li>
+      </ul>
+    </section>
 
+    <section id="quickstart">
+      <h2>Get it running</h2>
+      <p>No build, no installer, no account — download the jar, run <code>java -jar
+        vortex.jar</code>, and open <code>http://127.0.0.1:7717</code>. Vortex listens on
+        <code>127.0.0.1</code> only; nothing leaves your machine.</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="index.html">Back to Vortex</a>
+        <a class="btn btn-primary" href="index.html#download">Download vortex.jar</a>
+      </div>
+    </section>
+
+    <section id="model">
+      <h2>The mental model</h2>
+      <p class="docs-model-sentence">One <strong>Service</strong>. A <strong>Workload</strong> it
+        actually has to survive. An <strong>Evaluation</strong> asking whether it did. A
+        <strong>Quality gate</strong> deciding what counts as &ldquo;did.&rdquo; One
+        <strong>Run</strong> to find out. <strong>Evidence</strong> at the end of it — not just a
+        number.</p>
+
+      <div class="docs-model-chain" data-reveal>
+        <div class="docs-model-row">
+          <div class="arch-node arch-node-root" style="--tilt: -1.4deg" data-tilt="-1.4">Service</div>
+          <p>The one system under test. Vortex measures one at a time.</p>
+        </div>
+        <div class="docs-model-row">
+          <div class="arch-node" style="--tilt: 1.6deg" data-tilt="1.6">Workload</div>
+          <p>A traffic condition — rate split across operations, held for a duration.</p>
+        </div>
+        <div class="docs-model-row">
+          <div class="arch-node" style="--tilt: -1.8deg" data-tilt="-1.8">Evaluation</div>
+          <p>The performance question a run answers — not &ldquo;which workload,&rdquo; but what
+            you&rsquo;re trying to learn.</p>
+        </div>
+        <div class="docs-model-row">
+          <div class="arch-node" style="--tilt: 1.7deg" data-tilt="1.7">Quality gate</div>
+          <p>The objectives a run has to hold — p95 latency, p99 latency, error rate.</p>
+        </div>
+        <div class="docs-model-row">
+          <div class="arch-node" style="--tilt: -1.5deg" data-tilt="-1.5">Run</div>
+          <p>One immutable execution, kept with the exact workload it applied.</p>
+        </div>
+        <div class="docs-model-row">
+          <div class="arch-node arch-node-root" style="--tilt: 1.2deg" data-tilt="1.2">Evidence</div>
+          <p>What happened, plus the conditions it happened under — not just a number on its
+            own.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="tour" class="breakout">
+      <div class="wide-wrap">
+        <h2>The five-minute tour</h2>
+        <p class="credibility-marker">Real Vortex Workbench &middot; Actual local screens</p>
+        <p>From the demo service that ships with Vortex, to a verdict — the same nine steps every
+          service goes through.</p>
+
+        <div class="docs-tour">
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">1</div>
+              <div class="docs-step-line"></div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Add your service</strong>
+                <p>Creation is a separate act from configuration — a name is all that&rsquo;s
+                  required. A repository path is optional; a service tested remotely never needs
+                  one.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Add your service">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-add-service.webp">
+                  <img class="theme-shot" src="images/docs/docs-add-service-light.webp" width="712" height="487"
+                    alt="The Add service form: an optional service location field, a required service name, an optional API definition URL, and an optional description"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">2</div>
+              <div class="docs-step-line"></div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Import its OpenAPI document</strong>
+                <p>Paths, methods, and schemas are parsed deterministically — no AI involved.
+                  Operations that write data are flagged for review before anything can send
+                  traffic to them.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Import its OpenAPI document">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-import-openapi.webp">
+                  <img class="theme-shot" src="images/docs/docs-import-openapi-light.webp" width="874" height="558"
+                    alt="A service definition discovered from an OpenAPI import: GET /accounts/{id} marked read-only, and two POST operations flagged Review data"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">3</div>
+              <div class="docs-step-line"></div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Say what each request needs</strong>
+                <p>Every field a write needs gets a value source: fixed, generated, a dataset
+                  column, or an environment variable. Here, an order&rsquo;s account id is a
+                  generated UUID and its amount is a fixed value.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Say what each request needs">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-request-data.webp">
+                  <img class="theme-shot" src="images/docs/docs-request-data-light.webp" width="560" height="357"
+                    alt="The request data drawer for POST /orders: accountId set to Generated (a random UUID, every request), amount set to Fixed at 42.50"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">4</div>
+              <div class="docs-step-line"></div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Define what you want to test</strong>
+                <p>Pick an intent — Smoke, Average load, Stress, Spike, Soak, or Breakpoint, each
+                  phrased as a question — then a total arrival rate or concurrency and a
+                  duration. The operation mix and its share of traffic stay visible as you go.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Define what you want to test">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-workload-editor.webp">
+                  <img class="theme-shot" src="images/docs/docs-workload-editor-light.webp" width="1400" height="918"
+                    alt="Composing a test: Average load selected among six intents, a 50 req/sec arrival-rate load over 10 minutes, and the target Docker image"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">5</div>
+              <div class="docs-step-line"></div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Set objectives</strong>
+                <p>The quality gate a run has to clear — p95 latency, p99 latency, error rate.
+                  Saving always replaces the whole set, so a blank field drops that objective
+                  rather than silently keeping whatever was there.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Set objectives">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-objectives.webp">
+                  <img class="theme-shot" src="images/docs/docs-objectives-light.webp" width="960" height="142"
+                    alt="Expectations: p95 latency below 200 ms, p99 latency below 500 ms, error rate below 5%"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">6</div>
+              <div class="docs-step-line"></div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Check the preflight</strong>
+                <p>A plain-English summary of exactly what&rsquo;s about to happen — the target,
+                  the operation mix, the environment classification, and every condition that has
+                  to hold for a pass. Nothing is sent yet.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Check the preflight">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-preflight.webp">
+                  <img class="theme-shot" src="images/docs/docs-preflight-light.webp" width="1400" height="1515"
+                    alt="Preflight for Average load: 80 requests/sec for 3 minutes, the operation mix, isolated-test classification, and a full pass-conditions checklist all green"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">7</div>
+              <div class="docs-step-line"></div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Run it</strong>
+                <p>Target, actual, p95, and error rate update every five seconds while k6 runs
+                  the workload for real — no simulated progress bar standing in for it.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Run it">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-run-live.webp">
+                  <img class="theme-shot" src="images/docs/docs-run-live-light.webp" width="1014" height="612"
+                    alt="A live average-load run in progress, target versus actual throughput and p95 latency updating, with a cancel-run control"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">8</div>
+              <div class="docs-step-line"></div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Read the result</strong>
+                <p>A one-line answer first, then a verdict, an evidence-quality label, and the
+                  headline numbers — throughput, p95, error rate, resource use, and whether
+                  capacity was actually established. Every claim traces back to a measurement.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Read the result">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-run-result.webp">
+                  <img class="theme-shot" src="images/docs/docs-run-result-light.webp" width="1400" height="900"
+                    alt="A spike run's result: Pass verdict, Valid evidence quality, and headline tiles for p95, error rate, load, resource use, and capacity"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">9</div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Optionally, ask for AI interpretation</strong>
+                <p>A local model can read the same evidence and explain it in plain language — it
+                  never determines pass/fail, and everything it claims has to cite a measurement
+                  or it&rsquo;s discarded. Skip it entirely and the run is exactly as valid.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Optionally, ask for AI interpretation">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-ai-interpretation.webp">
+                  <img class="theme-shot" src="images/docs/docs-ai-interpretation-light.webp" width="1360" height="548"
+                    alt="An AI interpretation panel reading the run's evidence: findings on latency and pool utilization, a recommended next test, generated locally with Ollama"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="advanced" class="breakout">
+      <div class="wide-wrap">
+        <h2>Establish a production baseline</h2>
+        <p>Separate from the nine steps above, and worth doing for any service that has real
+          users: give Vortex something to compare a workload against, on the service&rsquo;s
+          Production reality panel.</p>
+
+        <div class="docs-fork" data-reveal>
+          <p class="docs-fork-question">Is it live yet?</p>
+          <div class="docs-fork-tabs" role="tablist" aria-label="Which baseline path applies to you">
+            <button type="button" class="docs-fork-tab is-active" role="tab" aria-selected="true" aria-controls="baseline-panel-live" id="baseline-tab-live">
+              Yes — and I use Dynatrace
+            </button>
+            <button type="button" class="docs-fork-tab" role="tab" aria-selected="false" aria-controls="baseline-panel-new" id="baseline-tab-new" tabindex="-1">
+              No — not deployed yet
+            </button>
+          </div>
+
+          <div class="docs-fork-panel" role="tabpanel" id="baseline-panel-live" aria-labelledby="baseline-tab-live">
+            <p>Connect once, under Settings — one endpoint for the whole workbench. Vortex spawns
+              <code>npx mcp-remote</code> locally, which handles Dynatrace&rsquo;s own sign-in
+              once; the session is reused after. Each service then points at it independently:
+              search by name, or paste the entity id directly. Only throughput, latency, and
+              error-rate queries travel to Dynatrace — never a request to interpret or summarize
+              anything.</p>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Settings — connect Dynatrace once</strong>
+                <p>An endpoint, a default observation window, and local-bridge sign-in —
+                  configured once for every service that opts into it.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Settings — connect Dynatrace once">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-settings-dynatrace.webp">
+                  <img class="theme-shot" src="images/docs/docs-settings-dynatrace-light.webp" width="852" height="730"
+                    alt="Settings page's Dynatrace MCP card: an endpoint field, a default 30-day observation window, local bridge mode explained, Save and Test connection controls"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+
+          <div class="docs-fork-panel" role="tabpanel" id="baseline-panel-new" aria-labelledby="baseline-tab-new" hidden>
+            <p>There&rsquo;s no live traffic to observe — so enter a projected baseline by hand
+              instead: an expected average rate and peak. Vortex treats it exactly like an
+              observed one, proposing an average-load, stress, spike, and capacity test derived
+              from those numbers, and computing headroom against them once a run passes.</p>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Record a projected baseline manually</strong>
+                <p>An average and p95 rate, entered by hand, become the same proposed-test table
+                  a Dynatrace-observed baseline would produce.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Record a projected baseline manually">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-production-manual.webp">
+                  <img class="theme-shot" src="images/docs/docs-production-manual-light.webp" width="992" height="548"
+                    alt="Production reality panel with a manually entered baseline — 20 requests/sec average, 30 requests/sec p95 — and Vortex's proposed average-load, production-peak, forecast, and capacity tests derived from it"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="trust">
+      <h2>What makes it trustworthy</h2>
+      <p>A green k6 exit code just says a script finished. Here&rsquo;s what actually backs a
+        Vortex verdict — five claims, and what each one refuses to be.</p>
+
+      <div class="docs-trust-list" data-reveal>
+        <div class="docs-trust-item">
+          <p class="docs-trust-not"><s>A cloud dashboard you don&rsquo;t control.</s></p>
+          <p class="docs-trust-is">A workbench that runs on your machine.</p>
+          <p class="docs-trust-detail">Against your services — no account, nothing leaves.</p>
+        </div>
+        <div class="docs-trust-item">
+          <p class="docs-trust-not"><s>A model&rsquo;s opinion.</s></p>
+          <p class="docs-trust-is">Ordinary code.</p>
+          <p class="docs-trust-detail">Verdicts, breakpoints, and headroom, computed from what
+            your run measured — the same evidence always yields the same conclusion, on any
+            machine. (The raw numbers themselves still depend on the machine that produced
+            them — a faster box runs a faster test. It&rsquo;s the logic that never moves.)</p>
+        </div>
+        <div class="docs-trust-item">
+          <p class="docs-trust-not"><s>An unverifiable claim.</s></p>
+          <p class="docs-trust-is">A finding that cites its evidence.</p>
+          <p class="docs-trust-detail">Every AI finding names the measurement behind it, or it
+            gets discarded before you ever see it.</p>
+        </div>
+        <div class="docs-trust-item">
+          <p class="docs-trust-not"><s>An invented number.</s></p>
+          <p class="docs-trust-is">Traffic you actually observed.</p>
+          <p class="docs-trust-detail">Headroom is established tested capacity divided by
+            observed production peak. If the two aren&rsquo;t comparable — wrong units, an
+            isolated test, no capacity actually established — Vortex refuses to produce a number
+            rather than guess.</p>
+        </div>
+        <div class="docs-trust-item">
+          <p class="docs-trust-not"><s>An overclaim.</s></p>
+          <p class="docs-trust-is">&ldquo;Not established by this test.&rdquo;</p>
+          <p class="docs-trust-detail">Treated as a valid, honest answer — and Vortex will say it
+            plainly when that&rsquo;s the truth.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="config" class="breakout">
+      <div class="wide-wrap">
+        <h2>One file, shared by the whole team</h2>
+        <p>A different kind of trust than the last section&rsquo;s — not about the verdict, but
+          about whether the test itself outlives the person who built it.</p>
+        <div class="portable-callout">
+          <div class="portable-callout-copy">
+            <p class="portable-callout-lead">Not a setting saved to your machine. A file saved to
+              the repo.</p>
+            <p>Every operation, workload, and objective you define lands in one plain-text file,
+              <code>.vortex/vortex.yaml</code>, next to the service it describes. Commit it, and a
+              teammate — or CI — runs the exact test you did. Not their memory of it.</p>
+          </div>
+          <div class="terminal-window portable-callout-terminal" data-reveal>
+            <div class="terminal-chrome">
+              <span></span><span></span><span></span>
+              <span class="terminal-title">.vortex/vortex.yaml</span>
+            </div>
+            <div class="terminal-body">
+              <div class="terminal-line">
+                <span class="terminal-prompt">$</span>
+                <span>cat .vortex/vortex.yaml</span>
+              </div>
+              <div class="terminal-out-line terminal-out-code">workloads:</div>
+              <div class="terminal-out-line terminal-out-code">&nbsp;&nbsp;average-load:</div>
+              <div class="terminal-out-line terminal-out-code">&nbsp;&nbsp;&nbsp;&nbsp;type: AVERAGE_LOAD</div>
+              <div class="terminal-out-line terminal-out-code">&nbsp;&nbsp;&nbsp;&nbsp;shape: { rate: 80, duration: 3m }</div>
+              <div class="terminal-out-line terminal-out-code">&nbsp;&nbsp;&nbsp;&nbsp;operations:</div>
+              <div class="terminal-out-line terminal-out-code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;createOrder: 20</div>
+              <div class="terminal-out-line terminal-out-code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;getOrder: 30</div>
+              <div class="terminal-out-line terminal-out-code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;getAccount: 40</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="docs-epilogue">
+      <div class="interro-stage">
+        <div class="interro-actor interro-actor-lead">
+          <div class="interro-bubble-slot">
+            <div class="interro-bubble is-visible"><span class="interro-bubble-text">Can it handle production?</span></div>
+          </div>
+          <svg class="interro-figure" viewBox="0 0 64 150" aria-hidden="true">
+            <circle cx="32" cy="16" r="11" />
+            <path d="M22,28 L18,74 L46,74 L42,28 Z" />
+            <path d="M22,34 L8,26" />
+            <path d="M42,34 L50,50" />
+            <path d="M24,74 L18,116" />
+            <path d="M40,74 L46,116" />
+            <ellipse cx="15" cy="118" rx="6" ry="2.5" />
+            <ellipse cx="49" cy="118" rx="6" ry="2.5" />
+            <circle cx="27" cy="14" r="1.6" />
+            <circle cx="37" cy="14" r="1.6" />
+            <path d="M33,8 L41,6" />
+            <path d="M22,9 L30,9" />
+            <path d="M25,22 Q32,20 39,22" />
+          </svg>
+          <span class="interro-actor-name">Boss</span>
+        </div>
+
+        <div class="interro-actor interro-actor-eng">
+          <div class="interro-bubble-slot">
+            <div class="interro-bubble is-visible"><span class="interro-bubble-text">Tested to 3&times; the observed peak. Every objective held.</span></div>
+          </div>
+          <svg class="interro-figure" viewBox="0 0 64 150" aria-hidden="true">
+            <circle cx="32" cy="16" r="11" />
+            <path d="M22,28 L18,74 L46,74 L42,28 Z" />
+            <path d="M42,34 C52,26 52,10 36,6" />
+            <path d="M22,34 L16,52" />
+            <path d="M24,74 L18,116" />
+            <path d="M40,74 L46,116" />
+            <ellipse cx="15" cy="118" rx="6" ry="2.5" />
+            <ellipse cx="49" cy="118" rx="6" ry="2.5" />
+            <circle cx="27" cy="14" r="1.6" />
+            <circle cx="37" cy="14" r="1.2" />
+            <path d="M20,9 Q26,6 32,9" />
+            <path d="M34,10 Q38,7 44,11" />
+            <path d="M25,23 Q29,25 32,22 Q35,19 39,22" />
+          </svg>
+          <span class="interro-actor-name">Engineer</span>
+        </div>
+      </div>
+
+      <div class="interro-line interro-finale" data-reveal>
+        <div class="interro-payoff-turn">
+          <span class="interro-payoff-tag">ENG</span>
+          <span class="interro-payoff-text"><span class="strike">Probably.</span> <span class="interro-verdict">Not this time.</span></span>
+        </div>
+        <p class="interro-conclusion">Not a guess anymore — a verdict you can defend.</p>
       </div>
     </section>
 
@@ -77,5 +734,6 @@
       <p>© 2026 Alvin Cris Tabontabon.</p>
     </footer>
   </div>
+  <script type="module" src="/interactions.js"></script>
 </body>
 </html>
