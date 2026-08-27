@@ -2462,11 +2462,30 @@ html:has(body.docs-page) {
 }
 
 @media (max-width: 640px) {
+  /* flex-wrap left the browser to decide where icon/body/link broke onto new lines, and it chose
+     badly on real narrow devices — the link landing on its own line with a large gap above it,
+     confirmed on an actual phone even though it looked fine in every simulated-viewport check.
+     An explicit grid removes that ambiguity: icon and body always share row 1, the link always
+     sits directly under the body's text on row 2, with a small deliberate gap instead of an
+     accidental one. */
   .docs-manifest-item {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 14px;
+    row-gap: 6px;
+  }
+  .prereq-icon {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .docs-manifest-body {
+    grid-column: 2;
+    grid-row: 1;
   }
   .prereq-link {
-    margin-left: 34px;
+    grid-column: 2;
+    grid-row: 2;
+    margin: 0;
   }
 }
 
@@ -2530,11 +2549,27 @@ html:has(body.docs-page) {
 }
 
 @media (max-width: 560px) {
+  /* Same fix as .docs-manifest-item: an explicit grid instead of flex-wrap, which put the button
+     on its own line with an unpredictable gap on real narrow devices. */
   .docs-quickstart-step {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 14px;
+    row-gap: 10px;
+  }
+  .docs-quickstart-step .prereq-icon {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .docs-quickstart-body {
+    grid-column: 2;
+    grid-row: 1;
   }
   .docs-quickstart-cta {
-    margin-left: 34px;
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    margin: 0;
   }
 }
 
@@ -2731,6 +2766,19 @@ html:has(body.docs-page) {
     align-items: flex-start;
     gap: 6px;
     margin-bottom: 16px;
+  }
+  /* The node's rotate() transform and the sketch-edge SVG filter's expanded (140%) effects
+     region are both purely visual and shouldn't affect layout — but on a real phone this
+     combination was leaving a large, inconsistent gap before the paragraph that no simulated
+     viewport reproduced, pointing at a WebKit-specific quirk where a filtered, transformed flex
+     item's painted bounds leak into its flow contribution. Dropping both for this single-column
+     mobile read removes the suspect combination rather than chasing it further; a plain,
+     unrotated box reads fine stacked above its own definition. */
+  .docs-model-row .arch-node {
+    transform: none;
+    filter: none;
+    box-shadow: none;
+    border-color: var(--border);
   }
 }
 
