@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- Dynatrace entity id lookup by name was rejected by Dynatrace with "fetch commands require
+  scanLimitGBytes" and never actually worked — fixed.
+
 ## [0.1.0-alpha.18] - 2026-08-27
 
 ### Added

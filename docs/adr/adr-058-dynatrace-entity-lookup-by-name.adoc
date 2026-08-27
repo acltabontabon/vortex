@@ -52,11 +52,14 @@ Most Dynatrace setups skip the manual copy-paste entirely when the service's Dyn
 enough to its Vortex name. When it isn't, or when Dynatrace MCP isn't configured yet, nothing is worse
 off than before — the same manual field and the same (now clearer) guidance are still there.
 
-The DQL grammar (`matchesPhrase`, the `fetch dt.entity.service` source) is unverified against a real
-Dynatrace tenant, the same caveat every other statement in `Dql.java` carries — if the real grammar or
-response envelope differs, `DynatraceEntitySearch`'s query and parser are the only places that need
-correcting, isolated from everything else. The organization-resolution logic is duplicated, not
-shared, from `DynatraceMcpObservationSource.resolveOrganization`: the two classes want different
+The DQL grammar (`matchesPhrase`, the `fetch dt.entity.service` source) was unverified against a real
+Dynatrace tenant at first, the same caveat every other statement in `Dql.java` carries. It needed one
+correction once tried against a live endpoint: Dynatrace rejects any `fetch` command with no
+`scanLimitGBytes` option (`timeseries`, used by every other statement here, needs no such bound) —
+`Dql.entitySearch` now sets it to the smallest allowed value, `1`, since an entity fetch scans a tiny,
+bounded amount of data regardless of how many services exist. Isolated to that one method, exactly as
+intended: the query and parser were the only places that needed correcting. The organization-resolution
+logic is duplicated, not shared, from `DynatraceMcpObservationSource.resolveOrganization`: the two classes want different
 error phrasing for the same underlying schema read, and the schema-reading itself is already isolated
 in the shared, public `DqlToolSchema.resolveOrganization`.
 

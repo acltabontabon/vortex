@@ -22,6 +22,7 @@ class DynatraceEntitySearchTest {
         assertThat(query.arguments()).containsEntry("organization", "my-org");
         assertThat(query.arguments().get("dqlStatement").toString())
                 .contains("fetch dt.entity.service")
+                .contains("scanLimitGBytes: 1")
                 .contains("matchesPhrase(entity.name, \"checkout\")")
                 .contains("fields id, name = entity.name")
                 .contains("limit 20");

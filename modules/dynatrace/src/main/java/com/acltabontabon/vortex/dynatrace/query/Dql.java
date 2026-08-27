@@ -69,12 +69,15 @@ final class Dql {
     /**
      * Finds service entities whose name matches a phrase — how {@code DynatraceEntitySearch} looks
      * up a candidate entity id from a service name instead of requiring one to already be known.
-     * Unverified against a live tenant, same as every other statement in this class: this one has no
-     * exercised caller yet to have proven its grammar or {@code execute_dql}'s response envelope for
-     * it.
+     *
+     * <p>{@code scanLimitGBytes} is required on every {@code fetch} command (confirmed against a
+     * real endpoint: without it, Dynatrace rejects the query outright rather than defaulting one in)
+     * — unlike the {@code timeseries} statements elsewhere in this class, which need no such bound.
+     * An entity fetch scans a tiny, bounded amount of data regardless of how many services exist, so
+     * the smallest allowed value is enough headroom.
      */
     static String entitySearch(String namePhrase) {
-        return "fetch dt.entity.service"
+        return "fetch dt.entity.service, scanLimitGBytes: 1"
                 + " | filter matchesPhrase(entity.name, \"" + escape(namePhrase) + "\")"
                 + " | fields id, name = entity.name"
                 + " | limit 20";
