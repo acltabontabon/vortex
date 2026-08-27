@@ -227,23 +227,10 @@ if (stationMap && stations.length) {
   if (reduceMotion) {
     lightUpAll();
   } else if (isStackedLayout) {
-    var walkBadge = document.querySelector('.station-map-walk');
-    var bump = function () {
-      if (!walkBadge) return;
-      walkBadge.classList.remove('bump');
-      // eslint-disable-next-line no-unused-expressions
-      walkBadge.offsetWidth; // restart the animation even if it's still mid-bounce from the last station
-      walkBadge.classList.add('bump');
-    };
-
-    stations.forEach(function (el, index) {
-      inView(el, function () {
-        el.classList.add('active');
-        bump();
-        if (index === stations.length - 1 && walkCaption) {
-          walkCaption.classList.add('is-visible');
-        }
-      }, { amount: 0.4, margin: '0px 0px -10% 0px' });
+    // No walking figure on mobile (.station-map-walk is display:none there — see styles.css) — just
+    // each station, connector, and the canvas revealing individually as it's scrolled into view.
+    stations.forEach(function (el) {
+      inView(el, function () { el.classList.add('active'); }, { amount: 0.4, margin: '0px 0px -10% 0px' });
     });
     stationConnectors.forEach(function (el) {
       inView(el, function () { el.classList.add('active'); }, { amount: 0.4, margin: '0px 0px -10% 0px' });
