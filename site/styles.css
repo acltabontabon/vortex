@@ -2470,6 +2470,74 @@ html:has(body.docs-page) {
   }
 }
 
+/* Get it running: three steps, not a paragraph — the same icon-led, borderless-row idiom as the
+   prerequisites manifest above it, so the two sections read as one family rather than a rich
+   treatment followed by a flat one. */
+.docs-quickstart {
+  list-style: none;
+  margin: 28px 0 8px;
+  padding: 0;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.docs-quickstart.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.docs-quickstart-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+
+.docs-quickstart-step:first-child {
+  border-top: none;
+  padding-top: 20px;
+}
+
+.docs-quickstart-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.docs-quickstart-body strong {
+  display: block;
+  color: var(--fg);
+  margin-bottom: 2px;
+}
+
+.docs-quickstart-body p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--fg-muted);
+}
+
+.docs-quickstart-cta {
+  flex: none;
+  padding: 9px 16px;
+  font-size: 0.85rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-quickstart {
+    transition: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .docs-quickstart-step {
+    flex-wrap: wrap;
+  }
+  .docs-quickstart-cta {
+    margin-left: 34px;
+  }
+}
+
 /* A file excerpt shown inside a terminal window (see #config) rather than command output —
    whitespace has to be preserved for the indentation to read as YAML. */
 .terminal-out-code {

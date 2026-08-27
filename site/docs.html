@@ -189,12 +189,49 @@
 
     <section id="quickstart">
       <h2>Get it running</h2>
-      <p>No build, no installer, no account — download the jar, run <code>java -jar
-        vortex.jar</code>, and open <code>http://127.0.0.1:7717</code>. Vortex listens on
-        <code>127.0.0.1</code> only; nothing leaves your machine.</p>
-      <div class="cta-row">
-        <a class="btn btn-primary" href="index.html#download">Download vortex.jar</a>
-      </div>
+      <p>No build, no installer, no account. Three steps, and the third one is optional.</p>
+
+      <ol class="docs-quickstart" data-reveal>
+        <li class="docs-quickstart-step">
+          <span class="prereq-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3v12" />
+              <path d="M7 10l5 5 5-5" />
+              <path d="M4 20h16" />
+            </svg>
+          </span>
+          <div class="docs-quickstart-body">
+            <strong>Download</strong>
+            <p>One file. No installer, no package manager.</p>
+          </div>
+          <a class="btn btn-primary docs-quickstart-cta" href="index.html#download">vortex.jar</a>
+        </li>
+        <li class="docs-quickstart-step">
+          <span class="prereq-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M10 8.5l6 3.5-6 3.5z" />
+            </svg>
+          </span>
+          <div class="docs-quickstart-body">
+            <strong>Run it</strong>
+            <p><code>java -jar vortex.jar</code> — loopback only, nothing leaves your machine.</p>
+          </div>
+        </li>
+        <li class="docs-quickstart-step">
+          <span class="prereq-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 4h6v6" />
+              <path d="M20 4l-9 9" />
+              <path d="M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h6" />
+            </svg>
+          </span>
+          <div class="docs-quickstart-body">
+            <strong>Open it</strong>
+            <p><code>http://127.0.0.1:7717</code> in a browser. That&rsquo;s the whole install.</p>
+          </div>
+        </li>
+      </ol>
     </section>
 
     <section id="model">
