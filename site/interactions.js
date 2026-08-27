@@ -785,7 +785,10 @@ if (versionEl) {
       dot.classList.toggle('is-active', j === current);
       dot.classList.toggle('is-passed', j < current);
     });
-    if (countEl) countEl.textContent = String(current);
+    // current is 0-indexed (0..sections.length-1) — the reader "on" the last section had never
+    // driven the count past sections.length-1, so N/N was unreachable no matter how far they
+    // scrolled. Display is 1-indexed: "on section current+1 of N", reaching N/N at the last one.
+    if (countEl) countEl.textContent = String(current + 1);
   }
 
   update();
