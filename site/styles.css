@@ -839,6 +839,17 @@ p {
     padding-top: 24px;
   }
 
+  /* .portable-callout-copy / .portable-callout-terminal's flex-basis (320px / 380px) is a WIDTH
+     hint for the desktop row — flex-basis tracks the main axis, so once .portable-callout flips to
+     flex-direction:column above, that same number is read as a HEIGHT instead, inflating each box
+     to a fixed ~320-380px tall with its actual (much shorter) content sitting at the top. That's
+     what was producing the large blank gap above the terminal. Resetting the basis to auto here
+     makes both size to their real content height in the stacked layout. */
+  .portable-callout-copy,
+  .portable-callout-terminal.terminal-window {
+    flex-basis: auto;
+  }
+
   .portable-callout-lead {
     font-size: 1rem;
   }
