@@ -760,7 +760,7 @@ describe('OverviewPage, before the service can be measured', () => {
     queryResult = { data: unconfigured({ target: null }), isError: false };
     renderWithProviders(<OverviewPage />);
 
-    expect(screen.getByRole('heading', { name: 'Nothing to measure yet' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Steps to a runnable experiment' })).toBeInTheDocument();
     expect(screen.queryByText('Production peak')).not.toBeInTheDocument();
     expect(screen.queryByText('Tested capacity')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Tests' })).not.toBeInTheDocument();
@@ -771,15 +771,17 @@ describe('OverviewPage, before the service can be measured', () => {
     queryResult = { data: unconfigured({ operationCount: 0 }), isError: false };
     renderWithProviders(<OverviewPage />);
 
-    expect(screen.getByRole('heading', { name: 'Nothing to measure yet' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Steps to a runnable experiment' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Tests' })).not.toBeInTheDocument();
   });
 
-  it('offers every open signal as a control, without leaving the service', () => {
+  it('offers the open signal as a real control, without leaving the service', () => {
     queryResult = { data: unconfigured({ target: null }), isError: false };
     renderWithProviders(<OverviewPage />);
 
-    expect(screen.getByRole('button', { name: 'Environment configured' })).toBeInTheDocument();
+    // The sole outstanding required signal holds the stage immediately, as the active card's own
+    // question rather than a link off the page.
+    expect(screen.getByRole('heading', { name: 'Where should the traffic go?' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /^Environment configured/ })).not.toBeInTheDocument();
   });
 

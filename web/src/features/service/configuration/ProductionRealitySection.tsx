@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Anchor, Button, Group, NumberInput, Select, Stack, Table, Text, TextInput, Textarea } from '@mantine/core';
+import { Alert, Anchor, Button, Divider, Group, List, NumberInput, Select, Stack, Table, Text, TextInput, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { Link } from 'react-router-dom';
 import type { Catalog, ObservationSource, WorkloadSuggestion } from '../../../api/configuration';
@@ -19,6 +19,7 @@ import { TrafficDistribution } from '../../../components/TrafficDistribution';
 import { extractErrorMessage } from '../../../lib/queryFallback';
 import { HeaderRows } from './HeaderRows';
 import { rowsFromMasked, type HeaderRow } from './headerRowUtils';
+import classes from './ProductionRealitySection.module.css';
 
 function headerArrays(rows: HeaderRow[]): { headerName?: string[]; headerValue?: string[] } {
   const named = rows.filter((row) => row.name.trim());
@@ -80,8 +81,19 @@ export function ProductionRealitySection({
       : (production.source ?? (production.fetched ? 'observation source' : 'recorded manually'))
     : null;
 
+  const toggleRecording = () =>
+    setRecording((v) => {
+      if (!v) setConfiguringSource(false);
+      return !v;
+    });
+  const toggleConfiguringSource = () =>
+    setConfiguringSource((v) => {
+      if (!v) setRecording(false);
+      return !v;
+    });
+
   return (
-    <Stack gap="md">
+    <Stack gap="sm">
       <div>
         <Text size="md" fw={600}>
           {production ? `${production.peakRate} observed` : 'No production traffic recorded yet.'}
@@ -91,141 +103,138 @@ export function ProductionRealitySection({
             {provenance}
           </Text>
         )}
+
+        {production && (production.averageRate || production.p95ObservedRate || production.observedMix.length > 0) && (
+          <>
+            <Facts>
+              {production.averageRate && <Fact label="Average">{production.averageRate}</Fact>}
+              {production.p95ObservedRate && <Fact label="p95 rate">{production.p95ObservedRate}</Fact>}
+            </Facts>
+            {production.observedMix.length > 0 && (
+              <div style={{ marginTop: '0.5rem' }}>
+                <Text size="xs" fw={600} c="dimmed" mb={4}>
+                  Operation mix
+                </Text>
+                <TrafficDistribution rows={production.observedMix} />
+              </div>
+            )}
+            {production.qualityFacts.length > 0 && (
+              <details className={classes.advanced}>
+                <summary>How much this baseline is worth</summary>
+                <List className={classes.advancedBody} size="sm" spacing={2}>
+                  {production.qualityFacts.map((fact) => (
+                    <List.Item key={fact}>{fact}</List.Item>
+                  ))}
+                </List>
+              </details>
+            )}
+          </>
+        )}
       </div>
 
-      {production && (production.averageRate || production.p95ObservedRate || production.observedMix.length > 0) && (
-        <div>
-          <Facts>
-            {production.averageRate && <Fact label="Average">{production.averageRate}</Fact>}
-            {production.p95ObservedRate && <Fact label="p95 rate">{production.p95ObservedRate}</Fact>}
-          </Facts>
-          {production.observedMix.length > 0 && (
-            <div style={{ marginTop: '0.5rem' }}>
-              <Text size="xs" fw={600} c="dimmed" mb={4}>
-                Operation mix
-              </Text>
-              <TrafficDistribution rows={production.observedMix} />
-            </div>
-          )}
-          {production.qualityFacts.length > 0 && (
-            <details style={{ marginTop: '0.5rem' }}>
-              <summary style={{ cursor: 'pointer', fontSize: '0.8rem', color: 'var(--mantine-color-dimmed)' }}>
-                How much this baseline is worth
-              </summary>
-              <ul style={{ fontSize: '0.82rem', marginTop: '0.4rem' }}>
-                {production.qualityFacts.map((fact) => (
-                  <li key={fact}>{fact}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </div>
-      )}
-
       {observationSource && (
-        <Group>
+        <div>
           <Button variant="default" size="xs" onClick={onFetch} loading={fetchMutation.isPending}>
             Fetch from observation source
           </Button>
-        </Group>
-      )}
 
-      {fetchMutation.data && !fetchMutation.data.succeeded && (
-        <Alert color="warn" title="Could not fetch">
-          {fetchMutation.data.error}
-        </Alert>
-      )}
-      {fetchMutation.data?.succeeded && fetchMutation.data.preview && (
-        <Alert color="live" title="Fetched — nothing saved yet">
-          <Facts>
-            <Fact label="Peak">{fetchMutation.data.preview.peakRate}</Fact>
-            {fetchMutation.data.preview.averageRate && (
-              <Fact label="Average">{fetchMutation.data.preview.averageRate}</Fact>
-            )}
-          </Facts>
-          <Button mt="sm" size="xs" onClick={onSaveFetched} loading={fetchAndSaveMutation.isPending}>
-            Save this observation
-          </Button>
-        </Alert>
-      )}
-      {fetchAndSaveMutation.data && !fetchAndSaveMutation.data.succeeded && (
-        <Alert color="warn" title="Could not save">
-          {fetchAndSaveMutation.data.error}
-        </Alert>
-      )}
-
-      {calibrationSuggestions.length > 0 && (
-        <div>
-          <Text size="sm" fw={600} mb="xs">
-            Vortex can propose tests from this traffic
-          </Text>
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Rate</Table.Th>
-                <Table.Th>Derivation</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {calibrationSuggestions.map((s) => (
-                <Table.Tr key={s.name}>
-                  <Table.Td>{s.name}</Table.Td>
-                  <Table.Td>{s.rateDisplay} requests/sec</Table.Td>
-                  <Table.Td>
-                    <Text size="xs" c="dimmed">
-                      {s.derivation}
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-          <Button mt="sm" size="xs" onClick={onApply} loading={applyMutation.isPending}>
-            Create proposed tests
-          </Button>
+          {fetchMutation.data && !fetchMutation.data.succeeded && (
+            <Alert color="warn" title="Could not fetch" mt="xs">
+              {fetchMutation.data.error}
+            </Alert>
+          )}
+          {fetchMutation.data?.succeeded && fetchMutation.data.preview && (
+            <Alert color="live" title="Fetched — nothing saved yet" mt="xs">
+              <Facts>
+                <Fact label="Peak">{fetchMutation.data.preview.peakRate}</Fact>
+                {fetchMutation.data.preview.averageRate && (
+                  <Fact label="Average">{fetchMutation.data.preview.averageRate}</Fact>
+                )}
+              </Facts>
+              <Button mt="sm" size="xs" onClick={onSaveFetched} loading={fetchAndSaveMutation.isPending}>
+                Save this observation
+              </Button>
+            </Alert>
+          )}
+          {fetchAndSaveMutation.data && !fetchAndSaveMutation.data.succeeded && (
+            <Alert color="warn" title="Could not save" mt="xs">
+              {fetchAndSaveMutation.data.error}
+            </Alert>
+          )}
         </div>
       )}
 
-      <Group gap="sm">
-        <Button
-          size="xs"
-          variant="subtle"
-          onClick={() =>
-            setRecording((v) => {
-              if (!v) setConfiguringSource(false);
-              return !v;
-            })
-          }
-        >
-          {recording ? 'Cancel' : 'Record manually'}
-        </Button>
-        <Button
-          size="xs"
-          variant="subtle"
-          onClick={() =>
-            setConfiguringSource((v) => {
-              if (!v) setRecording(false);
-              return !v;
-            })
-          }
-        >
-          {configuringSource ? 'Cancel' : observationSource ? 'Edit source' : 'Configure source'}
-        </Button>
-      </Group>
-
-      {recording && (
-        <RecordedTrafficPanel serviceId={serviceId} catalog={catalog} onSaved={() => setRecording(false)} />
+      {calibrationSuggestions.length > 0 && (
+        <>
+          <Divider />
+          <div>
+            <Text size="sm" fw={600} mb="xs">
+              Vortex can propose tests from this traffic
+            </Text>
+            <Table verticalSpacing="xs">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th>Rate</Table.Th>
+                  <Table.Th>Derivation</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {calibrationSuggestions.map((s) => (
+                  <Table.Tr key={s.name}>
+                    <Table.Td>{s.name}</Table.Td>
+                    <Table.Td>{s.rateDisplay} requests/sec</Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed">
+                        {s.derivation}
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+            <Button mt="sm" size="xs" onClick={onApply} loading={applyMutation.isPending}>
+              Create proposed tests
+            </Button>
+          </div>
+        </>
       )}
 
-      {configuringSource && (
-        <ObservationSourcePanel
-          serviceId={serviceId}
-          serviceName={serviceName}
-          source={observationSource}
-          onSaved={() => setConfiguringSource(false)}
-        />
-      )}
+      <Divider />
+
+      <div>
+        <Group gap="md">
+          <Button size="compact-sm" variant="subtle" color="gray" className={classes.manageAction} onClick={toggleRecording}>
+            {recording ? 'Cancel' : 'Record manually'}
+          </Button>
+          <Button
+            size="compact-sm"
+            variant="subtle"
+            color="gray"
+            className={classes.manageAction}
+            onClick={toggleConfiguringSource}
+          >
+            {configuringSource ? 'Cancel' : observationSource ? 'Edit source' : 'Configure source'}
+          </Button>
+        </Group>
+
+        {recording && (
+          <div className={classes.managePanel}>
+            <RecordedTrafficPanel serviceId={serviceId} catalog={catalog} onSaved={() => setRecording(false)} />
+          </div>
+        )}
+
+        {configuringSource && (
+          <div className={classes.managePanel}>
+            <ObservationSourcePanel
+              serviceId={serviceId}
+              serviceName={serviceName}
+              source={observationSource}
+              onSaved={() => setConfiguringSource(false)}
+            />
+          </div>
+        )}
+      </div>
     </Stack>
   );
 }

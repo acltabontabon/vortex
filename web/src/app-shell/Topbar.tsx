@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { Tooltip, Kbd } from '@mantine/core';
+import { ActionIcon, Tooltip, Kbd } from '@mantine/core';
+import { IconSettings } from '@tabler/icons-react';
 import { ServiceSwitcher } from './ServiceSwitcher';
 import { ThemeToggle } from './ThemeToggle';
 import classes from './Topbar.module.css';
@@ -14,12 +15,18 @@ export function Topbar({ onOpenPalette }: TopbarProps) {
       <Link to="/" className={classes.brand}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path
-            d="M3 4.5c6 0 6.5 7.5 9 7.5M3 12h9M3 19.5c6 0 6.5-7.5 9-7.5"
+            d="M12 3a9 9 0 1 1-6.37 2.63"
             stroke="currentColor"
             strokeWidth="1.7"
             strokeLinecap="round"
           />
-          <circle cx="15" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.7" />
+          <path
+            d="M12 6.75a5.25 5.25 0 1 1-3.71 1.54"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+          />
+          <circle cx="12" cy="12" r="1.8" fill="currentColor" />
         </svg>
         Vortex
       </Link>
@@ -40,9 +47,9 @@ export function Topbar({ onOpenPalette }: TopbarProps) {
       </Tooltip>
 
       <Tooltip label="Settings" openDelay={400} withArrow>
-        <a href="/settings" className={classes.iconBtn} aria-label="Settings">
-          <span aria-hidden="true">⚙</span>
-        </a>
+        <ActionIcon component="a" href="/settings" variant="subtle" color="gray" size={32} aria-label="Settings">
+          <IconSettings size={18} stroke={1.6} />
+        </ActionIcon>
       </Tooltip>
 
       <ThemeToggle />

@@ -1,38 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
-import type { Readiness, ReadinessItem } from '../../api/workspace';
+import type { Readiness, ReadinessItem, ServiceHeader as Header } from '../../api/workspace';
 import { ServiceVortex } from './ServiceVortex';
 
 /**
- * The funnel is decoration; the signals around it are the component. These assert the signals —
- * that each open one is a control that configures it without leaving the page, that the domain's
- * own three kinds decide which ring it sits on, and that what has just been satisfied is drawn in
- * rather than simply vanishing. The drawer's contents are the Configuration sections' own tests.
+ * A fixed-order pipeline, not a settings form — these assert that the sequence is always contract,
+ * target, workload, objectives, whatever order they were actually satisfied in; that the "current"
+ * step is the first unsatisfied one in that order, not whichever is "most useful"; that a satisfied
+ * node shows a real confirmation rather than the question it answered; that a blocked node explains
+ * itself and jumps to its prerequisite rather than dead-ending; that production traffic never
+ * appears in the mandatory sequence; and that the whole thing transforms once every unavoidable
+ * signal is in place. Every call to action is asserted by its `href`, never by mounting a form —
+ * this page hands off to the Configuration page rather than restating it.
  */
-
-let reducedMotion = false;
-
-vi.mock('motion/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('motion/react')>();
-  return { ...actual, useReducedMotion: () => reducedMotion };
-});
-
-// The drawer mounts real configuration forms, which fetch. Those are their own files' business —
-// here it only matters that the right one was asked for, and that nothing navigated.
-vi.mock('./SignalDrawer', () => ({
-  SignalDrawer: ({ item, opened }: { item: ReadinessItem | null; opened: boolean }) =>
-    opened && item ? (
-      <div data-testid="signal-drawer" data-available={item.available ? 'true' : 'false'}>
-        {item.label}
-      </div>
-    ) : null,
-}));
-
-beforeEach(() => {
-  reducedMotion = false;
-});
 
 function anItem(overrides: Partial<ReadinessItem> = {}): ReadinessItem {
   return {
@@ -52,19 +34,7 @@ function anItem(overrides: Partial<ReadinessItem> = {}): ReadinessItem {
   };
 }
 
-const REQUIRED = anItem();
-// Genuinely optional: an answer survives without a production baseline, it is just weaker.
-const OPTIONAL = anItem({
-  key: 'PRODUCTION_TRAFFIC',
-  kind: 'ENRICHMENT',
-  label: 'Production traffic recorded',
-  requiredToRun: false,
-  effectivelyRequired: false,
-  nextStep: 'Record what the service actually receives.',
-  href: '/services/checkout/configuration#production',
-});
-// Enrichment by kind, unavoidable in fact — the workload below cannot be defined without it.
-const CATALOG = anItem({
+const API = anItem({
   key: 'API_IMPORTED',
   kind: 'ENRICHMENT',
   label: 'API imported',
@@ -73,7 +43,8 @@ const CATALOG = anItem({
   nextStep: 'Import an OpenAPI document so Vortex knows which operations exist.',
   href: '/services/checkout/configuration#operations',
 });
-const BLOCKED_WORKLOAD = anItem({
+const TARGET = anItem();
+const WORKLOAD = anItem({
   key: 'WORKLOAD',
   label: 'Workload defined',
   available: false,
@@ -82,6 +53,23 @@ const BLOCKED_WORKLOAD = anItem({
     'A workload spreads traffic across the things a service can do, so Vortex has to know what '
     + 'those are first.',
   nextStep: 'Describe a workload to apply — one operation is enough to start.',
+  href: '/services/checkout/configuration#workload',
+});
+const OBJECTIVES = anItem({
+  key: 'OBJECTIVES',
+  label: 'Objectives configured',
+  requiredToRun: false,
+  effectivelyRequired: true,
+  nextStep: 'State the latency and error objectives this service is expected to meet.',
+  href: '/services/checkout/configuration#objectives',
+});
+const PRODUCTION = anItem({
+  key: 'PRODUCTION_TRAFFIC',
+  label: 'Production traffic recorded',
+  requiredToRun: false,
+  effectivelyRequired: false,
+  nextStep: 'Record what the service actually receives.',
+  href: '/services/checkout/configuration#production',
 });
 const RESULT = anItem({
   key: 'TEST_EXECUTED',
@@ -93,199 +81,104 @@ const RESULT = anItem({
   href: '/services/checkout/tests',
 });
 
-function aReadiness(items: ReadinessItem[], overrides: Partial<Readiness> = {}): Readiness {
+function aReadiness(items: ReadinessItem[]): Readiness {
   const satisfied = items.filter((item) => item.satisfied).length;
   return {
     canRun: items.every((item) => item.satisfied || !item.requiredToRun),
     satisfiedCount: satisfied,
     totalCount: items.length,
     blockerCount: items.filter((item) => item.requiredToRun && !item.satisfied).length,
-    nextStepText: 'Add a target so Vortex knows where to send traffic.',
+    nextStepText: null,
     items,
+  };
+}
+
+function aHeader(items: ReadinessItem[], overrides: Partial<Header> = {}): Header {
+  return {
+    id: 'checkout',
+    name: 'checkout',
+    description: null,
+    target: null,
+    environmentCount: 0,
+    release: null,
+    readiness: aReadiness(items),
+    operationCount: 0,
+    testCount: 0,
+    runCount: 0,
+    running: null,
     ...overrides,
   };
 }
 
-function render(items: ReadinessItem[]) {
-  return renderWithProviders(<ServiceVortex readiness={aReadiness(items)} serviceId="checkout" />);
+function render(items: ReadinessItem[], overrides: Partial<Header> = {}) {
+  const header = aHeader(items, overrides);
+  return renderWithProviders(<ServiceVortex header={header} serviceId="checkout" />);
 }
 
-describe('the service vortex', () => {
-  it('offers every open signal as a control rather than a way off the page', async () => {
-    render([REQUIRED, OPTIONAL]);
+describe('the "prepare your first experiment" pipeline', () => {
+  it('lists the mandatory sequence in the fixed, domain-independent order', () => {
+    // Listed here in scrambled order — the pipeline's own order never follows the domain array's.
+    const { container } = render([OBJECTIVES, WORKLOAD, TARGET, API]);
 
-    expect(screen.getAllByRole('button')).toHaveLength(2);
-    expect(screen.queryAllByRole('link')).toHaveLength(0);
+    // API is unsatisfied and first in the fixed order, so it holds the stage — its content is the
+    // active card's own copy, not its bare label, unlike the three compact rows behind it.
+    const steps = Array.from(container.querySelectorAll('li[data-status]')).map((li) => li.textContent);
+    expect(steps[0]).toContain('What can this service actually do?');
+    expect(steps[1]).toContain('Environment configured');
+    expect(steps[2]).toContain('Workload defined');
+    expect(steps[3]).toContain('Objectives configured');
   });
 
-  it('opens the configuration for the signal that was clicked, in place', async () => {
-    render([REQUIRED, OPTIONAL]);
+  it('never lists production traffic among the mandatory sequence', () => {
+    render([API, TARGET, WORKLOAD, OBJECTIVES, PRODUCTION]);
 
-    await userEvent.click(screen.getByRole('button', { name: /^Production traffic recorded/ }));
-
-    expect(screen.getByTestId('signal-drawer')).toHaveTextContent('Production traffic recorded');
-  });
-
-  /*
-   * State belongs in the name, the reason in the description. The tooltip carries the reason to
-   * everyone — it is linked by `aria-describedby` and, unlike Mantine's default, opens on focus —
-   * so putting it in the name too would have a screen reader say the sentence twice.
-   */
-  it('says in a blocked signal\'s own name that it is not possible yet', () => {
-    render([BLOCKED_WORKLOAD, CATALOG]);
-
-    expect(
-      screen.getByRole('button', { name: 'Workload defined, not available yet' }),
-    ).toBeInTheDocument();
-  });
-
-  /*
-   * The domain classifies an OpenAPI import as enrichment because it does not itself gate a run.
-   * On this screen that is beside the point: the required workload cannot be defined without it, so
-   * calling it optional here would be telling the reader something untrue.
-   */
-  it('never calls a signal optional when a required one cannot be done without it', () => {
-    render([BLOCKED_WORKLOAD, CATALOG, OPTIONAL]);
-
-    const catalog = screen.getByRole('button', { name: 'API imported' });
-    expect(within(catalog).queryByText('optional')).not.toBeInTheDocument();
-    expect(catalog).toHaveAttribute('data-required', 'true');
-
-    const objectives = screen.getByRole('button', { name: /^Production traffic recorded/ });
-    expect(within(objectives).getByText('optional')).toBeInTheDocument();
-  });
-
-  /*
-   * The hierarchy is on the nodes, not in a second ring: two rings of different radii read as
-   * scattered points rather than as an orbit, which is the one thing the figure has to say.
-   */
-  it('marks what cannot be avoided as such, whatever its kind, without a second ring', () => {
-    render([BLOCKED_WORKLOAD, CATALOG, OPTIONAL]);
-
-    expect(screen.getAllByRole('list')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'API imported' })).toHaveAttribute(
-      'data-required',
-      'true',
-    );
-    expect(
-      screen.getByRole('button', { name: /^Production traffic recorded/ }),
-    ).not.toHaveAttribute('data-required');
-  });
-
-  it("keeps the ring in the domain's own order, so tab order follows it", () => {
-    render([REQUIRED, OPTIONAL, RESULT]);
-
-    const ring = screen.getByRole('list', { name: 'Signals this service still needs' });
-    expect(
-      within(ring)
-        .getAllByRole('button')
-        .map((button) => button.textContent?.replace(/optional/, '').trim()),
-    ).toEqual(['Environment configured', 'Production traffic recorded']);
+    const pipeline = screen.getByRole('list');
+    expect(within(pipeline).queryByRole('button', { name: /Production traffic/ })).not.toBeInTheDocument();
+    // It still renders, just outside the mandatory list.
+    expect(screen.getByRole('button', { name: /Production traffic/ })).toBeInTheDocument();
   });
 
   it('never offers to configure a result, because nobody configures one', () => {
-    render([REQUIRED, RESULT]);
+    render([API, TARGET, RESULT]);
 
     expect(screen.queryByRole('button', { name: /Test executed/ })).not.toBeInTheDocument();
   });
 
-  it('marks an advisory signal in the same word the readiness checklist uses', () => {
-    render([REQUIRED, OPTIONAL]);
+  it('holds the stage on the first unsatisfied signal in fixed order, even if a later one is already done', () => {
+    // OBJECTIVES (rank 3) is satisfied but TARGET (rank 1) is not — the fixed order still wins.
+    render([anItem({ ...API, satisfied: true }), TARGET, anItem({ ...OBJECTIVES, satisfied: true })]);
 
-    const advisory = screen.getByRole('button', { name: /^Production traffic recorded/ });
-    expect(within(advisory).getByText('optional')).toBeInTheDocument();
-
-    const required = screen.getByRole('button', { name: /^Environment configured/ });
-    expect(within(required).queryByText('optional')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Where should the traffic go?' })).toBeInTheDocument();
   });
 
-  it('offers nothing to click for something already in place', () => {
-    render([anItem({ satisfied: true }), OPTIONAL]);
+  it('advances to the next unsatisfied signal once the current one is satisfied', () => {
+    render([anItem({ ...API, satisfied: true }), TARGET]);
 
-    expect(screen.queryByRole('button', { name: /^Environment configured/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Where should the traffic go?' })).toBeInTheDocument();
   });
 
-  it('draws a newly satisfied signal into the funnel before dropping it', async () => {
-    vi.useFakeTimers();
-    try {
-      const { rerender, container } = renderWithProviders(
-        <ServiceVortex readiness={aReadiness([REQUIRED, OPTIONAL])} serviceId="checkout" />,
-      );
+  it('brings a step forward on click, whatever its status', async () => {
+    render([API, TARGET, WORKLOAD, OBJECTIVES]);
 
-      rerender(
-        <ServiceVortex
-          readiness={aReadiness([anItem({ satisfied: true }), OPTIONAL])}
-          serviceId="checkout"
-        />,
-      );
+    await userEvent.click(screen.getByRole('button', { name: 'Objectives configured' }));
 
-      // Still on screen, and being consumed — not simply gone the instant the server said so.
-      expect(container.querySelector('[data-consuming="true"]')).toBeInTheDocument();
-      expect(container.querySelector('[data-vortex-swirl]')).toHaveAttribute('data-disturbed', 'true');
-
-      await act(async () => {
-        vi.advanceTimersByTime(1000);
-      });
-
-      expect(container.querySelector('[data-consuming="true"]')).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole('button', { name: /^Environment configured/ }),
-      ).not.toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(screen.getByRole('heading', { name: 'What counts as acceptable?' })).toBeInTheDocument();
   });
 
-  it('never replays what was already in place when the screen opened', () => {
-    const { container } = renderWithProviders(
-      <ServiceVortex readiness={aReadiness([anItem({ satisfied: true })])} serviceId="checkout" />,
+  it('shows a satisfied signal as a confirmation with the domain\'s own figures, not its question', async () => {
+    render(
+      [anItem({ ...API, satisfied: true }), TARGET],
+      { operationCount: 23 },
     );
 
-    expect(container.querySelector('[data-consuming="true"]')).not.toBeInTheDocument();
-  });
+    await userEvent.click(screen.getByRole('button', { name: /^API imported/ }));
 
-  it('drops a satisfied signal outright when motion is not wanted, and still says so', async () => {
-    reducedMotion = true;
-    const { rerender, container } = renderWithProviders(
-      <ServiceVortex readiness={aReadiness([REQUIRED, OPTIONAL])} serviceId="checkout" />,
+    expect(screen.queryByText('What can this service actually do?')).not.toBeInTheDocument();
+    expect(screen.getByText('23 operations discovered.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /View/ })).toHaveAttribute(
+      'href',
+      '/services/checkout/configuration#operations',
     );
-
-    rerender(
-      <ServiceVortex
-        readiness={aReadiness([anItem({ satisfied: true }), OPTIONAL])}
-        serviceId="checkout"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(container.querySelector('[data-reduced-motion="true"]')).toBeInTheDocument();
-    });
-    expect(container.querySelector('[data-consuming="true"]')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Environment configured/ })).not.toBeInTheDocument();
-  });
-
-  /*
-   * The orbits are two `inset: 0` boxes stacked on each other, so without `pointer-events: none` the
-   * upper one covers the whole stage and swallows every click aimed at a signal in the lower one —
-   * which is exactly what happened to the required ring. Nothing in jsdom hit-tests, and `userEvent`
-   * dispatches straight at the node, so no interaction test can catch this; the CSS contract is what
-   * there is to assert.
-   */
-  /*
-   * The ring is an `inset: 0` box covering the whole stage. Without `pointer-events: none` it
-   * swallows clicks aimed at anything drawn under it — which is exactly what happened when there
-   * were two of these stacked on each other and the upper one ate every click meant for the lower.
-   * Nothing in jsdom hit-tests, and `userEvent` dispatches straight at the node, so no interaction
-   * test can catch that; the CSS contract is what there is to assert.
-   */
-  it('lets a click through the ring box to the node itself', () => {
-    const { container } = render([REQUIRED, OPTIONAL]);
-
-    const rim = container.querySelector('ul[aria-label]');
-    expect(getComputedStyle(rim!).pointerEvents).toBe('none');
-
-    const signal = screen.getByRole('button', { name: /^Environment configured/ });
-    expect(getComputedStyle(signal).pointerEvents).toBe('auto');
   });
 
   /*
@@ -293,137 +186,87 @@ describe('the service vortex', () => {
    * required and impossible at once, and a screen that renders only two of the three either greys
    * out the thing somebody came for or offers a form that cannot be filled in.
    */
-  it('marks a signal blocked without disabling it or taking it out of reach', () => {
-    render([BLOCKED_WORKLOAD, CATALOG]);
+  it('marks a blocked signal without disabling it, and explains why', async () => {
+    render([API, TARGET, WORKLOAD]);
 
-    const workload = screen.getByRole('button', { name: /^Workload defined/ });
-    expect(workload).toHaveAttribute('data-state', 'blocked');
-    // Never dressed as disabled: it opens a real explanation, so it stays an ordinary, focusable,
-    // clickable button. Distance and stillness say it is not reachable yet; the name says why.
+    const workload = screen.getByRole('button', { name: 'Workload defined, not available yet' });
     expect(workload).not.toBeDisabled();
     expect(workload).not.toHaveAttribute('aria-disabled');
-    expect(workload).toHaveAttribute('data-required', 'true');
+
+    await userEvent.click(workload);
+    expect(screen.getByText(/^A workload spreads traffic across the things a service can do/)).toBeInTheDocument();
   });
 
-  it("reaches the domain's reason from the keyboard, not only from a pointer", async () => {
-    render([BLOCKED_WORKLOAD, CATALOG]);
-
-    const workload = screen.getByRole('button', { name: /^Workload defined/ });
-    await act(async () => {
-      workload.focus();
-    });
-
-    await waitFor(() =>
-      expect(
-        screen.getByText(/^A workload spreads traffic across the things a service can do/),
-      ).toBeInTheDocument(),
-    );
-    // Linked as the control's description rather than left as loose text beside it.
-    expect(workload).toHaveAttribute('aria-describedby');
-  });
-
-  it('names the prerequisite only while the signal waiting on it is being asked about', async () => {
-    render([BLOCKED_WORKLOAD, CATALOG]);
-
-    const catalog = screen.getByRole('button', { name: /^API imported/ });
-    expect(catalog).not.toHaveAttribute('data-prerequisite');
-
-    await userEvent.hover(screen.getByRole('button', { name: /^Workload defined/ }));
-    expect(catalog).toHaveAttribute('data-prerequisite', 'true');
-
-    await userEvent.unhover(screen.getByRole('button', { name: /^Workload defined/ }));
-    expect(catalog).not.toHaveAttribute('data-prerequisite');
-  });
-
-  /*
-   * Explanation on demand, attached to the thing being explained — not a line under the funnel that
-   * appears and disappears as the pointer crosses the composition.
-   */
-  it('explains a signal on its own node, and nothing until it is asked', async () => {
-    render([BLOCKED_WORKLOAD, CATALOG]);
-
-    expect(screen.queryByText(/A workload spreads traffic/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Import an OpenAPI document/)).not.toBeInTheDocument();
-
-    await userEvent.hover(screen.getByRole('button', { name: /^API imported/ }));
-    await waitFor(() =>
-      expect(
-        screen.getByText('Import an OpenAPI document so Vortex knows which operations exist.'),
-      ).toBeInTheDocument(),
-    );
-
-    // A blocked signal explains why it cannot be done, not what doing it would achieve.
-    await userEvent.unhover(screen.getByRole('button', { name: /^API imported/ }));
-    await userEvent.hover(screen.getByRole('button', { name: /^Workload defined/ }));
-    await waitFor(() =>
-      expect(
-        screen.getByText(/^A workload spreads traffic across the things a service can do/),
-      ).toBeInTheDocument(),
-    );
-  });
-
-  it('opens a blocked signal to the explanation rather than to a form it cannot fill in', async () => {
-    render([BLOCKED_WORKLOAD, CATALOG]);
+  it('jumps a blocked signal straight to its prerequisite rather than dead-ending', async () => {
+    render([API, TARGET, WORKLOAD]);
 
     await userEvent.click(screen.getByRole('button', { name: /^Workload defined/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Do that first' }));
 
-    const drawer = screen.getByTestId('signal-drawer');
-    expect(drawer).toHaveTextContent('Workload defined');
-    expect(drawer).toHaveAttribute('data-available', 'false');
+    expect(screen.getByRole('heading', { name: 'What can this service actually do?' })).toBeInTheDocument();
   });
 
-  it('moves a signal into the orbit when what it was waiting on is configured', async () => {
-    vi.useFakeTimers();
-    try {
-      const { rerender, container } = renderWithProviders(
-        <ServiceVortex readiness={aReadiness([BLOCKED_WORKLOAD, CATALOG])} serviceId="checkout" />,
-      );
-      expect(container.querySelector('[data-entering="true"]')).not.toBeInTheDocument();
+  it('hands the CTA off to the real configuration experience rather than mounting a form', () => {
+    render([API, TARGET]);
 
-      rerender(
-        <ServiceVortex
-          readiness={aReadiness([
-            anItem({ ...BLOCKED_WORKLOAD, available: true, blockedBy: [], blockedReason: null }),
-            anItem({ ...CATALOG, satisfied: true }),
-          ])}
-          serviceId="checkout"
-        />,
-      );
-
-      expect(container.querySelector('[data-entering="true"]')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /^Workload defined/ })).toHaveAttribute(
-        'data-state',
-        'available',
-      );
-
-      await act(async () => {
-        vi.advanceTimersByTime(800);
-      });
-      expect(container.querySelector('[data-entering="true"]')).not.toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(screen.getByRole('link', { name: /Import OpenAPI/ })).toHaveAttribute(
+      'href',
+      '/services/checkout/configuration#operations',
+    );
+    // Nothing that looks like a live form field belongs on this page.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
-  it('keeps the funnel out of the accessibility tree', () => {
-    const { container } = render([REQUIRED]);
+  it('never blocks or gates on the optional production-traffic signal', () => {
+    render([anItem({ ...API, satisfied: true }), anItem({ ...TARGET, satisfied: true }), anItem({ ...WORKLOAD, available: true, satisfied: true }), anItem({ ...OBJECTIVES, satisfied: true })]);
 
-    expect(container.querySelector('[data-vortex-swirl]')).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.queryAllByRole('img')).toHaveLength(0);
+    expect(screen.getByText('Vortex has what it needs.')).toBeInTheDocument();
   });
 
-  it('renders without a ring when the domain listed no items', () => {
-    render([]);
+  it('shows the readiness panel grouped into known, still needed and optional', () => {
+    render([anItem({ ...API, satisfied: true }), TARGET, WORKLOAD, OBJECTIVES, PRODUCTION]);
 
-    expect(screen.getByRole('heading', { name: 'Nothing to measure yet' })).toBeInTheDocument();
-    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    const panel = screen.getByLabelText('Service readiness');
+    expect(within(panel).getByText('Known')).toBeInTheDocument();
+    expect(within(panel).getByText('API imported')).toBeInTheDocument();
+    expect(within(panel).getByText('Still needed')).toBeInTheDocument();
+    expect(within(panel).getByText('Optional')).toBeInTheDocument();
+    expect(within(panel).getByText('Production traffic recorded')).toBeInTheDocument();
+  });
+
+  it('transforms the readiness panel once every mandatory signal is satisfied', () => {
+    render([
+      anItem({ ...API, satisfied: true }),
+      anItem({ ...TARGET, satisfied: true }),
+      anItem({ ...WORKLOAD, available: true, satisfied: true }),
+      anItem({ ...OBJECTIVES, satisfied: true }),
+    ]);
+
+    const panel = screen.getByLabelText('Service readiness');
+    expect(within(panel).getByText('Ready for an experiment')).toBeInTheDocument();
+    expect(within(panel).getByRole('link', { name: /Run first test/ })).toHaveAttribute(
+      'href',
+      '/services/checkout?compose=new',
+    );
+  });
+
+  it('never treats an unsatisfied optional signal as a reason the panel is not ready', () => {
+    render([
+      anItem({ ...API, satisfied: true }),
+      anItem({ ...TARGET, satisfied: true }),
+      anItem({ ...WORKLOAD, available: true, satisfied: true }),
+      anItem({ ...OBJECTIVES, satisfied: true }),
+      PRODUCTION,
+    ]);
+
+    expect(within(screen.getByLabelText('Service readiness')).getByText('Ready for an experiment')).toBeInTheDocument();
   });
 
   it('never dresses "not yet" as a problem', () => {
-    render([REQUIRED]);
+    render([API, TARGET]);
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.queryByText(/in place/)).not.toBeInTheDocument();
     expect(screen.queryByText(/need attention/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/incomplete/i)).not.toBeInTheDocument();
   });
 });

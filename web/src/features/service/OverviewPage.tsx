@@ -214,7 +214,7 @@ export function OverviewPage() {
     return (
       <div className={classes.page}>
         <div className={classes.vortexBand}>
-          <ServiceVortex readiness={data.header.readiness} serviceId={id} />
+          <ServiceVortex header={data.header} serviceId={id} />
         </div>
 
         {/* Still shown: what Attention says is a claim about evidence, not about setup. */}

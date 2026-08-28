@@ -134,10 +134,23 @@ describe('the service header', () => {
     expect(screen.getByText('Compose: payment-service (compose.yaml)')).toBeInTheDocument();
   });
 
-  it('shows "No target configured" when no environment is set up yet', () => {
+  it('says how many setup decisions remain when no environment is set up yet', () => {
+    renderWithProviders(
+      <ServiceHeader
+        header={aHeader({
+          target: null,
+          readiness: { canRun: false, satisfiedCount: 5, totalCount: 7, blockerCount: 2, items: [], nextStepText: null },
+        })}
+      />,
+    );
+
+    expect(screen.getByText('2 setup decisions away from running')).toBeInTheDocument();
+  });
+
+  it('reads as progress rather than a missing field once nothing actually blocks a run', () => {
     renderWithProviders(<ServiceHeader header={aHeader({ target: null })} />);
 
-    expect(screen.getByText('No target configured')).toBeInTheDocument();
+    expect(screen.getByText('Getting ready for its first experiment')).toBeInTheDocument();
   });
 
   it('shows a quiet, non-interactive running readout while a run is in flight', () => {

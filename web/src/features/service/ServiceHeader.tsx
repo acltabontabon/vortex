@@ -3,7 +3,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useNavigate } from 'react-router-dom';
 import { IconPencil, IconTrash } from '@tabler/icons-react';
-import type { RunRef, ServiceHeader as Header } from '../../api/workspace';
+import type { Readiness, RunRef, ServiceHeader as Header } from '../../api/workspace';
 import { ApiError } from '../../api/client';
 import { useDeleteServiceMutation } from '../../api/services';
 import { ServiceBadge } from '../../components/ServiceBadge';
@@ -98,7 +98,7 @@ export function ServiceHeader({ header }: { header: Header }) {
               />
             </>
           ) : (
-            <span className={classes.absent}>No target configured</span>
+            <span className={classes.absent}>{unconfiguredMessage(header.readiness)}</span>
           )}
 
           {/* Present only when known — an unset release doesn't earn permanent space on every tab
@@ -165,4 +165,16 @@ function RunningIndicator({ running }: { running: RunRef | null }) {
 /** Display only — the scheme is implied by context here, never stripped from an actual link. */
 function stripScheme(url: string): string {
   return url.replace(/^https?:\/\//, '');
+}
+
+/**
+ * What to say in place of a target this service doesn't have yet — every tab under this header,
+ * onboarding page included, so it should read as progress rather than a missing field. `blockerCount`
+ * is the domain's own count of what stands between now and a runnable test; a target-less service
+ * always has at least one, so the "ready" fallback only matters if that ever stops being true.
+ */
+function unconfiguredMessage(readiness: Readiness): string {
+  if (readiness.blockerCount === 0) return 'Getting ready for its first experiment';
+  const count = readiness.blockerCount;
+  return `${count} setup decision${count === 1 ? '' : 's'} away from running`;
 }

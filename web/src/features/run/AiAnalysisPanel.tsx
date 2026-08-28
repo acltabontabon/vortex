@@ -1,4 +1,4 @@
-import { Accordion, Badge, Button, Card, Group, Stack, Text, Title, Tooltip } from '@mantine/core';
+import { Accordion, Badge, Button, Card, Group, List, Stack, Text, Title, Tooltip } from '@mantine/core';
 import {
   IconArrowRight,
   IconBulb,
@@ -165,6 +165,32 @@ const TYPE_ICON: Record<string, ComponentType<{ size?: number; className?: strin
   LIMITATION: IconCircleDashed,
 };
 
+interface MissingTelemetryGroup {
+  whyItMatters: string;
+  whats: string[];
+}
+
+/**
+ * Backend entries frequently repeat the exact same `whyItMatters` across several `what`s (e.g. six
+ * different unobserved metrics all limited by the same root cause). Grouping by that shared
+ * rationale turns N near-duplicate sentences into one row stating the reason once, in the order
+ * reasons first appear.
+ */
+function groupMissingTelemetry(items: MissingTelemetry[]): MissingTelemetryGroup[] {
+  const groups: MissingTelemetryGroup[] = [];
+  const indexByReason = new Map<string, number>();
+  for (const { what, whyItMatters } of items) {
+    const existing = indexByReason.get(whyItMatters);
+    if (existing === undefined) {
+      indexByReason.set(whyItMatters, groups.length);
+      groups.push({ whyItMatters, whats: [what] });
+    } else {
+      groups[existing].whats.push(what);
+    }
+  }
+  return groups;
+}
+
 function AnalysisView({ analysis, compact = false }: { analysis: AnalysisLike; compact?: boolean }) {
   return (
     <Card withBorder radius="md" p={compact ? 'sm' : 'md'} className={classes.card}>
@@ -220,16 +246,16 @@ function AnalysisView({ analysis, compact = false }: { analysis: AnalysisLike; c
       )}
 
       {analysis.missingTelemetry.length > 0 && (
-        <Stack gap={2} mt="sm">
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-            Would help next time
-          </Text>
-          {analysis.missingTelemetry.map((missing, i) => (
-            <Text key={i} size="xs" c="dimmed">
-              <strong>{missing.what}</strong> — {missing.whyItMatters}
-            </Text>
-          ))}
-        </Stack>
+        <details className={classes.gaps}>
+          <summary className={classes.gapsSummary}>
+            Would help next time ({analysis.missingTelemetry.length})
+          </summary>
+          <div className={classes.gapsBody}>
+            {groupMissingTelemetry(analysis.missingTelemetry).map((group, i) => (
+              <GapRow key={i} group={group} />
+            ))}
+          </div>
+        </details>
       )}
 
       {analysis.provenanceDescribe && !compact && (
@@ -263,6 +289,36 @@ function FindingRow({ finding }: { finding: AnalysisFinding }) {
         <EvidenceBadges ids={finding.evidenceIds} />
       </div>
     </details>
+  );
+}
+
+/**
+ * One measurement gap, or — when several gaps share the exact same `whyItMatters` — one row per
+ * shared rationale with every affected `what` listed under it, so identical justifications don't
+ * repeat back-to-back. Deliberately quieter than FindingRow/recommendationRow: this is
+ * supplementary "nice to know" content, not evidence or an action item.
+ */
+function GapRow({ group }: { group: MissingTelemetryGroup }) {
+  return (
+    <div className={classes.gapRow}>
+      <IconCircleDashed size={13} className={classes.gapIcon} />
+      {group.whats.length === 1 ? (
+        <Text size="xs" c="dimmed">
+          <strong>{group.whats[0]}</strong> — {group.whyItMatters}
+        </Text>
+      ) : (
+        <div className={classes.gapGroup}>
+          <Text size="xs" c="dimmed">
+            {group.whyItMatters}
+          </Text>
+          <List className={classes.gapList} size="xs" spacing={2}>
+            {group.whats.map((what, i) => (
+              <List.Item key={i}>{what}</List.Item>
+            ))}
+          </List>
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -14,6 +14,13 @@ import classes from './Topbar.module.css';
  * The service name comes from the same list this menu already fetches for its own entries — no
  * second request, just a lookup against the route's own `:id`.
  *
+ * <p>The name and the chevron are two separate controls rather than one combined button: the name
+ * is a real link straight back to this service's own Overview, and the chevron is the only thing
+ * that opens the switcher. Configuration, Runs and Evidence are still standalone routes (see
+ * {@code ServiceLayout}'s doc comment) with no subnav of their own, so before this split, the only
+ * way back to Overview from one of them was opening a menu of every service and finding the one
+ * already named in the breadcrumb — a search for something already on screen.
+ *
  * <p>Every entry still points at a Thymeleaf-rendered page (only "/" is React-owned so far), so
  * these stay plain anchors — a full navigation — rather than router Links, matching how every
  * other still-unmigrated link in the app behaves today.
@@ -41,33 +48,41 @@ export function ServiceSwitcher() {
   if (!services || services.length === 0) return null;
 
   return (
-    <Menu shadow="md" width={220} position="bottom-start">
-      <Menu.Target>
-        <UnstyledButton className={classes.brand} style={{ fontWeight: 500 }}>
-          <span aria-hidden="true" style={{ opacity: 0.6 }}>
-            /
-          </span>
-          {current ? current.name : 'Services'}
-          <span aria-hidden="true" style={{ fontSize: '0.7em', opacity: 0.6 }}>
-            ▾
-          </span>
-        </UnstyledButton>
-      </Menu.Target>
-      <Menu.Dropdown>
-        <Menu.Label>Services</Menu.Label>
-        {services.map((service) => (
-          <Menu.Item key={service.id} component="a" href={`/services/${service.id}`}>
-            {service.name}
+    <span className={classes.brand} style={{ fontWeight: 500 }}>
+      <span aria-hidden="true" style={{ opacity: 0.6 }}>
+        /
+      </span>
+      {current ? (
+        <a href={`/services/${current.id}`} className={classes.brandLink}>
+          {current.name}
+        </a>
+      ) : (
+        'Services'
+      )}
+      <Menu shadow="md" width={220} position="bottom-start">
+        <Menu.Target>
+          <UnstyledButton className={classes.brandChevron} aria-label="Switch service">
+            <span aria-hidden="true" style={{ fontSize: '0.7em', opacity: 0.6 }}>
+              ▾
+            </span>
+          </UnstyledButton>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Label>Services</Menu.Label>
+          {services.map((service) => (
+            <Menu.Item key={service.id} component="a" href={`/services/${service.id}`}>
+              {service.name}
+            </Menu.Item>
+          ))}
+          <Menu.Divider />
+          <Menu.Item component="a" href="/services/new">
+            Add a service…
           </Menu.Item>
-        ))}
-        <Menu.Divider />
-        <Menu.Item component="a" href="/services/new">
-          Add a service…
-        </Menu.Item>
-        <Menu.Item component="a" href="/runs">
-          All evidence
-        </Menu.Item>
-      </Menu.Dropdown>
-    </Menu>
+          <Menu.Item component="a" href="/runs">
+            All evidence
+          </Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
+    </span>
   );
 }

@@ -1,610 +1,614 @@
-import type { CSSProperties } from 'react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Text, Title, Tooltip, UnstyledButton } from '@mantine/core';
-import {
-  IconChartBar,
-  IconChartHistogram,
-  IconChartLine,
-  IconClockHour4,
-  IconCode,
-  IconPlayerPlay,
-  IconServer,
-} from '@tabler/icons-react';
-import { useIsMutating } from '@tanstack/react-query';
-import { useReducedMotion } from 'motion/react';
-import type { Readiness, ReadinessItem } from '../../api/workspace';
-import { SignalDrawer } from './SignalDrawer';
+import { useId, useMemo, useState } from 'react';
+import { Button, Text, Title, Tooltip, UnstyledButton } from '@mantine/core';
+import { motion, useReducedMotion } from 'motion/react';
+import { IconArrowRight, IconCheck, IconGitBranch } from '@tabler/icons-react';
+import type { ServiceHeader as Header, ReadinessItem } from '../../api/workspace';
+import { SignalIcon } from './SignalIcon';
 import classes from './ServiceVortex.module.css';
 
-/** How long a satisfied signal stays on screen being drawn in. Matches `signalConsumed` in the CSS. */
-const CONSUME_MS = 900;
-/** And how long a newly reachable one takes to move inward. Matches `signalEntered`. */
-const ENTER_MS = 700;
-
 /**
- * What a service looks like before it can measure anything.
+ * What a service looks like before it can run a meaningful experiment.
  *
- * <p>A service with nowhere to send traffic has no figures to state, no tests worth listing and no
- * history to show, and rendering the configured page anyway leaves three separate blocks each
- * saying "nothing" on its own. This says it once, as the product's own shape: the signals Vortex
- * needs — a target, an API description, a workload, objectives, a production baseline — circling the
- * funnel that consumes them.
+ * <p>Not a settings form — the Configuration page already is one, and every CTA below hands off to
+ * it rather than restating it. This page's only job is orientation: which one thing is most useful
+ * to do next, why Vortex needs it, and how far along the experiment-in-waiting already is. Answering
+ * that is the whole point, so every state on screen answers the same three questions — where am I,
+ * what's next, why does it matter — rather than listing configuration fields.
  *
- * <h2>Three independent dimensions</h2>
+ * <h2>A pipeline, not a wizard</h2>
  *
- * <p>A signal is unavoidable or optional ({@code effectivelyRequired}), done or not
- * ({@code satisfied}), and possible or not yet ({@code available}). All three come from
- * {@code ProjectReadiness}; none is decided here. They are rendered separately on purpose — weight
- * carries unavoidable-vs-optional, distance and stillness carry available-vs-blocked — because
- * collapsing any two of them produces a screen that either greys out the thing somebody came to do
- * or offers a form that cannot be filled in.
+ * <p>{@link mainSequence} is a fixed, opinionated order — contract, target, workload, objectives —
+ * because that is the order a performance question actually gets assembled in, not because anything
+ * here refuses to be configured out of order. A signal reachable ahead of the current one is still a
+ * real, independently clickable node (see {@link PipelineStep}); the "current" step is simply
+ * whichever unsatisfied signal is *first* in that fixed order, so completing things out of sequence
+ * just means a later node quietly shows done while an earlier one keeps the stage.
  *
- * <p>"Unavoidable" is not "blocks a run": objectives gate no run and decide every verdict, and an
- * API import gates no run but is the only way to reach the workload that does. A production
- * baseline is the counter-case — it matters as much as either and stays optional, because a service
- * that is not serving anything yet cannot have one. See {@code ProjectReadiness.Kind}.
+ * <p>Production traffic is deliberately never in this sequence. It is real, valuable context — a
+ * workload calibrated against it is a better workload — but it does not gate anything, and sitting
+ * it in the same list as the other four would say otherwise. It renders as its own branch instead.
  *
  * <h2>What it will not do</h2>
  *
- * <p>It will not become a wizard. Prerequisites are a graph, not an order: an environment, an API
- * description and objectives are all reachable from the start and in any sequence, and only the
- * workload branch waits on anything. It will not dead-end a blocked signal either — clicking one
- * says what is missing and offers the way to it. And it will not celebrate: the motion says *this
- * was incorporated*, which is a statement about system state, and the moment it becomes a reward it
- * is lying about what happened.
+ * <p>It will not hold the stage once there is nothing left to decide: once contract, target,
+ * workload and objectives are all satisfied, the active slot becomes a plain confirmation with one
+ * CTA — Vortex has enough to run something — and this whole screen is moments from being replaced by
+ * the ordinary workbench anyway (see {@code isUnconfigured} in {@code OverviewPage}). It will not
+ * celebrate a finished step either: a node just compresses and gains a checkmark, a statement about
+ * state, not a reward.
  */
 export function ServiceVortex({
-  readiness,
+  header,
   serviceId,
 }: {
-  readiness: Readiness;
+  header: Header;
   serviceId: string;
 }) {
   const headingId = useId();
   // `useReducedMotion` returns null before it has resolved, so compare rather than coerce.
   const reducedMotion = useReducedMotion() === true;
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  const [openKey, setOpenKey] = useState<string | null>(null);
-  const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const consuming = useConsumedSignals(readiness, reducedMotion);
-  const entering = useEnteringSignals(readiness, reducedMotion);
+  const sequence = useMemo(() => mainSequence(header.readiness.items), [header.readiness.items]);
+  const branch = useMemo(() => optionalBranch(header.readiness.items), [header.readiness.items]);
+  const dueNext = sequence.find((item) => !item.satisfied) ?? null;
+  const allDone = dueNext === null;
 
-  /*
-   * Any mutation in flight can only be the open drawer's — nothing else on this screen writes. Read
-   * from the query client rather than threaded back out of the configuration forms, which would mean
-   * a save callback on every one of them for a state that lasts a few hundred milliseconds.
-   */
-  const saving = useIsMutating() > 0;
+  const selectedItem = sequence.find((item) => item.key === selectedKey)
+    ?? (branch?.key === selectedKey ? branch : null);
+  const activeItem = selectedItem ?? dueNext;
 
-  /*
-   * Closed by persisted state rather than by a save callback: the drawer resolves to nothing the
-   * moment the thing it configures is actually satisfied, which is the same instant the signal
-   * starts being drawn in. Derived rather than pushed through an effect so there is no window in
-   * which the drawer is open over an item that is already done.
-   */
-  const openItem =
-    readiness.items.find((item) => item.key === openKey && !item.satisfied) ?? null;
-
-  /*
-   * One ring, in the domain's own order.
-   *
-   * <p>It was two — unavoidable close in, optional further out — and two rings of different radii
-   * read as scattered points rather than as an orbit, which is the one thing this figure has to
-   * say. The hierarchy moved onto the nodes themselves instead: an unavoidable signal is larger and
-   * darker than an optional one, which says the same thing without breaking the circle.
-   *
-   * <p>RESULT is not on it, because "Test executed" is not a signal you configure — it becomes true
-   * once a run has happened, and offering to "set it up" beside the others would misdescribe it. It
-   * is also the one item this screen never has to show: by the time it matters, the ordinary
-   * workbench is here.
-   *
-   * <p>Nor is anything that merely narrows a signal still outstanding. "Average-load workload
-   * defined" is not a second thing to do on a service with no workload at all — it is the same
-   * composer, and two nodes opening one form teach nothing. `distinctFromWhatItNarrows` in the
-   * domain decides that; once a workload exists it becomes its own action and appears.
-   */
-  const orbit = useMemo(
-    () =>
-      readiness.items.filter(
-        (item) =>
-          item.kind !== 'RESULT' &&
-          item.distinct &&
-          (!item.satisfied || consuming.has(item.key)),
-      ),
-    [readiness.items, consuming],
+  const percent = Math.round(
+    (sequence.filter((item) => item.satisfied).length / Math.max(sequence.length, 1)) * 100,
   );
 
-  // While a blocked signal is under the pointer or the caret, its prerequisites are what the eye
-  // should find — contextual and temporary, never a dependency graph drawn across the screen.
-  const hovered = readiness.items.find((item) => item.key === hoverKey) ?? null;
-  const highlighted = new Set(hovered && !hovered.available ? hovered.blockedBy : []);
-
-  const nodeState: NodeState = {
-    consuming,
-    entering,
-    highlighted,
-    openKey,
-    saving,
-    onOpen: setOpenKey,
-    onHover: setHoverKey,
-  };
-
   return (
-    <section
-      className={classes.vortex}
-      aria-labelledby={headingId}
-      data-reduced-motion={reducedMotion ? 'true' : undefined}
-    >
-      <Title order={2} id={headingId} className={classes.headline}>
-        Nothing to measure yet
-      </Title>
-      <Text className={classes.body}>Configure the signals Vortex needs to understand this service.</Text>
-
-      <div className={classes.stage}>
-        <Swirl settled={readiness.satisfiedCount} disturbed={consuming.size > 0} />
-
-        <Orbit items={orbit} state={nodeState} />
+    <section className={classes.setup} aria-labelledby={headingId}>
+      <div className={classes.intro}>
+        <Text className={classes.eyebrow}>Get this service ready</Text>
+        <Title order={2} id={headingId} className={classes.headline}>
+          {allDone
+            ? "Vortex has what it needs to test this properly."
+            : "Let's give Vortex enough context to test this properly."}
+        </Title>
+        <Text className={classes.supporting}>
+          Give Vortex the API, somewhere to run against, and what "good" looks like. We'll handle
+          the experiment from there.
+        </Text>
       </div>
 
-      <SignalDrawer
-        item={openItem}
-        serviceId={serviceId}
-        items={readiness.items}
-        opened={openItem !== null}
-        onClose={() => setOpenKey(null)}
-        onOpenOther={setOpenKey}
-      />
+      <div className={classes.layout}>
+        <div className={classes.main}>
+          <ol className={classes.pipeline} aria-label="Steps to a runnable experiment">
+            {sequence.map((item, index) => (
+              <PipelineStep
+                key={item.key}
+                number={index + 1}
+                item={item}
+                header={header}
+                status={stepStatus(item, item.key === activeItem?.key)}
+                expanded={item.key === activeItem?.key}
+                onSelect={setSelectedKey}
+                reducedMotion={reducedMotion}
+              />
+            ))}
+            <ReadyStep expanded={allDone && activeItem?.key === undefined} allDone={allDone} serviceId={serviceId} />
+          </ol>
+
+          {branch && (
+            <BranchStep
+              item={branch}
+              header={header}
+              expanded={branch.key === activeItem?.key}
+              onSelect={setSelectedKey}
+            />
+          )}
+        </div>
+
+        <ReadinessPanel sequence={sequence} branch={branch} percent={percent} serviceId={serviceId} />
+      </div>
     </section>
   );
 }
 
-/** Everything the nodes share, gathered so an orbit does not take nine props of its own. */
-interface NodeState {
-  consuming: Set<string>;
-  entering: Set<string>;
-  highlighted: Set<string>;
-  openKey: string | null;
-  saving: boolean;
-  onOpen: (key: string) => void;
-  onHover: (key: string | null) => void;
-}
+// ---------------------------------------------------------------- sequencing
+
+/** Fixed pipeline order — the order a performance question is actually assembled in. */
+const SEQUENCE_RANK: Record<string, number> = {
+  API_IMPORTED: 0,
+  ENVIRONMENT: 1,
+  WORKLOAD: 2,
+  AVERAGE_LOAD_WORKLOAD: 2,
+  OBJECTIVES: 3,
+};
 
 /**
- * One ring of signals.
- *
- * <p>A list, not a scatter: absolutely positioning `<li>` costs nothing in the accessibility tree,
- * and it is what lets tab order be the domain's own order with no `tabindex` anywhere.
+ * The four unavoidable signals, in the fixed order above. RESULT is excluded because "Test
+ * executed" is not a signal you configure — it becomes true once a run has happened. Anything that
+ * merely narrows a signal still outstanding is excluded too — `distinct` in the domain decides that;
+ * once a workload exists it becomes its own node instead of `AVERAGE_LOAD_WORKLOAD` staying visible
+ * alongside it.
  */
-function Orbit({ items, state }: { items: ReadinessItem[]; state: NodeState }) {
-  if (items.length === 0) return null;
+function mainSequence(items: ReadinessItem[]): ReadinessItem[] {
+  return items
+    .filter((item) => item.kind !== 'RESULT' && item.distinct && item.effectivelyRequired)
+    .sort((a, b) => (SEQUENCE_RANK[a.key] ?? 99) - (SEQUENCE_RANK[b.key] ?? 99));
+}
 
+/** The one signal that only strengthens the evidence rather than gating anything — never plural,
+ *  today, but written to not assume that stays true. */
+function optionalBranch(items: ReadinessItem[]): ReadinessItem | null {
+  return items.find((item) => item.kind !== 'RESULT' && item.distinct && !item.effectivelyRequired) ?? null;
+}
+
+type StepStatus = 'done' | 'active' | 'upcoming' | 'blocked';
+
+function stepStatus(item: ReadinessItem, isActive: boolean): StepStatus {
+  if (item.satisfied) return 'done';
+  if (!item.available) return 'blocked';
+  return isActive ? 'active' : 'upcoming';
+}
+
+// ---------------------------------------------------------------- copy
+
+interface StepCopy {
+  eyebrow: string;
+  question: string;
+  explanation: string;
+  hint?: string;
+  unlocks: string;
+}
+
+const STEP_COPY: Record<string, StepCopy> = {
+  API_IMPORTED: {
+    eyebrow: 'Give Vortex the contract',
+    question: 'What can this service actually do?',
+    explanation:
+      'Import an OpenAPI document and Vortex will discover the operations available for testing.',
+    hint: 'Works from a URL, a pasted document, or an existing vortex.yaml.',
+    unlocks: 'Operation discovery — Vortex learns what this service can do.',
+  },
+  ENVIRONMENT: {
+    eyebrow: 'Where do we hit?',
+    question: 'Where should the traffic go?',
+    explanation:
+      'Point Vortex at an address it can actually reach — local, staging, or a real environment.',
+    unlocks: 'Execution becomes possible — Vortex has somewhere to run a test.',
+  },
+  WORKLOAD: {
+    eyebrow: 'What traffic?',
+    question: 'What kind of pressure are we creating?',
+    explanation:
+      'Describe the mix of operations and the shape of load — smoke, average, stress, spike, or breakpoint.',
+    unlocks: 'Vortex knows how much traffic to generate, and in what shape.',
+  },
+  OBJECTIVES: {
+    eyebrow: 'What counts as good?',
+    question: 'What counts as acceptable?',
+    explanation: 'State the latency and error thresholds a passing run has to meet.',
+    unlocks: 'Results can be interpreted, not merely graphed.',
+  },
+  PRODUCTION_TRAFFIC: {
+    eyebrow: 'Calibrate with reality',
+    question: 'What does reality look like?',
+    explanation:
+      "Tell Vortex what production normally looks like and it can anchor your workload to something real.",
+    unlocks: 'Workloads can be calibrated against real traffic.',
+  },
+};
+STEP_COPY.AVERAGE_LOAD_WORKLOAD = STEP_COPY.WORKLOAD;
+
+/** A key nobody has written bespoke copy for falls back to the domain's own words rather than
+ *  rendering a hole. */
+function copyFor(item: ReadinessItem): StepCopy {
   return (
-    <ul className={classes.rim} aria-label="Signals this service still needs">
-      {items.map((item, index) => (
-        <li
-          key={item.key}
-          className={classes.shard}
-          data-consuming={state.consuming.has(item.key) ? 'true' : undefined}
-          data-entering={state.entering.has(item.key) ? 'true' : undefined}
-          style={station(index, items.length, item.available)}
-        >
-          <Signal item={item} state={state} />
-        </li>
-      ))}
-    </ul>
+    STEP_COPY[item.key] ?? {
+      eyebrow: item.label,
+      question: item.label,
+      explanation: item.nextStep,
+      unlocks: item.nextStep,
+    }
   );
 }
 
+// ---------------------------------------------------------------- pipeline nodes
+
 /**
- * One signal, as the control that configures it.
- *
- * <p>A button rather than a link, because it opens a drawer over this page instead of navigating —
- * the whole point being that setting a service up never takes you off it. A blocked one is an
- * ordinary button too: not disabled, not dimmed, not dashed. It does something — it explains what is
- * in the way and offers the way to it — and dressing a control that works as one that does not is
- * both a lie and, for anyone who cannot see the difference in contrast, a dead end.
- *
- * <p>The domain's own sentence rides in the accessible name, so the control announces a complete
- * thought — "Workload defined, not available yet. A workload spreads traffic across the things a
- * service can do, so Vortex has to know what those are first." — rather than a bare label. Putting
- * seven of those on screen around a ring would be unreadable, and hiding them behind hover would
- * gate the explanation on owning a pointer.
+ * One node of the fixed sequence — a big hero card while it holds the stage, a compact row
+ * otherwise. Every state is the same underlying control: clicking a compact node, whatever its
+ * status, brings it forward, because a signal reachable ahead of the current one is still real and
+ * still clickable. What changes between states is how much room the node earns, never whether it
+ * can be reached.
  */
-function Signal({ item, state }: { item: ReadinessItem; state: NodeState }) {
-  const selected = state.openKey === item.key;
+function PipelineStep({
+  number,
+  item,
+  header,
+  status,
+  expanded,
+  onSelect,
+  reducedMotion,
+}: {
+  number: number;
+  item: ReadinessItem;
+  header: Header;
+  status: StepStatus;
+  expanded: boolean;
+  onSelect: (key: string | null) => void;
+  reducedMotion: boolean;
+}) {
+  const copy = copyFor(item);
 
   return (
-    <Tooltip
-      label={item.available ? item.nextStep : item.blockedReason}
-      openDelay={300}
-      withArrow
-      multiline
-      maw={320}
-      // Focus is off by default in Mantine, which would leave a keyboard user with no way to reach
-      // the explanation at all — and for a blocked signal the explanation is the entire point.
-      events={{ hover: true, focus: true, touch: false }}
-    >
+    <motion.li layout={!reducedMotion} className={classes.step} data-status={status}>
+      <span className={classes.marker} aria-hidden="true">
+        {status === 'done' ? <IconCheck size={16} stroke={2.4} /> : number}
+      </span>
+
+      {expanded ? (
+        <ActiveCard copy={copy} item={item} header={header} onJump={onSelect} />
+      ) : (
+        <CompactStep number={number} copy={copy} item={item} status={status} onSelect={onSelect} />
+      )}
+    </motion.li>
+  );
+}
+
+function CompactStep({
+  copy,
+  item,
+  status,
+  onSelect,
+}: {
+  number: number;
+  copy: StepCopy;
+  item: ReadinessItem;
+  status: StepStatus;
+  onSelect: (key: string | null) => void;
+}) {
+  return (
+    <Tooltip label={copy.question} openDelay={350} withArrow position="right">
       <UnstyledButton
-        className={classes.signal}
-        onClick={() => state.onOpen(item.key)}
-        onMouseEnter={() => state.onHover(item.key)}
-        onMouseLeave={() => state.onHover(null)}
-        onFocus={() => state.onHover(item.key)}
-        onBlur={() => state.onHover(null)}
-        data-state={nodeStateName(item, selected, state.saving)}
-        data-required={item.effectivelyRequired ? 'true' : undefined}
-        data-prerequisite={state.highlighted.has(item.key) ? 'true' : undefined}
+        className={classes.compactRow}
+        onClick={() => onSelect(item.key)}
+        aria-label={
+          status === 'done'
+            ? `${item.label}, done`
+            : status === 'blocked'
+              ? `${item.label}, not available yet`
+              : item.label
+        }
       >
-      {/*
-        Shape, not just colour: an open ring for something waiting to be done, a hollow dot set back
-        for something not possible yet. State that only a hue distinguishes is state some people
-        cannot read.
-      */}
-        {/*
-          An instrument, not a badge. The tile is the only surface a node has — the label sits bare
-          beneath it, the way it does on a diagram — and shape carries state so nothing here is
-          distinguishable by hue alone: a solid tile is reachable, a dashed one is not yet.
-        */}
-        <span className={classes.tile} aria-hidden="true">
-          <SignalIcon signalKey={item.key} />
+        <span className={classes.compactLabel}>{item.label}</span>
+        <span className={classes.compactMeta}>
+          {status === 'done' ? 'Done' : status === 'blocked' ? 'Not available yet' : copy.question}
         </span>
-        <span className={classes.label}>{item.label}</span>
-        {/* Secondary metadata, not a tag on a form field — lowercase, quiet, and only where it says
-            something. There is no matching "required" chip; weight and position carry that. */}
-        {/* The explicit space is not decoration: accessible names concatenate element contents with
-            no separator, so without it this announces "API importedoptional". */}
-        {!item.effectivelyRequired && (
-          <>
-            {' '}
-            <span className={classes.meta}>optional</span>
-          </>
-        )}
-        {/*
-          State in the name, reason in the description. The tooltip supplies the reason to everyone —
-          it is linked by `aria-describedby` and opens on focus as well as hover — so repeating it
-          here would have a screen reader say the whole sentence twice.
-        */}
-        {!item.available && <span className="visually-hidden">, not available yet</span>}
       </UnstyledButton>
     </Tooltip>
   );
 }
 
-/**
- * The face of each signal.
- *
- * <p>Keyed on the domain's stable key rather than its label, and drawn from the workbench's own icon
- * set rather than invented — each one says what kind of *thing* the signal is, so the ring reads as
- * instrumentation being drawn in rather than as a row of identical chips. A key nobody has given a
- * face to falls back to the generic one instead of rendering a hole.
- */
-function SignalIcon({ signalKey }: { signalKey: string }) {
-  const size = 19;
-  switch (signalKey) {
-    case 'API_IMPORTED':
-      return <IconCode size={size} stroke={1.6} />;
-    case 'ENVIRONMENT':
-      return <IconServer size={size} stroke={1.6} />;
-    case 'WORKLOAD':
-      return <IconChartHistogram size={size} stroke={1.6} />;
-    case 'AVERAGE_LOAD_WORKLOAD':
-      return <IconChartBar size={size} stroke={1.6} />;
-    case 'OBJECTIVES':
-      return <IconClockHour4 size={size} stroke={1.6} />;
-    case 'PRODUCTION_TRAFFIC':
-      return <IconChartLine size={size} stroke={1.6} />;
-    default:
-      return <IconPlayerPlay size={size} stroke={1.6} />;
+/** The hero card — explanation, what it unlocks, and a hand-off to the real configuration
+ *  experience. Never a form of its own; see the file doc comment. */
+function ActiveCard({
+  copy,
+  item,
+  header,
+  onJump,
+}: {
+  copy: StepCopy;
+  item: ReadinessItem;
+  header: Header;
+  onJump: (key: string | null) => void;
+}) {
+  if (!item.available) {
+    return <BlockedCard item={item} onJump={onJump} />;
   }
-}
 
-/**
- * The one name for what a node is doing, so the CSS has a single attribute to switch on rather than
- * four booleans to combine.
- *
- * <p>Ordered by what matters most to somebody looking at it: not being possible outranks being
- * open, which outranks being mid-save.
- */
-function nodeStateName(item: ReadinessItem, selected: boolean, saving: boolean): string {
-  if (!item.available) return 'blocked';
-  if (selected && saving) return 'saving';
-  if (selected) return 'selected';
-  return 'available';
-}
+  if (item.satisfied) {
+    return <DoneCard item={item} header={header} />;
+  }
 
-/**
- * Which signals became satisfied just now, and are therefore still being drawn in.
- *
- * <p>Driven entirely by persisted readiness rather than by a save callback, which is what makes the
- * animation honest: nothing is ever animated into the funnel that the server has not already
- * confirmed. It also means the effect works from any source — the drawer, the Configuration page in
- * another tab, an edit to `vortex.yaml` on disk.
- *
- * <p>Under reduced motion the set stays empty and the signal simply stops being rendered, so the
- * state transition is complete and correct with no motion at all.
- */
-function useConsumedSignals(readiness: Readiness, reducedMotion: boolean): Set<string> {
-  return useTransitionedSignals(
-    readiness.items.filter((item) => item.satisfied).map((item) => item.key),
-    reducedMotion,
-    CONSUME_MS,
-  );
-}
-
-/**
- * And which just became possible, because something they needed was configured.
- *
- * <p>The other half of the same idea: a signal that has been sitting outside the field moves into it
- * the moment its prerequisite is persisted. Nothing announces it — the node gains contrast, moves in
- * and starts drifting, which is the whole message.
- */
-function useEnteringSignals(readiness: Readiness, reducedMotion: boolean): Set<string> {
-  return useTransitionedSignals(
-    readiness.items.filter((item) => item.available).map((item) => item.key),
-    reducedMotion,
-    ENTER_MS,
-  );
-}
-
-/**
- * The keys that just entered {@code members}, held for {@code holdMs} so a transition can run.
- *
- * <p>The first render only establishes the baseline. Everything already true when this screen opened
- * was configured before anybody arrived, and replaying it as it loads would be theatre.
- */
-function useTransitionedSignals(
-  members: string[],
-  reducedMotion: boolean,
-  holdMs: number,
-): Set<string> {
-  const previous = useRef<Set<string> | null>(null);
-  const [active, setActive] = useState<Set<string>>(new Set());
-  const signature = members.join(',');
-
-  useEffect(() => {
-    const now = new Set(signature ? signature.split(',') : []);
-    const before = previous.current;
-    previous.current = now;
-
-    if (before === null || reducedMotion) return;
-
-    const fresh = [...now].filter((key) => !before.has(key));
-    if (fresh.length === 0) return;
-
-    setActive((current) => new Set([...current, ...fresh]));
-    const timer = setTimeout(
-      () => setActive((current) => new Set([...current].filter((key) => !fresh.includes(key)))),
-      holdMs,
-    );
-    return () => clearTimeout(timer);
-  }, [signature, reducedMotion, holdMs]);
-
-  return active;
-}
-
-/**
- * The funnel itself — decoration, and out of the accessibility tree entirely.
- *
- * <p>`disturbed` is the one thing here that is not ambient: a single radial pulse while something is
- * being drawn in, so the figure acknowledges the event instead of ignoring it.
- */
-function Swirl({ settled, disturbed }: { settled: number; disturbed: boolean }) {
   return (
-    <div
-      className={classes.swirl}
-      data-vortex-swirl
-      data-disturbed={disturbed ? 'true' : undefined}
-      aria-hidden="true"
-    >
-      {/* A square box as tall as the stage, so everything inside can be sized as a fraction of one
-          thing and the whole figure scales with the space it is given rather than a fixed clamp. */}
-      <div className={classes.funnel}>
-        <div className={classes.sweep} />
-        <div className={classes.sweepInner} />
-        <div className={classes.core} />
-        <div className={classes.pulse} />
+    <div className={classes.activeCard}>
+      <div className={classes.activeBody}>
+        <Text className={classes.activeEyebrow}>{copy.eyebrow.toUpperCase()}</Text>
+        <Title order={3} className={classes.activeQuestion}>
+          {copy.question}
+        </Title>
+        <Text className={classes.activeExplanation}>{copy.explanation}</Text>
 
-        <svg className={classes.rings} viewBox="0 0 130 100" preserveAspectRatio="xMidYMid meet">
-          <g
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-          >
-            {FLARES.map((d, index) => (
-              <path key={`flare-${index}`} d={d} opacity="0.26" strokeWidth="0.7" />
-            ))}
-            {STROKES.map((stroke, index) => (
-              <path key={index} d={stroke.d} opacity={stroke.opacity} strokeWidth={stroke.width} />
-            ))}
-          </g>
-        </svg>
+        <Button
+          component="a"
+          href={item.href}
+          rightSection={<IconArrowRight size={15} />}
+          className={classes.activeCta}
+        >
+          {ctaLabel(item)}
+        </Button>
 
-        {/* What the funnel has already taken in. Placed by golden angle, never at random — a figure
-            that reshuffles itself on every render is noise pretending to be life. */}
-        {Array.from({ length: settled }, (_, index) => (
-          <span key={index} className={classes.mote} style={mote(index)} />
-        ))}
+        {copy.hint && <Text className={classes.activeHint}>{copy.hint}</Text>}
+
+        <Text className={classes.activeUnlocks}>
+          <strong>Unlocks:</strong> {copy.unlocks}
+        </Text>
+      </div>
+
+      <div className={classes.illustration} aria-hidden="true">
+        <span className={classes.illustrationGlow} />
+        <span className={classes.illustrationTile}>
+          <SignalIcon signalKey={item.key} size={34} />
+        </span>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------- the funnel
-
-/*
- * Drawn to a 130 x 100 box, because the shape is wider than it is tall.
- *
- * <p>Spirals, not concentric rings. That is the entire difference between this and a lampshade: a
- * stack of closed ellipses gives you a woven basket no matter how you taper it, because the eye can
- * trace no path from the rim to the throat. One continuous line that winds inward and downward is
- * read as rotation, and rotation is what a vortex is. Everything below serves that one line.
+/**
+ * A satisfied node brought forward — a quiet confirmation with the domain's own real numbers, never
+ * the question-and-CTA copy the same node showed while it was still outstanding. `View` hands off
+ * to the same Configuration section, since "done" is not "unreachable".
  */
-const VIEW_W = 130;
-const CENTRE_X = VIEW_W / 2;
+function DoneCard({ item, header }: { item: ReadinessItem; header: Header }) {
+  return (
+    <div className={classes.activeCard} data-done="true">
+      <div className={classes.activeBody}>
+        <Text className={classes.activeEyebrow}>DONE</Text>
+        <Title order={3} className={classes.activeQuestion}>
+          {item.label}
+        </Title>
+        <Text className={classes.activeExplanation}>{doneSummaryFor(item, header)}</Text>
+        <Button
+          component="a"
+          href={item.href}
+          variant="light"
+          rightSection={<IconArrowRight size={15} />}
+          className={classes.activeCta}
+        >
+          View
+        </Button>
+      </div>
+    </div>
+  );
+}
 
-const MOUTH_RX = 57; // half-width at the rim, in viewBox units
-const RIM_CY = 27; // where the rim sits
-const THROAT_CY = 90; // and where the line finally closes
-/** Perspective: how flat a turn looks from this viewing angle. Constant all the way down. */
-const FLATTEN = 0.33;
-const TURNS = 5.4; // full revolutions from rim to throat
-const SAMPLES = 190; // points per spiral — enough that straight segments read as curve
+/** What to say a satisfied node actually accomplished — the domain's own figures where this
+ *  component already has them on hand, rather than restating the generic "unlocks" sentence. */
+function doneSummaryFor(item: ReadinessItem, header: Header): string {
+  switch (item.key) {
+    case 'API_IMPORTED':
+      return `${header.operationCount} operation${header.operationCount === 1 ? '' : 's'} discovered.`;
+    case 'ENVIRONMENT':
+      return header.target ? `Pointed at ${header.target.environmentName}.` : 'Target configured.';
+    case 'WORKLOAD':
+    case 'AVERAGE_LOAD_WORKLOAD':
+      return `${header.testCount} test${header.testCount === 1 ? '' : 's'} defined.`;
+    case 'OBJECTIVES':
+      return 'Latency and error thresholds are set.';
+    case 'PRODUCTION_TRAFFIC':
+      return 'Connected — workloads can calibrate against it.';
+    default:
+      return 'Done.';
+  }
+}
 
-/** Three passes over the same descent, offset in phase, so the turns interleave the way ink does. */
-const PASSES = [
-  { phase: 0, scale: 1, width: 0.95, alpha: 1 },
-  { phase: 2.1, scale: 0.93, width: 0.8, alpha: 0.72 },
-  { phase: 4.2, scale: 0.86, width: 0.7, alpha: 0.5 },
-];
-
-/** Each pass is cut into segments so the line can darken as it descends into the throat. */
-const SEGMENTS = [
-  { from: 0, to: 0.3, opacity: 0.3 },
-  { from: 0.28, to: 0.56, opacity: 0.42 },
-  { from: 0.54, to: 0.8, opacity: 0.55 },
-  { from: 0.78, to: 1, opacity: 0.72 },
-];
-
-interface Stroke {
-  d: string;
-  opacity: number;
-  width: number;
+function ctaLabel(item: ReadinessItem): string {
+  switch (item.key) {
+    case 'API_IMPORTED':
+      return 'Import OpenAPI';
+    case 'ENVIRONMENT':
+      return 'Add a target';
+    case 'WORKLOAD':
+    case 'AVERAGE_LOAD_WORKLOAD':
+      return 'Describe a workload';
+    case 'OBJECTIVES':
+      return 'Set objectives';
+    case 'PRODUCTION_TRAFFIC':
+      return 'Connect production traffic';
+    default:
+      return 'Configure';
+  }
 }
 
 /**
- * A point on the descent.
- *
- * <p>Radius falls off faster than depth advances, which is what keeps the rim broad and the throat
- * tight; the sideways lean stops the axis being a ruled vertical. The `sin` term is the perspective
- * — the same turn is drawn below its own centre on the near side and above it on the far side, and
- * that alternation is the only reason a flat curve reads as something you are looking into.
+ * What is in the way, and the way to it. A blocked node never dead-ends — the prerequisite is a
+ * real button right here, jumping the stage straight to it, the same as clicking that node in the
+ * pipeline itself would.
  */
-function pointAt(u: number, phase: number, scale: number): [number, number] {
-  const theta = phase + u * TURNS * Math.PI * 2;
-  const radius = MOUTH_RX * scale * (1 - u) ** 1.5;
-  const depth = RIM_CY + (THROAT_CY - RIM_CY) * u ** 0.92;
-  const lean = 4 * Math.sin(u * Math.PI * 1.15);
-
-  return [
-    CENTRE_X + lean + radius * Math.cos(theta),
-    depth + radius * FLATTEN * Math.sin(theta),
-  ];
+function BlockedCard({ item, onJump }: { item: ReadinessItem; onJump: (key: string | null) => void }) {
+  return (
+    <div className={classes.blockedCard}>
+      <Text className={classes.activeEyebrow}>NOT AVAILABLE YET</Text>
+      <Title order={3} className={classes.activeQuestion}>
+        {item.label}
+      </Title>
+      <Text className={classes.activeExplanation}>{item.blockedReason}</Text>
+      {item.blockedBy.length > 0 && (
+        <Button
+          variant="light"
+          rightSection={<IconArrowRight size={15} />}
+          onClick={() => onJump(item.blockedBy[0])}
+          className={classes.activeCta}
+        >
+          Do that first
+        </Button>
+      )}
+    </div>
+  );
 }
 
-function buildStrokes(): Stroke[] {
-  const strokes: Stroke[] = [];
+/** The branch that never gates anything — visually a fork off the main pipeline rather than a fifth
+ *  rung on the same ladder. */
+function BranchStep({
+  item,
+  header,
+  expanded,
+  onSelect,
+}: {
+  item: ReadinessItem;
+  header: Header;
+  expanded: boolean;
+  onSelect: (key: string | null) => void;
+}) {
+  const copy = copyFor(item);
 
-  for (const pass of PASSES) {
-    for (const segment of SEGMENTS) {
-      const points: string[] = [];
-      const count = Math.max(2, Math.round(SAMPLES * (segment.to - segment.from)));
+  return (
+    <div className={classes.branch} data-status={item.satisfied ? 'done' : 'open'}>
+      <IconGitBranch size={14} className={classes.branchGlyph} aria-hidden="true" />
+      {expanded ? (
+        <ActiveCard copy={copy} item={item} header={header} onJump={onSelect} />
+      ) : (
+        <UnstyledButton
+          className={classes.branchRow}
+          onClick={() => onSelect(item.key)}
+          aria-label={item.satisfied ? `${item.label}, done` : item.label}
+        >
+          <Text className={classes.branchEyebrow}>Optional · Calibrate with reality</Text>
+          <Text className={classes.compactLabel}>{item.label}</Text>
+          <Text className={classes.compactMeta}>
+            {item.satisfied ? 'Connected' : copy.question}
+          </Text>
+        </UnstyledButton>
+      )}
+    </div>
+  );
+}
 
-      for (let step = 0; step <= count; step += 1) {
-        const u = segment.from + ((segment.to - segment.from) * step) / count;
-        const [x, y] = pointAt(u, pass.phase, pass.scale);
-        points.push(`${x.toFixed(2)} ${y.toFixed(2)}`);
-      }
+/** The pipeline's terminal node — a milestone, not a signal, so it is never independently clickable
+ *  and never itself in `mainSequence`. */
+function ReadyStep({
+  expanded,
+  allDone,
+  serviceId,
+}: {
+  expanded: boolean;
+  allDone: boolean;
+  serviceId: string;
+}) {
+  return (
+    <li className={classes.step} data-status={allDone ? 'active' : 'upcoming'}>
+      <span className={classes.marker} aria-hidden="true">
+        {allDone ? <IconCheck size={16} stroke={2.4} /> : <IconArrowRight size={14} />}
+      </span>
+      {expanded ? (
+        <div className={classes.activeCard}>
+          <div className={classes.activeBody}>
+            <Text className={classes.activeEyebrow}>READY TO EXPERIMENT</Text>
+            <Title order={3} className={classes.activeQuestion}>
+              Vortex has what it needs.
+            </Title>
+            <Text className={classes.activeExplanation}>
+              The contract, a target, a workload and a definition of "good" are all in place —
+              enough for a reproducible experiment.
+            </Text>
+            <Button
+              component="a"
+              href={`/services/${serviceId}?compose=new`}
+              rightSection={<IconArrowRight size={15} />}
+              className={classes.activeCta}
+            >
+              Run first test
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className={classes.compactRow} aria-hidden="true">
+          <span className={classes.compactLabel}>Ready to experiment</span>
+          <span className={classes.compactMeta}>Once everything above is in place</span>
+        </div>
+      )}
+    </li>
+  );
+}
 
-      strokes.push({
-        d: `M${points.join('L')}`,
-        opacity: segment.opacity * pass.alpha,
-        width: pass.width,
-      });
-    }
+// ---------------------------------------------------------------- readiness panel
+
+/**
+ * The right-hand context panel — what Vortex already knows, what it still needs, and what changes
+ * once it has it. Transforms outright once every unavoidable signal is satisfied, because the page
+ * should stop feeling like onboarding the moment onboarding is actually done.
+ */
+function ReadinessPanel({
+  sequence,
+  branch,
+  percent,
+  serviceId,
+}: {
+  sequence: ReadinessItem[];
+  branch: ReadinessItem | null;
+  percent: number;
+  serviceId: string;
+}) {
+  const done = sequence.filter((item) => item.satisfied);
+  const remaining = sequence.filter((item) => !item.satisfied);
+  const allDone = remaining.length === 0;
+
+  if (allDone) {
+    return (
+      <aside className={classes.panel} aria-label="Service readiness">
+        <Text className={classes.panelEyebrow}>Ready for an experiment</Text>
+        <ul className={classes.readyList}>
+          {sequence.map((item) => (
+            <li key={item.key} className={classes.readyRow}>
+              <span>{item.label}</span>
+              <IconCheck size={15} stroke={2.4} className={classes.readyCheck} />
+            </li>
+          ))}
+        </ul>
+        <Button
+          component="a"
+          href={`/services/${serviceId}?compose=new`}
+          fullWidth
+          rightSection={<IconArrowRight size={15} />}
+        >
+          Run first test
+        </Button>
+      </aside>
+    );
   }
 
-  return strokes;
-}
+  return (
+    <aside className={classes.panel} aria-label="Service readiness">
+      <Text className={classes.panelEyebrow}>Service readiness</Text>
+      <div className={classes.panelBar} role="presentation">
+        <div className={classes.panelBarFill} style={{ width: `${percent}%` }} />
+      </div>
 
-const STROKES = buildStrokes();
+      {done.length > 0 && (
+        <div className={classes.panelGroup}>
+          <Text className={classes.panelGroupLabel}>Known</Text>
+          {done.map((item) => (
+            <div key={item.key} className={classes.panelItem} data-done="true">
+              <IconCheck size={13} stroke={2.4} />
+              <span>{item.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
-/**
- * The strokes that arrive at the rim rather than belonging to the funnel — what is being drawn in,
- * on its way there. They run *outside* the widest turn and off the edge of the box (`.rings` is
- * `overflow: visible` for exactly this); a flare that crosses the mouth stops reading as inflow and
- * starts reading as a stray line through the drawing.
- */
-const FLARES = [
-  'M-34 30 C -16 18, 4 10, 24 8',
-  'M-38 44 C -20 34, -2 23, 16 17',
-  'M-30 17 C -14 9, 6 4, 28 3',
-  'M164 24 C 146 13, 124 6, 102 5',
-  'M168 37 C 152 28, 134 18, 118 14',
-];
+      <div className={classes.panelGroup}>
+        <Text className={classes.panelGroupLabel}>Still needed</Text>
+        {remaining.map((item) => (
+          <div key={item.key} className={classes.panelItem}>
+            <span className={classes.panelDot} aria-hidden="true" />
+            <span>{item.label}</span>
+          </div>
+        ))}
+      </div>
 
-// ---------------------------------------------------------------- geometry
+      {branch && (
+        <div className={classes.panelGroup}>
+          <Text className={classes.panelGroupLabel}>Optional</Text>
+          <div className={classes.panelItem} data-done={branch.satisfied ? 'true' : undefined}>
+            {branch.satisfied ? <IconCheck size={13} stroke={2.4} /> : <span className={classes.panelDot} aria-hidden="true" />}
+            <span>{branch.label}</span>
+          </div>
+        </div>
+      )}
 
-/*
- * Two orbits, and the distance between them is the hierarchy. What blocks a run sits close enough to
- * the funnel to read as attached to it; what only strengthens the evidence sits out at the edge of
- * the composition. Nothing is randomly placed and nothing travels: a shard that revolves at this
- * radius crosses the cursor at ~20px/s, and these are targets whose entire purpose is to be clicked.
- */
-/*
- * The ring, as a fraction of the stage. Wider than tall because the stage is, so on screen this
- * traces a circle rather than the tall oval one radius would give. The funnel is sized to sit inside
- * it with clearance all the way round (`.funnel` in the CSS) — that clearance is the whole reason
- * this can be a ring at all rather than two clusters either side of the drawing.
- */
-const ORBIT_RX = 39; // % of the stage's width
-const ORBIT_RY = 41; // % of its height
-
-const TANGENT_PX = 16; // how far a node slides along its own arc while idle
-const INWARD_PX = 5; // and toward the funnel while it does
-
-/**
- * How much further out a signal sits while it is not yet possible.
- *
- * <p>Distance and stillness are the whole of how a blocked node reads — it is not dimmed, dashed or
- * disabled. It is a real control that opens a real explanation; it simply is not caught in the field
- * yet, so the field is not moving it. Small enough that the ring still reads as one ring.
- */
-const BLOCKED_DISTANCE = 1.09;
-
-const RADIANS = Math.PI / 180;
-
-/**
- * Where signal {@code index} of {@code total} sits on the ring, and which way it drifts.
- *
- * <p>Evenly around it, clockwise from twelve o'clock — so visual order matches DOM order matches the
- * order the domain lists its items in, which is what lets tabbing follow the ring with no
- * `tabindex` anywhere. Nothing is nudged, excluded or clustered: an orbit with gaps carved out of it
- * stops being an orbit, so where a node and the drawing would collide the answer is to size the
- * drawing to fit the ring, never to bend the ring around the drawing.
- */
-function station(index: number, total: number, available = true): CSSProperties {
-  const degrees = total === 1 ? 0 : -90 + (index * 360) / total;
-  const theta = degrees * RADIANS;
-  const cos = Math.cos(theta);
-  const sin = Math.sin(theta);
-  const distance = available ? 1 : BLOCKED_DISTANCE;
-  const rx = ORBIT_RX * distance;
-  const ry = ORBIT_RY * distance;
-
-  return {
-    left: `${(50 + cos * rx).toFixed(3)}%`,
-    top: `${(50 + sin * ry).toFixed(3)}%`,
-    '--dx': `${(-sin * TANGENT_PX - cos * INWARD_PX).toFixed(2)}px`,
-    '--dy': `${(cos * TANGENT_PX - sin * INWARD_PX).toFixed(2)}px`,
-    // Where "in" is from here, so a consumed signal travels to the funnel rather than to a corner.
-    '--tox': `${(-cos * rx).toFixed(3)}%`,
-    '--toy': `${(-sin * ry).toFixed(3)}%`,
-    '--i': index,
-  } as CSSProperties;
-}
-
-const GOLDEN_ANGLE = 137.5;
-
-/** Where a settled mote rests inside the core — a phyllotaxis spiral, so no two crowd each other. */
-function mote(index: number): CSSProperties {
-  const theta = index * GOLDEN_ANGLE * RADIANS;
-  const radius = 3.5 + (index % 3) * 1.8;
-
-  return {
-    // Centred on the throat — where the cone actually closes, not on the middle of the box.
-    left: `${(50 + Math.cos(theta) * radius).toFixed(3)}%`,
-    top: `${(THROAT_CY + Math.sin(theta) * radius * 0.45).toFixed(3)}%`,
-    '--i': index,
-  } as CSSProperties;
+      <Text className={classes.panelFooter}>
+        When these are ready, Vortex can run a reproducible experiment against this service.
+      </Text>
+    </aside>
+  );
 }

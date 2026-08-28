@@ -118,3 +118,45 @@
 .history :global(.mantine-Accordion-item) {
   border-color: var(--mantine-color-ai-2);
 }
+
+/* "Would help next time" is supplementary — gaps, not evidence or action items — so it gets the
+   same collapsed-by-default idiom as ProductionRealitySection.module.css's .advanced/.advancedBody,
+   and stays visually quieter than .recommendationRow/.nextTestBox so it never competes with the
+   actionable content above it. */
+.gaps {
+  margin-top: 0.6rem;
+}
+
+.gapsSummary {
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--mantine-color-dimmed);
+}
+
+.gapsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.gapRow {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+
+.gapIcon {
+  color: var(--mantine-color-dimmed);
+  flex: none;
+  margin-top: 0.15rem;
+}
+
+.gapGroup {
+  min-width: 0;
+}
+
+.gapList {
+  margin-top: 0.15rem;
+}
