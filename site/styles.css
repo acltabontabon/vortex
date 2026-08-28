@@ -2757,23 +2757,21 @@ html:has(body.docs-page) {
 
 @media (max-width: 560px) {
   .docs-model-chain {
-    grid-template-columns: 1fr;
-    gap: 6px;
+    grid-template-columns: minmax(84px, max-content) 1fr;
+    align-items: start;
+    gap: 14px 12px;
   }
-  .docs-model-row {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    margin-bottom: 16px;
+  .docs-model-row p {
+    font-size: 0.88rem;
+    padding-top: 2px;
   }
   /* The node's rotate() transform and the sketch-edge SVG filter's expanded (140%) effects
      region are both purely visual and shouldn't affect layout — but on a real phone this
      combination was leaving a large, inconsistent gap before the paragraph that no simulated
      viewport reproduced, pointing at a WebKit-specific quirk where a filtered, transformed flex
-     item's painted bounds leak into its flow contribution. Dropping both for this single-column
-     mobile read removes the suspect combination rather than chasing it further; a plain,
-     unrotated box reads fine stacked above its own definition. */
+     item's painted bounds leak into its flow contribution. Dropping both here removes the
+     suspect combination rather than chasing it further; a plain, unrotated badge reads fine
+     next to its own definition. */
   .docs-model-row .arch-node {
     transform: none;
     filter: none;
@@ -2861,12 +2859,19 @@ html:has(body.docs-page) {
 }
 
 @media (max-width: 480px) {
+  /* The pill shape (border-radius: 999px) reads fine as a single-row segmented control, but
+     stretched around two stacked, unequal-width buttons it balloons into an odd capsule blob.
+     Swap to a plain rounded list: full-width container, each option its own rounded row. */
   .docs-fork-tabs {
+    display: flex;
     flex-direction: column;
-    align-self: flex-start;
+    width: 100%;
+    border-radius: 12px;
   }
   .docs-fork-tab {
+    width: 100%;
     text-align: left;
+    border-radius: 8px;
   }
 }
 
