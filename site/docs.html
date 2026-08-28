@@ -276,8 +276,8 @@
       <div class="wide-wrap">
         <h2>The five-minute tour</h2>
         <p class="credibility-marker">Real Vortex Workbench &middot; Actual local screens</p>
-        <p>From the demo service that ships with Vortex, to a verdict — the same nine steps every
-          service goes through.</p>
+        <p>From the demo service that ships with Vortex, to a workspace you&rsquo;ll come back to
+          — the same ten steps every service goes through.</p>
 
         <div class="docs-tour">
           <div class="docs-step">
@@ -522,6 +522,7 @@
           <div class="docs-step">
             <div class="docs-step-rail">
               <div class="docs-step-num">9</div>
+              <div class="docs-step-line"></div>
             </div>
             <figure class="showcase-item" data-reveal>
               <figcaption>
@@ -547,6 +548,35 @@
               </div>
             </figure>
           </div>
+
+          <div class="docs-step">
+            <div class="docs-step-rail">
+              <div class="docs-step-num">10</div>
+            </div>
+            <figure class="showcase-item" data-reveal>
+              <figcaption>
+                <strong>Come back to your workspace</strong>
+                <p>Every service has one: production peak and a status chip per test kind up top,
+                  each test expandable to its last result without leaving the page, and every run
+                  it&rsquo;s ever produced in Recent Runs alongside it.</p>
+              </figcaption>
+              <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Come back to your workspace">
+                <div class="window-chrome"><span></span><span></span><span></span></div>
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcset="images/docs/docs-workspace.webp">
+                  <img class="theme-shot" src="images/docs/docs-workspace-light.webp" width="1400" height="1637"
+                    alt="A service's workspace: production peak and six test-kind status chips, a Tests list with one card expanded to its full last result and others collapsed to a one-line summary, and a Recent Runs sidebar"
+                    loading="lazy" decoding="async">
+                </picture>
+                <span class="expand-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </span>
+              </div>
+            </figure>
+          </div>
         </div>
       </div>
     </section>
@@ -554,7 +584,7 @@
     <section id="advanced" class="breakout">
       <div class="wide-wrap">
         <h2>Establish a production baseline</h2>
-        <p>Separate from the nine steps above, and worth doing for any service that has real
+        <p>Separate from the ten steps above, and worth doing for any service that has real
           users: give Vortex something to compare a workload against, on the service&rsquo;s
           Production reality panel.</p>
 
