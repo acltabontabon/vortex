@@ -255,15 +255,16 @@
           </figure>
           <figure class="showcase-item" data-reveal>
             <figcaption>
-              <strong>See whether the workload was actually delivered.</strong>
-              <p>Follow throughput, latency, errors, and resources while the experiment runs.</p>
+              <strong>Find out exactly where it breaks.</strong>
+              <p>A breakpoint test ramps until objectives stop holding, then reports the boundary
+                &mdash; not just a pass or fail.</p>
             </figcaption>
-            <div class="window-frame" role="button" tabindex="0" aria-label="View larger: See whether the workload was actually delivered">
+            <div class="window-frame" role="button" tabindex="0" aria-label="View larger: Find out exactly where it breaks">
               <div class="window-chrome"><span></span><span></span><span></span></div>
               <picture>
-                <source media="(prefers-color-scheme: dark)" srcset="images/showcase-run.webp">
-                <img class="theme-shot" src="images/showcase-run-light.webp" width="1400" height="519"
-                  alt="A live flash-sale-surge run in progress, showing target versus actual throughput, p95 latency, and error rate"
+                <source media="(prefers-color-scheme: dark)" srcset="images/showcase-breakpoint.webp">
+                <img class="theme-shot" src="images/showcase-breakpoint-light.webp" width="990" height="764"
+                  alt="A breakpoint test's result: a Fail verdict, the boundary between 132 and 176 requests/sec plotted against production peak, percentile latencies, a red-highlighted objectives table, and container CPU at its limit"
                   loading="lazy" decoding="async">
               </picture>
               <span class="expand-hint" aria-hidden="true">
