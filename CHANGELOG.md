@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## [0.1.0-alpha.21] - 2026-08-28
+
+### Changed
+
+- A new, unconfigured service's landing page is now a guided setup pipeline — contract, target,
+  workload, objectives, then ready — with one large "what to do next" card and the rest shown
+  compact; production traffic renders as an optional branch that never blocks readiness. The
+  right-hand panel tracks what's known and what's still needed, and turns into a "Ready for an
+  experiment" confirmation once every required signal is in place.
+- The service header's target line now says how many setup decisions remain (e.g. "2 setup
+  decisions away from running") for a service that hasn't been configured yet, instead of a bare
+  "No target configured".
+- The breadcrumb's service name is now a direct link back to that service's own page, separate from
+  the chevron used to switch services — previously, getting back to a service from its
+  Configuration, Runs or Evidence page meant opening the switcher and finding it in a list.
+- The AI Interpretation panel's "Would help next time" list now groups gaps that share the same
+  reason into a single line, and collapses behind a "Would help next time (N)" disclosure instead of
+  always showing every gap in the open.
+- The nav header's command palette, settings and theme toggle controls are now consistent in size,
+  using real icons instead of Unicode glyphs; the Vortex logo now matches the marketing site's mark.
+- The Production reality panel's "Record manually" and "Configure/Edit source" actions read as
+  quieter, secondary controls, and their expanded panels are now set apart in their own card.
+
+### Added
+
+- The web app now has a favicon.
+
 ## [0.1.0-alpha.20] - 2026-08-27
 
 ### Fixed
