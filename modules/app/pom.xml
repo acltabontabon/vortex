@@ -63,6 +63,18 @@
       <groupId>com.tngtech.archunit</groupId>
       <artifactId>archunit-junit5</artifactId>
     </dependency>
+    <!-- Prometheus integration test only — spins up a real prom/prometheus container. Version
+         managed transitively by spring-boot-starter-parent's dependency management. -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -148,8 +160,11 @@
             </goals>
             <configuration>
               <!-- Vite 8 / rolldown require Node ^20.19.0 || >=22.12.0; anything below that also
-                   breaks npm's native optional-dependency resolution (npm/cli#4828). -->
-              <nodeVersion>v22.14.0</nodeVersion>
+                   breaks npm's native optional-dependency resolution (npm/cli#4828). jsdom 30
+                   raises the floor further, to ^22.22.2 || ^24.15.0 || >=26 (undici 8's >=22.19.0
+                   sits inside that range already) — v22.23.2 is the latest 22.x LTS release and
+                   satisfies all three. -->
+              <nodeVersion>v22.23.2</nodeVersion>
             </configuration>
           </execution>
           <execution>

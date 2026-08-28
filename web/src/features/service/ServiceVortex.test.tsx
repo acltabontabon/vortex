@@ -1,20 +1,58 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
+import type { Configuration } from '../../api/configuration';
 import type { Readiness, ReadinessItem, ServiceHeader as Header } from '../../api/workspace';
 import { ServiceVortex } from './ServiceVortex';
 
 /**
  * A fixed-order pipeline, not a settings form — these assert that the sequence is always contract,
- * target, workload, objectives, whatever order they were actually satisfied in; that the "current"
- * step is the first unsatisfied one in that order, not whichever is "most useful"; that a satisfied
- * node shows a real confirmation rather than the question it answered; that a blocked node explains
- * itself and jumps to its prerequisite rather than dead-ending; that production traffic never
- * appears in the mandatory sequence; and that the whole thing transforms once every unavoidable
- * signal is in place. Every call to action is asserted by its `href`, never by mounting a form —
- * this page hands off to the Configuration page rather than restating it.
+ * target, workload, objectives, reality, whatever order they were actually satisfied in; that the
+ * "current" step is the first unsatisfied one in that order, not whichever is "most useful"; that a
+ * satisfied node shows a real confirmation rather than the question it answered; that a blocked node
+ * explains itself and jumps to its prerequisite rather than dead-ending; that production traffic
+ * gates readiness like the rest of the mandatory sequence now that it is `Kind.GROUNDING`, while an
+ * average-load workload — genuinely nice-to-have, not unavoidable — is what still renders as the
+ * optional branch; and that the whole thing transforms once every unavoidable signal is in place.
+ * Most calls to action are asserted by their `href`, never by mounting a form — this page hands off
+ * to the Configuration page rather than restating it. The exceptions are API_IMPORTED, ENVIRONMENT,
+ * OBJECTIVES and PRODUCTION_TRAFFIC: each of those forms is small enough that a scoped Drawer beats
+ * a full page hand-off, so those CTAs are asserted as opening a drawer instead. WORKLOAD is
+ * deliberately not one of them — its composer is a page-sized form, not a quick-add one — so it
+ * keeps navigating to its own page.
  */
+
+let configQueryResult: { data: Configuration | undefined } = { data: undefined };
+
+vi.mock('../../api/configuration', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/configuration')>();
+  return { ...actual, useConfigurationQuery: () => configQueryResult };
+});
+
+function aConfiguration(overrides: Partial<Configuration> = {}): Configuration {
+  return {
+    name: 'checkout',
+    serviceVersion: null,
+    environments: [],
+    environmentTypes: [{ name: 'LOCAL_ISOLATED', label: 'Local (isolated)', description: '' }],
+    dependencyModes: [{ name: 'MOCKED', label: 'Mocked', description: '' }],
+    localLab: {
+      configured: false,
+      composeFileDisplay: null,
+      status: { usable: true, dockerAvailable: true, daemonRunning: true, composeAvailable: true, version: '', remedy: '' },
+      running: false,
+      activity: null,
+    },
+    production: null,
+    calibrationSuggestions: [],
+    observationSource: null,
+    thresholds: { p95Millis: null, p99Millis: null, errorPercent: null, describe: [] },
+    catalog: { imported: false, title: null, sourceRef: null, operationCount: 0, mutatingCount: 0, operations: [] },
+    file: { yaml: '', path: null },
+    ...overrides,
+  };
+}
 
 function anItem(overrides: Partial<ReadinessItem> = {}): ReadinessItem {
   return {
@@ -65,11 +103,23 @@ const OBJECTIVES = anItem({
 });
 const PRODUCTION = anItem({
   key: 'PRODUCTION_TRAFFIC',
+  kind: 'GROUNDING',
   label: 'Production traffic recorded',
   requiredToRun: false,
-  effectivelyRequired: false,
+  effectivelyRequired: true,
   nextStep: 'Record what the service actually receives.',
   href: '/services/checkout/configuration#production',
+});
+// The one item still genuinely optional after production traffic became required — narrows
+// WORKLOAD, so `distinct` only goes true once a workload already exists.
+const AVERAGE_LOAD = anItem({
+  key: 'AVERAGE_LOAD_WORKLOAD',
+  kind: 'ENRICHMENT',
+  label: 'Average-load workload defined',
+  requiredToRun: false,
+  effectivelyRequired: false,
+  nextStep: 'Describe the traffic your service normally receives.',
+  href: '/services/checkout/configuration#workload',
 });
 const RESULT = anItem({
   key: 'TEST_EXECUTED',
@@ -118,24 +168,23 @@ function render(items: ReadinessItem[], overrides: Partial<Header> = {}) {
 describe('the "prepare your first experiment" pipeline', () => {
   it('lists the mandatory sequence in the fixed, domain-independent order', () => {
     // Listed here in scrambled order — the pipeline's own order never follows the domain array's.
-    const { container } = render([OBJECTIVES, WORKLOAD, TARGET, API]);
+    const { container } = render([PRODUCTION, OBJECTIVES, WORKLOAD, TARGET, API]);
 
     // API is unsatisfied and first in the fixed order, so it holds the stage — its content is the
-    // active card's own copy, not its bare label, unlike the three compact rows behind it.
+    // active card's own copy, not its bare label, unlike the four compact rows behind it.
     const steps = Array.from(container.querySelectorAll('li[data-status]')).map((li) => li.textContent);
     expect(steps[0]).toContain('What can this service actually do?');
     expect(steps[1]).toContain('Environment configured');
     expect(steps[2]).toContain('Workload defined');
     expect(steps[3]).toContain('Objectives configured');
+    expect(steps[4]).toContain('Production traffic recorded');
   });
 
-  it('never lists production traffic among the mandatory sequence', () => {
+  it('lists production traffic among the mandatory sequence, last', () => {
     render([API, TARGET, WORKLOAD, OBJECTIVES, PRODUCTION]);
 
     const pipeline = screen.getByRole('list');
-    expect(within(pipeline).queryByRole('button', { name: /Production traffic/ })).not.toBeInTheDocument();
-    // It still renders, just outside the mandatory list.
-    expect(screen.getByRole('button', { name: /Production traffic/ })).toBeInTheDocument();
+    expect(within(pipeline).getByText('Production traffic recorded')).toBeInTheDocument();
   });
 
   it('never offers to configure a result, because nobody configures one', () => {
@@ -209,29 +258,80 @@ describe('the "prepare your first experiment" pipeline', () => {
   it('hands the CTA off to the real configuration experience rather than mounting a form', () => {
     render([API, TARGET]);
 
-    expect(screen.getByRole('link', { name: /Import OpenAPI/ })).toHaveAttribute(
-      'href',
-      '/services/checkout/configuration#operations',
-    );
-    // Nothing that looks like a live form field belongs on this page.
+    // Nothing that looks like a live form field belongs on this page until asked for.
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
-  it('never blocks or gates on the optional production-traffic signal', () => {
-    render([anItem({ ...API, satisfied: true }), anItem({ ...TARGET, satisfied: true }), anItem({ ...WORKLOAD, available: true, satisfied: true }), anItem({ ...OBJECTIVES, satisfied: true })]);
+  it('opens a scoped drawer to import the API rather than navigating away', async () => {
+    render([API, TARGET]);
 
-    expect(screen.getByText('Vortex has what it needs.')).toBeInTheDocument();
+    const cta = screen.getByRole('button', { name: /Import OpenAPI/ });
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+
+    await userEvent.click(cta);
+
+    expect(await screen.findByRole('tab', { name: 'From a URL' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Paste it' })).toBeInTheDocument();
+  });
+
+  it('opens a scoped drawer to add an environment rather than navigating away', async () => {
+    configQueryResult = { data: aConfiguration() };
+    render([anItem({ ...API, satisfied: true }), TARGET]);
+
+    await userEvent.click(screen.getByRole('button', { name: /Add a target/ }));
+
+    expect(await screen.findByLabelText('Name')).toBeInTheDocument();
+  });
+
+  it('opens a scoped drawer to set objectives rather than navigating away', async () => {
+    configQueryResult = { data: aConfiguration() };
+    render([anItem({ ...API, satisfied: true }), anItem({ ...TARGET, satisfied: true }), OBJECTIVES]);
+
+    await userEvent.click(screen.getByRole('button', { name: /Set objectives/ }));
+
+    expect(await screen.findByLabelText(/p95 latency \(ms\)/)).toBeInTheDocument();
+  });
+
+  it('opens a scoped drawer to record production traffic rather than navigating away', async () => {
+    configQueryResult = { data: aConfiguration() };
+    render([API, TARGET, PRODUCTION]);
+
+    await userEvent.click(screen.getByRole('button', { name: /Production traffic/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Record production traffic/ }));
+
+    expect(await screen.findByLabelText(/Peak rate \(req\/sec\)/)).toBeInTheDocument();
+  });
+
+  it('withholds "ready" until production traffic is recorded too, now that it is required', () => {
+    render([
+      anItem({ ...API, satisfied: true }),
+      anItem({ ...TARGET, satisfied: true }),
+      anItem({ ...WORKLOAD, available: true, satisfied: true }),
+      anItem({ ...OBJECTIVES, satisfied: true }),
+      PRODUCTION,
+    ]);
+
+    expect(screen.queryByText('Vortex has what it needs.')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'What does reality look like?' })).toBeInTheDocument();
   });
 
   it('shows the readiness panel grouped into known, still needed and optional', () => {
-    render([anItem({ ...API, satisfied: true }), TARGET, WORKLOAD, OBJECTIVES, PRODUCTION]);
+    render([
+      anItem({ ...API, satisfied: true }),
+      TARGET,
+      anItem({ ...WORKLOAD, available: true, satisfied: true }),
+      OBJECTIVES,
+      PRODUCTION,
+      AVERAGE_LOAD,
+    ]);
 
     const panel = screen.getByLabelText('Service readiness');
     expect(within(panel).getByText('Known')).toBeInTheDocument();
     expect(within(panel).getByText('API imported')).toBeInTheDocument();
     expect(within(panel).getByText('Still needed')).toBeInTheDocument();
-    expect(within(panel).getByText('Optional')).toBeInTheDocument();
     expect(within(panel).getByText('Production traffic recorded')).toBeInTheDocument();
+    expect(within(panel).getByText('Optional')).toBeInTheDocument();
+    expect(within(panel).getByText('Average-load workload defined')).toBeInTheDocument();
   });
 
   it('transforms the readiness panel once every mandatory signal is satisfied', () => {
@@ -240,6 +340,7 @@ describe('the "prepare your first experiment" pipeline', () => {
       anItem({ ...TARGET, satisfied: true }),
       anItem({ ...WORKLOAD, available: true, satisfied: true }),
       anItem({ ...OBJECTIVES, satisfied: true }),
+      anItem({ ...PRODUCTION, satisfied: true }),
     ]);
 
     const panel = screen.getByLabelText('Service readiness');
@@ -256,7 +357,8 @@ describe('the "prepare your first experiment" pipeline', () => {
       anItem({ ...TARGET, satisfied: true }),
       anItem({ ...WORKLOAD, available: true, satisfied: true }),
       anItem({ ...OBJECTIVES, satisfied: true }),
-      PRODUCTION,
+      anItem({ ...PRODUCTION, satisfied: true }),
+      AVERAGE_LOAD,
     ]);
 
     expect(within(screen.getByLabelText('Service readiness')).getByText('Ready for an experiment')).toBeInTheDocument();

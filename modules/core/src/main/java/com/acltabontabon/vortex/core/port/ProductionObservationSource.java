@@ -117,8 +117,18 @@ public interface ProductionObservationSource {
      * @param what   what Vortex was doing when it failed
      * @param why    what went wrong, in the source system's own terms where that helps
      * @param remedy what the engineer can do about it
+     * @param kind   which of four connection outcomes this is, when this failure is about the
+     *               connection at all — {@code null} for a pre-flight refusal (no source configured,
+     *               no adapter in this build, a zero window) that never reached an adapter and so
+     *               isn't a claim about reachability, credentials or data. See {@link Kind}
      */
-    record NotRetrieved(String what, String why, String remedy) implements Retrieval {
+    record NotRetrieved(String what, String why, String remedy, Kind kind) implements Retrieval {
+
+        /** Every existing caller means a refusal that never reached a connection — {@code kind}
+         *  is opted into explicitly by the adapters that classify their own failures. */
+        public NotRetrieved(String what, String why, String remedy) {
+            this(what, why, remedy, null);
+        }
 
         public NotRetrieved {
             what = what == null ? "" : what.trim();
@@ -134,6 +144,33 @@ public interface ProductionObservationSource {
         /** The whole message, for a terminal or a flash notice. */
         public String describe() {
             return remedy.isBlank() ? what + ": " + why : what + ": " + why + " " + remedy;
+        }
+
+        public java.util.Optional<Kind> kindIfPresent() {
+            return java.util.Optional.ofNullable(kind);
+        }
+
+        /**
+         * Which of four ways a connection test can fail — distinct from {@code Retrieved}, which is
+         * the implicit fifth state, "connected."
+         *
+         * <p>A sibling to {@link com.acltabontabon.vortex.core.metrics.TelemetryAvailability}, not a
+         * reuse of it: that vocabulary describes why one measurement among many is missing from a
+         * report that otherwise succeeded, which is a different question from "did asking the system
+         * at all work." {@code AVAILABLE}/{@code UNSUPPORTED} have no meaning for a connection test —
+         * a {@code NotRetrieved} is never "available," and "this provider does not publish that
+         * measurement" isn't something a peak-only probe can distinguish from "it publishes it but
+         * this window is empty."
+         */
+        public enum Kind {
+            /** The endpoint could not be reached at all. */
+            UNREACHABLE,
+            /** The endpoint was reached and rejected the credentials given. */
+            AUTHENTICATION_FAILED,
+            /** The endpoint answered with something Vortex could not use. */
+            INVALID_RESPONSE,
+            /** The endpoint was reached, answered, and had nothing for this service. */
+            NO_DATA
         }
     }
 }

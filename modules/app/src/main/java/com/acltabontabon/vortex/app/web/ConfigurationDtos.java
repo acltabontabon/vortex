@@ -89,10 +89,14 @@ public final class ConfigurationDtos {
     // ---------------------------------------------------------------- observation
 
     public record ObservationSourceDto(String kind, String transport, String endpoint,
-            String serviceIdentifier, String windowDisplay, Map<String, String> maskedHeaders) {
+            String serviceIdentifier, String windowDisplay, Map<String, String> maskedHeaders,
+            String serviceLabel, String routeLabel, String methodLabel) {
     }
 
-    public record TestConnectionResponse(boolean succeeded, String message) {
+    /** {@code state} is one of {@code CONNECTED}, {@code CONNECTED_NO_DATA},
+     *  {@code AUTHENTICATION_FAILED}, {@code UNREACHABLE}, {@code INVALID_RESPONSE}, or {@code null}
+     *  for a pre-flight refusal that never reached a connection at all. */
+    public record TestConnectionResponse(boolean succeeded, String state, String message) {
     }
 
     public record EntityCandidateDto(String id, String name) {

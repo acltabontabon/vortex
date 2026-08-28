@@ -31,6 +31,15 @@ demo-image: ## Build the demo service's Docker image (dev tooling only — Vorte
 	$(MVN) -pl examples/demo-service -am package -DskipTests
 	docker build -t vortex-demo-service:latest -f examples/demo-service/Dockerfile examples/demo-service
 
+.PHONY: demo-stack-up
+demo-stack-up: ## Start the demo service + a real Prometheus scraping it (Production Reality demo)
+	$(MVN) -pl examples/demo-service -am package -DskipTests
+	docker compose -f examples/demo-service/docker-compose.yml up -d --build
+
+.PHONY: demo-stack-down
+demo-stack-down: ## Stop the Production Reality demo stack
+	docker compose -f examples/demo-service/docker-compose.yml down
+
 .PHONY: package
 package: ## Build the executable jar
 	$(MVN) -pl modules/app -am package -DskipTests

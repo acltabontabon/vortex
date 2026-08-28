@@ -132,7 +132,8 @@ final class ObservationHttp {
                     "The queries succeeded, so this is about the figures rather than the "
                             + "connection. Check the metric Vortex asked for is the one that counts "
                             + "this service's requests, and that it is not being summed across more "
-                            + "instances than the peak query saw.");
+                            + "instances than the peak query saw.",
+                    NotRetrieved.Kind.INVALID_RESPONSE);
         }
 
         if (failure instanceof org.springframework.web.client.HttpClientErrorException.Unauthorized
@@ -141,37 +142,43 @@ final class ObservationHttp {
                     "Could not read production traffic from " + system,
                     system + " rejected the credentials Vortex presented (" + message + ").",
                     "Check the token referenced by observation.headers is set in this shell and has "
-                            + "permission to read metrics.");
+                            + "permission to read metrics.",
+                    NotRetrieved.Kind.AUTHENTICATION_FAILED);
         }
         if (failure instanceof org.springframework.web.client.HttpClientErrorException.NotFound) {
             return new NotRetrieved(
                     "Could not read production traffic from " + system,
                     "the endpoint " + source.endpoint() + " returned 404.",
-                    "Check observation.endpoint points at the API root, not at a dashboard URL.");
+                    "Check observation.endpoint points at the API root, not at a dashboard URL.",
+                    NotRetrieved.Kind.INVALID_RESPONSE);
         }
         if (failure instanceof org.springframework.web.client.HttpClientErrorException client) {
             return new NotRetrieved(
                     "Could not read production traffic from " + system,
                     system + " rejected the query: " + client.getStatusText() + ".",
                     "The query Vortex issued is shown above; try it in " + system + " directly to "
-                            + "see what it objects to.");
+                            + "see what it objects to.",
+                    NotRetrieved.Kind.INVALID_RESPONSE);
         }
         if (failure instanceof org.springframework.web.client.HttpServerErrorException server) {
             return new NotRetrieved(
                     "Could not read production traffic from " + system,
                     system + " failed while evaluating the query (" + server.getStatusText() + ").",
                     "A long observation window can exceed a server's evaluation limits. Try a "
-                            + "shorter observation.window.");
+                            + "shorter observation.window.",
+                    NotRetrieved.Kind.INVALID_RESPONSE);
         }
         if (failure instanceof org.springframework.web.client.ResourceAccessException) {
             return new NotRetrieved(
                     "Could not read production traffic from " + system,
                     source.endpoint() + " could not be reached: " + message,
-                    "Check the endpoint is correct and reachable from this machine.");
+                    "Check the endpoint is correct and reachable from this machine.",
+                    NotRetrieved.Kind.UNREACHABLE);
         }
         return new NotRetrieved(
                 "Could not read production traffic from " + system,
                 "the response could not be understood: " + message,
-                "Check observation.endpoint points at a " + system + " API root.");
+                "Check observation.endpoint points at a " + system + " API root.",
+                NotRetrieved.Kind.INVALID_RESPONSE);
     }
 }

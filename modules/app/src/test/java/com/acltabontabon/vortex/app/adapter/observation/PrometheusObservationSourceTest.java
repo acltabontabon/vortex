@@ -6,12 +6,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.acltabontabon.vortex.core.capacity.ObservationSource;
 import com.acltabontabon.vortex.core.capacity.OperationMixCoverage;
+import com.acltabontabon.vortex.core.metrics.TimeWindow;
+import com.acltabontabon.vortex.core.port.ProductionObservationSource.NotRetrieved;
+import com.acltabontabon.vortex.core.port.ProductionObservationSource.ObservationRequest;
 import com.acltabontabon.vortex.core.port.ProductionObservationSource.ObservedOperation;
+import com.acltabontabon.vortex.core.port.ProductionObservationSource.Retrieved;
 import com.acltabontabon.vortex.core.shared.OperationId;
 import com.acltabontabon.vortex.core.workload.OperationMix;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -20,11 +26,12 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * What Vortex makes of a body Prometheus wrote.
+ * What Vortex makes of a body Prometheus wrote, and how {@link PrometheusObservationSource} uses it.
  *
- * <p>Driven from recorded responses rather than a stub HTTP server, following the same pattern as
- * the k6 summary parser: the interesting behaviour is the mapping, and a fixture captured from the
- * real thing is stronger evidence about it than a stub reproducing whatever the adapter expects.
+ * <p>Response parsing is driven from recorded fixtures rather than a stub HTTP server, following the
+ * same pattern as the k6 summary parser. Orchestration — which queries get issued, in what order, and
+ * how the answers become an observation or a classified refusal — is driven from a hand-built
+ * {@link PrometheusClient} test double, so nothing here opens a socket.
  */
 class PrometheusObservationSourceTest {
 
@@ -52,7 +59,7 @@ class PrometheusObservationSourceTest {
 
         @Test
         void aValueIsRead() throws IOException {
-            assertThat(PrometheusObservationSource.scalarFrom(fixture("prometheus-peak.json")))
+            assertThat(RestClientPrometheusClient.parseQuery(fixture("prometheus-peak.json")).firstValue())
                     .contains(182.4);
         }
 
@@ -61,33 +68,77 @@ class PrometheusObservationSourceTest {
             // A service with no traffic in the window has not been observed to receive zero
             // requests per second; nobody measured it. Returning 0 here would put an invented
             // number into a capacity calculation.
-            assertThat(PrometheusObservationSource.scalarFrom(fixture("prometheus-empty.json")))
+            assertThat(RestClientPrometheusClient.parseQuery(fixture("prometheus-empty.json")).firstValue())
                     .isEmpty();
         }
 
         @Test
         void aNotANumberSampleIsAbsent() throws IOException {
-            assertThat(PrometheusObservationSource.scalarFrom(fixture("prometheus-nan.json")))
+            assertThat(RestClientPrometheusClient.parseQuery(fixture("prometheus-nan.json")).firstValue())
                     .isEmpty();
         }
 
         @Test
         void anErrorEnvelopeIsNotMistakenForData() throws IOException {
-            assertThat(PrometheusObservationSource.scalarFrom(fixture("prometheus-error.json")))
-                    .isEmpty();
+            var result = RestClientPrometheusClient.parseQuery(fixture("prometheus-error.json"));
+            assertThat(result.success()).isFalse();
+            assertThat(result.errorType()).isEqualTo("bad_data");
+            assertThat(result.error()).contains("parse error");
+            assertThat(result.firstValue()).isEmpty();
         }
 
         @Test
         void aMissingBodyIsAbsent() {
-            assertThat(PrometheusObservationSource.scalarFrom(null)).isEmpty();
+            assertThat(RestClientPrometheusClient.parseQuery(null).firstValue()).isEmpty();
         }
 
         @Test
         void aMalformedBodyIsAbsentRatherThanThrowing() throws IOException {
             // The endpoint was not what it was assumed to be. That is a legible outcome for the
             // caller to classify, not an exception to leak out of a mapping function.
-            assertThat(PrometheusObservationSource.scalarFrom(JSON.readTree("{\"unexpected\":true}")))
+            assertThat(RestClientPrometheusClient.parseQuery(JSON.readTree("{\"unexpected\":true}")).firstValue())
                     .isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("reading a range of samples")
+    class Ranges {
+
+        @Test
+        void everySampleIsRead() throws IOException {
+            var result = RestClientPrometheusClient.parseRange(fixture("prometheus-range-samples.json"));
+
+            // NaN is dropped, so five points become four usable samples.
+            assertThat(result.firstSeriesValues()).containsExactly(10d, 25d, 182.4, 40d);
+        }
+
+        @Test
+        void positiveAndNegativeInfinityAreNeitherRealValuesNorZero() throws IOException {
+            var result = RestClientPrometheusClient.parseRange(fixture("prometheus-range-inf.json"));
+
+            assertThat(result.firstSeriesValues()).containsExactly(10d, 20d);
+        }
+
+        @Test
+        void anEmptyMatrixHasNoSamples() throws IOException {
+            var result = RestClientPrometheusClient.parseRange(fixture("prometheus-range-empty.json"));
+
+            assertThat(result.success()).isTrue();
+            assertThat(result.firstSeriesValues()).isEmpty();
+        }
+
+        @Test
+        void anErrorEnvelopeIsNotMistakenForData() throws IOException {
+            var result = RestClientPrometheusClient.parseRange(fixture("prometheus-error.json"));
+
+            assertThat(result.success()).isFalse();
+            assertThat(result.firstSeriesValues()).isEmpty();
+        }
+
+        @Test
+        void aMissingBodyIsAbsent() {
+            assertThat(RestClientPrometheusClient.parseRange(null).firstSeriesValues()).isEmpty();
         }
     }
 
@@ -95,10 +146,14 @@ class PrometheusObservationSourceTest {
     @DisplayName("attributing traffic to operations")
     class Attribution {
 
+        private PrometheusQueryResult mix(String fixtureName, ObservationSource source) throws IOException {
+            return RestClientPrometheusClient.parseQuery(fixture(fixtureName));
+        }
+
         @Test
         void seriesAreMatchedByMethodAndPathTemplate() throws IOException {
             var mix = PrometheusObservationSource.attribute(
-                    fixture("prometheus-mix.json"), SOURCE, CATALOG);
+                    mix("prometheus-mix.json", SOURCE), SOURCE, CATALOG);
 
             assertThat(mix.entries()).hasSize(2);
             assertThat(mix.entries().stream().map(e -> e.operationId().value()))
@@ -110,7 +165,7 @@ class PrometheusObservationSourceTest {
             // /internal/health is real traffic against an operation Vortex has no way to issue.
             // Inventing an operation for it would produce a workload that cannot run.
             var mix = PrometheusObservationSource.attribute(
-                    fixture("prometheus-mix.json"), SOURCE, CATALOG);
+                    mix("prometheus-mix.json", SOURCE), SOURCE, CATALOG);
 
             assertThat(mix.entries().stream().map(e -> e.operationId().value()))
                     .doesNotContain("internal-health", "other", "unattributed");
@@ -119,7 +174,7 @@ class PrometheusObservationSourceTest {
         @Test
         void whatWasMatchedIsCountedSoCoverageCanBeStated() throws IOException {
             var mix = PrometheusObservationSource.attribute(
-                    fixture("prometheus-mix.json"), SOURCE, CATALOG);
+                    mix("prometheus-mix.json", SOURCE), SOURCE, CATALOG);
 
             assertThat(mix.matched()).isEqualTo(80_000d);
         }
@@ -127,7 +182,7 @@ class PrometheusObservationSourceTest {
         @Test
         void narrowingTheMixDoesNotOverstateItsCompleteness() throws IOException {
             var mix = PrometheusObservationSource.attribute(
-                    fixture("prometheus-mix.json"), SOURCE, CATALOG);
+                    mix("prometheus-mix.json", SOURCE), SOURCE, CATALOG);
 
             // The shares renormalise, as a mix must: they describe shape and have to sum to one.
             OperationMix shape = OperationMix.of(mix.entries());
@@ -145,7 +200,7 @@ class PrometheusObservationSourceTest {
         @Test
         void anEmptyResultAttributesNothing() throws IOException {
             var mix = PrometheusObservationSource.attribute(
-                    fixture("prometheus-empty.json"), SOURCE, CATALOG);
+                    mix("prometheus-empty.json", SOURCE), SOURCE, CATALOG);
 
             assertThat(mix.entries()).isEmpty();
             assertThat(mix.matched()).isZero();
@@ -160,7 +215,7 @@ class PrometheusObservationSourceTest {
                     Map.of(), Map.of("service", "app", "route", "endpoint", "method", "verb"));
 
             var mix = PrometheusObservationSource.attribute(
-                    fixture("prometheus-mix.json"), renamed, CATALOG);
+                    mix("prometheus-mix.json", renamed), renamed, CATALOG);
 
             assertThat(mix.entries())
                     .as("the fixture uses uri/method, so endpoint/verb must match nothing")
@@ -252,6 +307,7 @@ class PrometheusObservationSourceTest {
             assertThat(refusal.remedy())
                     .contains("about the figures rather than the connection")
                     .doesNotContain("API root");
+            assertThat(refusal.kind()).isEqualTo(NotRetrieved.Kind.INVALID_RESPONSE);
         }
 
         @Test
@@ -261,6 +317,17 @@ class PrometheusObservationSourceTest {
 
             assertThat(refusal.why()).contains("could not be reached");
             assertThat(refusal.remedy()).contains("reachable from this machine");
+            assertThat(refusal.kind()).isEqualTo(NotRetrieved.Kind.UNREACHABLE);
+        }
+
+        @Test
+        void aRejectedCredentialIsAuthenticationFailed() {
+            var refusal = ObservationHttp.classify(SOURCE,
+                    org.springframework.web.client.HttpClientErrorException.create(
+                            org.springframework.http.HttpStatus.UNAUTHORIZED, "Unauthorized",
+                            org.springframework.http.HttpHeaders.EMPTY, new byte[0], null));
+
+            assertThat(refusal.kind()).isEqualTo(NotRetrieved.Kind.AUTHENTICATION_FAILED);
         }
 
         @Test
@@ -274,7 +341,173 @@ class PrometheusObservationSourceTest {
                 assertThat(refusal.what()).isNotBlank();
                 assertThat(refusal.why()).isNotBlank();
                 assertThat(refusal.remedy()).isNotBlank();
+                assertThat(refusal.kind()).isNotNull();
             }
+        }
+    }
+
+    @Nested
+    @DisplayName("retrieving an observation")
+    class Retrieving {
+
+        private static final Duration WINDOW = Duration.ofDays(30);
+        private static final Duration RESOLUTION = Duration.ofHours(1);
+        private static final Instant END = Instant.parse("2026-01-31T00:00:00Z");
+        private static final TimeWindow TIME_WINDOW = new TimeWindow(END.minus(WINDOW), END);
+
+        private String rateExpr() {
+            return PrometheusQueries.rateExpression(SOURCE, RESOLUTION);
+        }
+
+        @Test
+        void peakAndP95ComeFromRangeSamplesNotASingleInstantQuery() {
+            var fake = new FakePrometheusClient();
+            fake.range(rateExpr(), List.of(10d, 25d, 182.4, 40d));
+            fake.scalar(PrometheusQueries.averageQuery(SOURCE, WINDOW), 55d);
+            fake.vector(PrometheusQueries.mixQuery(SOURCE, WINDOW), List.of());
+            fake.scalar(PrometheusQueries.totalQuery(SOURCE, WINDOW), 100d);
+
+            var adapter = new PrometheusObservationSource(source -> fake);
+            var retrieval = adapter.retrieve(new ObservationRequest(SOURCE, TIME_WINDOW, RESOLUTION, List.of()));
+
+            assertThat(retrieval).isInstanceOf(Retrieved.class);
+            var observation = ((Retrieved) retrieval).observation();
+            assertThat(observation.peakRate().asDouble()).isEqualTo(182.4);
+            // p95 of [10,25,40,182.4]: rank = 0.95*3 = 2.85 -> interpolate between 40 and 182.4.
+            assertThat(observation.p95ObservedRate().asDouble()).isCloseTo(161.04, org.assertj.core.data.Offset.offset(0.01));
+            assertThat(fake.rangeCallCount()).isEqualTo(1);
+            assertThat(observation.averageRate().asDouble()).isEqualTo(55d);
+        }
+
+        @Test
+        void noSamplesInTheRangeIsReportedAsNoDataNotZero() {
+            var fake = new FakePrometheusClient();
+            fake.range(rateExpr(), List.of());
+
+            var adapter = new PrometheusObservationSource(source -> fake);
+            var retrieval = adapter.retrieve(new ObservationRequest(SOURCE, TIME_WINDOW, RESOLUTION, List.of()));
+
+            assertThat(retrieval).isInstanceOf(NotRetrieved.class);
+            assertThat(((NotRetrieved) retrieval).kind()).isEqualTo(NotRetrieved.Kind.NO_DATA);
+        }
+
+        @Test
+        void aPrometheusSideEvaluationErrorIsInvalidResponseNotNoData() {
+            var fake = new FakePrometheusClient();
+            fake.rangeError(rateExpr(), "bad_data", "many-to-many matching not allowed");
+
+            var adapter = new PrometheusObservationSource(source -> fake);
+            var retrieval = adapter.retrieve(new ObservationRequest(SOURCE, TIME_WINDOW, RESOLUTION, List.of()));
+
+            assertThat(retrieval).isInstanceOf(NotRetrieved.class);
+            var refusal = (NotRetrieved) retrieval;
+            assertThat(refusal.kind()).isEqualTo(NotRetrieved.Kind.INVALID_RESPONSE);
+            assertThat(refusal.why()).contains("many-to-many matching not allowed");
+        }
+
+        @Test
+        void aMissingSecretIsReportedBeforeAnyQuery() {
+            var withSecret = new ObservationSource(ObservationSource.Kind.PROMETHEUS,
+                    "http://prometheus.internal:9090", "checkout-service", WINDOW,
+                    Map.of("Authorization", "Bearer ${NEVER_SET}"), Map.of());
+            var fake = new FakePrometheusClient();
+
+            var adapter = new PrometheusObservationSource(source -> fake);
+            var retrieval = adapter.retrieve(
+                    new ObservationRequest(withSecret, TIME_WINDOW, RESOLUTION, List.of()));
+
+            assertThat(retrieval).isInstanceOf(NotRetrieved.class);
+            assertThat(((NotRetrieved) retrieval).kind()).isEqualTo(NotRetrieved.Kind.AUTHENTICATION_FAILED);
+            assertThat(fake.rangeCallCount()).isZero();
+        }
+    }
+
+    @Nested
+    @DisplayName("testing a connection")
+    class Verifying {
+
+        private static final Duration WINDOW = Duration.ofDays(1);
+        private static final Duration RESOLUTION = Duration.ofMinutes(1);
+        private static final Instant END = Instant.parse("2026-01-31T00:00:00Z");
+        private static final TimeWindow TIME_WINDOW = new TimeWindow(END.minus(WINDOW), END);
+
+        private String rateExpr() {
+            return PrometheusQueries.rateExpression(SOURCE, RESOLUTION);
+        }
+
+        @Test
+        void verifyNeverIssuesTheAverageOrMixQueries() {
+            var fake = new FakePrometheusClient();
+            fake.range(rateExpr(), List.of(12d));
+            fake.scalar(PrometheusQueries.histogramExistenceQuery(SOURCE), 0d);
+
+            var adapter = new PrometheusObservationSource(source -> fake);
+            adapter.verify(SOURCE, TIME_WINDOW, RESOLUTION);
+
+            assertThat(fake.queriesIssued())
+                    .doesNotContain(PrometheusQueries.averageQuery(SOURCE, WINDOW))
+                    .doesNotContain(PrometheusQueries.mixQuery(SOURCE, WINDOW));
+        }
+
+        @Test
+        void aHistogramThatDoesNotExistIsReportedAsNotPublished() {
+            var fake = new FakePrometheusClient();
+            fake.range(rateExpr(), List.of(12d));
+            fake.scalar(PrometheusQueries.histogramExistenceQuery(SOURCE), 0d);
+
+            var adapter = new PrometheusObservationSource(source -> fake);
+            var retrieval = adapter.verify(SOURCE, TIME_WINDOW, RESOLUTION);
+
+            var note = ((Retrieved) retrieval).observation().note();
+            assertThat(note).contains("not published").contains(PrometheusQueries.REQUEST_HISTOGRAM);
+            assertThat(fake.queriesIssued()).doesNotContain(PrometheusQueries.latencyP95Query(SOURCE, WINDOW));
+        }
+
+        @Test
+        void aHistogramThatExistsButIsEmptyThisWindowIsDistinctFromNotPublished() {
+            var fake = new FakePrometheusClient();
+            fake.range(rateExpr(), List.of(12d));
+            fake.scalar(PrometheusQueries.histogramExistenceQuery(SOURCE), 3d);
+            fake.vector(PrometheusQueries.latencyP95Query(SOURCE, WINDOW), List.of());
+
+            var adapter = new PrometheusObservationSource(source -> fake);
+            var retrieval = adapter.verify(SOURCE, TIME_WINDOW, RESOLUTION);
+
+            var note = ((Retrieved) retrieval).observation().note();
+            assertThat(note).contains("had no samples in this window");
+        }
+
+        @Test
+        void aRealHistogramProducesARealFigureNeverFabricated() {
+            var fake = new FakePrometheusClient();
+            fake.range(rateExpr(), List.of(12d));
+            fake.scalar(PrometheusQueries.histogramExistenceQuery(SOURCE), 5d);
+            fake.scalar(PrometheusQueries.latencyP95Query(SOURCE, WINDOW), 0.34d);
+
+            var adapter = new PrometheusObservationSource(source -> fake);
+            var retrieval = adapter.verify(SOURCE, TIME_WINDOW, RESOLUTION);
+
+            var note = ((Retrieved) retrieval).observation().note();
+            assertThat(note).contains("340ms").contains("Diagnostic only, not saved");
+        }
+
+        @Test
+        void theLatencyNoteNeverReachesRetrieve() {
+            // The one structural guarantee this whole feature rests on: retrieve() never asks the
+            // histogram questions at all, so nothing latency-related can reach a saved observation
+            // through this path, regardless of what verify() does elsewhere.
+            var fake = new FakePrometheusClient();
+            fake.range(PrometheusQueries.rateExpression(SOURCE, Duration.ofHours(1)), List.of(12d));
+            fake.scalar(PrometheusQueries.averageQuery(SOURCE, Duration.ofDays(30)), 5d);
+            fake.vector(PrometheusQueries.mixQuery(SOURCE, Duration.ofDays(30)), List.of());
+            fake.scalar(PrometheusQueries.totalQuery(SOURCE, Duration.ofDays(30)), 10d);
+
+            var adapter = new PrometheusObservationSource(source -> fake);
+            var retrieval = adapter.retrieve(new ObservationRequest(SOURCE,
+                    new TimeWindow(END.minus(Duration.ofDays(30)), END), Duration.ofHours(1), List.of()));
+
+            assertThat(((Retrieved) retrieval).observation().note()).isEmpty();
+            assertThat(fake.queriesIssued()).noneMatch(q -> q.contains(PrometheusQueries.REQUEST_HISTOGRAM));
         }
     }
 
@@ -283,5 +516,73 @@ class PrometheusObservationSourceTest {
         // Guards the property the test strategy depends on: nothing here opens a socket, so
         // ./mvnw verify stays green on a machine with no Prometheus anywhere near it.
         assertThat(Optional.of(SOURCE.endpoint())).contains("http://prometheus.internal:9090");
+    }
+
+    /**
+     * A {@link PrometheusClient} that answers exactly the queries it was told to expect, and fails
+     * loudly on anything else — so an orchestration test is honest about which queries
+     * {@link PrometheusObservationSource} actually issues, not just what it does with whatever comes
+     * back.
+     */
+    private static final class FakePrometheusClient implements PrometheusClient {
+
+        private final Map<String, PrometheusQueryResult> queryAnswers = new HashMap<>();
+        private final Map<String, PrometheusRangeResult> rangeAnswers = new HashMap<>();
+        private final List<String> issued = new java.util.ArrayList<>();
+        private int rangeCalls = 0;
+
+        void scalar(String promql, double value) {
+            queryAnswers.put(promql, PrometheusQueryResult.success(
+                    List.of(new PrometheusQueryResult.VectorSample(Map.of(), value))));
+        }
+
+        void vector(String promql, List<Map<String, String>> labelSets) {
+            queryAnswers.put(promql, PrometheusQueryResult.success(
+                    labelSets.stream().map(labels -> new PrometheusQueryResult.VectorSample(labels, 1d)).toList()));
+        }
+
+        void range(String promql, List<Double> values) {
+            List<PrometheusRangeResult.Sample> samples = new java.util.ArrayList<>();
+            Instant t = Instant.EPOCH;
+            for (Double v : values) {
+                samples.add(new PrometheusRangeResult.Sample(t, v));
+                t = t.plusSeconds(60);
+            }
+            rangeAnswers.put(promql, PrometheusRangeResult.success(
+                    List.of(new PrometheusRangeResult.MatrixSeries(Map.of(), samples))));
+        }
+
+        void rangeError(String promql, String errorType, String error) {
+            rangeAnswers.put(promql, PrometheusRangeResult.error(errorType, error));
+        }
+
+        int rangeCallCount() {
+            return rangeCalls;
+        }
+
+        List<String> queriesIssued() {
+            return issued;
+        }
+
+        @Override
+        public PrometheusQueryResult query(String promql, Instant time) {
+            issued.add(promql);
+            PrometheusQueryResult answer = queryAnswers.get(promql);
+            if (answer == null) {
+                throw new AssertionError("unexpected query: " + promql);
+            }
+            return answer;
+        }
+
+        @Override
+        public PrometheusRangeResult queryRange(String promql, Instant start, Instant end, Duration step) {
+            issued.add(promql);
+            rangeCalls++;
+            PrometheusRangeResult answer = rangeAnswers.get(promql);
+            if (answer == null) {
+                throw new AssertionError("unexpected range query: " + promql);
+            }
+            return answer;
+        }
     }
 }

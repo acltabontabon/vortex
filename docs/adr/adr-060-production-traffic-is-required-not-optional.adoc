@@ -1,0 +1,72 @@
+= ADR-060: Production traffic recorded is unavoidable, not optional
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+`ProjectReadiness` classified `PRODUCTION_TRAFFIC` as `Kind.ENRICHMENT` — the same kind as anything
+whose absence leaves a weaker but still-standing answer. The reasoning, stated in that enum
+constant's own Javadoc, was that a production baseline is "the only signal whose availability
+depends on facts outside Vortex": an environment, an API description, objectives and a workload can
+each be supplied the moment somebody decides to, but a record of what a service actually receives
+cannot exist for a service that is not serving anything yet. Marking it unavoidable would have nagged
+a whole class of legitimate projects — new services, pre-launch services — about something they had
+no way to supply.
+
+That reasoning assumed "a record of what a service actually receives" meant an observed figure. It
+never did, in the implementation: `POST /production` (`ConfigurationApiController`) has only ever
+required `peakRate`, a bare number entered by hand — no observation source, no live traffic, nothing
+that depends on the service already being in production. A pre-launch project can satisfy this signal
+today with a ballpark estimate exactly as easily as a live one, which means the one argument for
+optionality no longer describes reality: every project can supply a number, whether or not anything
+is serving traffic yet.
+
+Meanwhile the cost of leaving it optional is real and undiminished — a workload level with nothing to
+compare against is an invented number, and headroom computed against an invented number is not
+headroom. The guided setup pipeline (`ServiceVortex.tsx`) already had a scoped drawer for this exact
+manual entry, making the remaining "it's optional" framing feel like an oversight rather than a
+deliberate stance now that the friction it was protecting against — needing a real observation
+source — was never actually there.
+
+`Kind.EVALUATION` (objectives) does not fit: objectives decide a verdict's pass/fail, and a missing
+production baseline does not change whether a run passes or fails, only whether the workload level
+driving it is defensible. Reusing that kind would have overloaded a meaning the domain elsewhere
+keeps precise. Faking a `requires()` edge from a `REQUIRED`/`EVALUATION` item onto
+`PRODUCTION_TRAFFIC` (piggybacking on the existing transitive-dependency mechanism that already makes
+`API_IMPORTED` effectively required without blocking a run) was rejected for the same reason: nothing
+actually depends on it the way a workload depends on the operation catalog, and `requires()` means "a
+different action that must happen first," not "a thing that would be nice to have first."
+
+== Decision
+
+Added a fourth `ProjectReadiness.Kind`: `GROUNDING` — "without it, nothing stops the test and nothing
+corrupts the verdict, but the workload level driving it is an invented number rather than one
+grounded in what the service actually receives." `PRODUCTION_TRAFFIC` is now `Kind.GROUNDING` instead
+of `Kind.ENRICHMENT`. `essential()` treats `GROUNDING` as essential alongside `REQUIRED` and
+`EVALUATION`, so `effectivelyRequired()` returns `true` for it unconditionally — no service can call
+it optional anymore. `requiredToRun()` stays strictly `kind == REQUIRED`, so this does not block a
+test from running; a project can still execute with an invented workload level, same as before, it
+just cannot present itself as fully ready without a recorded one.
+
+On the frontend, `ServiceVortex.tsx`'s `mainSequence()`/`optionalBranch()` filter purely on the
+server-computed `effectivelyRequired` flag, so `PRODUCTION_TRAFFIC` moved from the optional branch
+into the main numbered sequence (ranked last) with no branching logic of its own — it now renders,
+and opens its scoped drawer, exactly like `API_IMPORTED`, `ENVIRONMENT` and `OBJECTIVES` already did.
+`AVERAGE_LOAD_WORKLOAD` is what still occupies the optional branch: a workload sized specifically to
+compare future releases against, genuinely nice-to-have rather than unavoidable, and unlike
+production traffic nothing changed about why it stays optional.
+
+== Consequences
+
+A service is no longer presented as "ready for an experiment" until it has a recorded production
+figure — manual or observed, the domain does not distinguish. This is a real behavior change for
+anyone who had grown used to reaching "ready" with four signals instead of five; the guided setup
+pipeline's own copy and hint text already explain that a rough estimate satisfies it, so the added
+step should read as a nudge rather than a blocker in practice. Test execution itself is unaffected —
+`requiredToRun()`/`canRun()`/`blockers()` are untouched, so nothing that could run before is refused
+now.
+
+Reversible at moderate cost: reverting `PRODUCTION_TRAFFIC` to `Kind.ENRICHMENT` restores the old
+behavior in one line, though the `GROUNDING` kind itself would then sit unused unless removed too.

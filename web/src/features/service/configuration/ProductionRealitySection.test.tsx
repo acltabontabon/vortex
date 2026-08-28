@@ -16,6 +16,7 @@ const lookupMutate = vi.fn();
 
 let fetchResultData: { succeeded: boolean; error: string | null; preview: Production | null } | undefined =
   undefined;
+let testResultData: { succeeded: boolean; state: string | null; message: string } | undefined = undefined;
 let lookupResultData:
   | { succeeded: boolean; candidates: { id: string; name: string }[]; problem: string | null; remedy: string | null }
   | undefined = undefined;
@@ -35,7 +36,7 @@ vi.mock('../../../api/configuration', async (importOriginal) => {
     useFetchAndSaveProductionMutation: () => ({ mutate: fetchAndSaveMutate, isPending: false, data: undefined }),
     useRecordProductionMutation: () => ({ mutate: recordMutate, isPending: false, isError: false }),
     useSaveObservationSourceMutation: () => ({ mutate: saveSourceMutate, isPending: false, isError: false }),
-    useTestObservationSourceMutation: () => ({ mutate: testSourceMutate, isPending: false, data: undefined }),
+    useTestObservationSourceMutation: () => ({ mutate: testSourceMutate, isPending: false, data: testResultData }),
     useLookupDynatraceEntityMutation: () => ({ mutate: lookupMutate, isPending: false, data: lookupResultData }),
   };
 });
@@ -79,6 +80,9 @@ function anObservationSource(overrides: Partial<ObservationSource> = {}): Observ
     serviceIdentifier: 'checkout-service',
     windowDisplay: '30d',
     maskedHeaders: {},
+    serviceLabel: 'application',
+    routeLabel: 'uri',
+    methodLabel: 'method',
     ...overrides,
   };
 }
@@ -108,6 +112,7 @@ function render(props: Partial<Parameters<typeof ProductionRealitySection>[0]> =
 describe('ProductionRealitySection', () => {
   beforeEach(() => {
     fetchResultData = undefined;
+    testResultData = undefined;
     lookupResultData = undefined;
   });
 
@@ -199,6 +204,48 @@ describe('ProductionRealitySection', () => {
     await user.click(screen.getByRole('button', { name: 'Test connection' }));
 
     expect(testSourceMutate).toHaveBeenCalled();
+  });
+
+  it('colours a connection test by its classified state, not just pass/fail', async () => {
+    const user = userEvent.setup();
+    testResultData = {
+      succeeded: false,
+      state: 'CONNECTED_NO_DATA',
+      message: 'Prometheus answered, but not about this service.',
+    };
+    render({ observationSource: anObservationSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+
+    expect(screen.getByText('Connected — no data')).toBeInTheDocument();
+    expect(screen.getByText('Prometheus answered, but not about this service.')).toBeInTheDocument();
+  });
+
+  it('keeps the Prometheus label overrides collapsed until Advanced is opened, and saves them', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: anObservationSource() });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+
+    await user.click(screen.getByRole('button', { name: 'Advanced' }));
+    const routeLabelInput = screen.getByLabelText('Route label name');
+    expect(routeLabelInput).toHaveValue('uri');
+
+    await user.clear(routeLabelInput);
+    await user.type(routeLabelInput, 'endpoint');
+    await user.click(screen.getByRole('button', { name: 'Save source' }));
+
+    expect(saveSourceMutate).toHaveBeenCalled();
+    expect(saveSourceMutate.mock.calls[0][0]).toMatchObject({ routeLabel: 'endpoint' });
+  });
+
+  it('does not show the label-override Advanced disclosure for a Dynatrace source', async () => {
+    const user = userEvent.setup();
+    render({ observationSource: anObservationSource({ kind: 'DYNATRACE', transport: 'REST' }) });
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }));
+
+    expect(screen.queryByRole('button', { name: 'Advanced' })).not.toBeInTheDocument();
   });
 
   function aDynatraceMcpSource(overrides: Partial<ObservationSource> = {}): ObservationSource {

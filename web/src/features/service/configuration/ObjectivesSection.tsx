@@ -14,9 +14,13 @@ import classes from './ObjectivesSection.module.css';
 export function ObjectivesSection({
   serviceId,
   thresholds,
+  onSaved,
 }: {
   serviceId: string;
   thresholds: ThresholdEdit;
+  /** Called after a successful save, in addition to the section's own switch back to the summary
+   *  view — a caller embedding this in a Drawer uses it to close automatically. */
+  onSaved?: () => void;
 }) {
   const [editing, setEditing] = useState(thresholds.describe.length === 0);
   const mutation = useSetThresholdsMutation(serviceId);
@@ -35,6 +39,7 @@ export function ObjectivesSection({
         onSuccess: (r) => {
           notifications.show({ message: r.message, color: 'pass' });
           setEditing(false);
+          onSaved?.();
         },
       }
     );

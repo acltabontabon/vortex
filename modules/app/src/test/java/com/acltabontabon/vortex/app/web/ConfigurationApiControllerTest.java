@@ -720,9 +720,66 @@ class ConfigurationApiControllerTest {
                                     """))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.succeeded").value(true))
+                    .andExpect(jsonPath("$.state").value("CONNECTED"))
                     .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("182")));
 
             verify(projects, org.mockito.Mockito.never()).saveConfiguration(any(), any());
+        }
+
+        @Test
+        @DisplayName("a successful test connection appends a diagnostic note when present")
+        void testConnectionAppendsANonBlankNote() throws Exception {
+            when(calibrationService.verify(any(), any())).thenReturn(
+                    new Retrieved(new ProductionObservation(null, null, RequestsPerSecond.of(182),
+                            null, "", Observation.unknown(),
+                            "Histogram data found — p95 latency ~340ms. Diagnostic only, not saved.")));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/observation/test")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"source":"prometheus","endpoint":"http://prometheus.internal:9090",
+                                     "serviceIdentifier":"checkout-service","window":"30d"}
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value(
+                            org.hamcrest.Matchers.containsString("Diagnostic only, not saved")));
+        }
+
+        @Test
+        @DisplayName("a refused test connection reports its classified state")
+        void testConnectionReportsAClassifiedState() throws Exception {
+            when(calibrationService.verify(any(), any())).thenReturn(new NotRetrieved(
+                    "Prometheus answered, but not about this service",
+                    "no request data was found", "check the service label",
+                    NotRetrieved.Kind.NO_DATA));
+
+            mvc.perform(post("/api/services/" + SERVICE + "/observation/test")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"source":"prometheus","endpoint":"http://prometheus.internal:9090",
+                                     "serviceIdentifier":"checkout-service","window":"30d"}
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.succeeded").value(false))
+                    .andExpect(jsonPath("$.state").value("CONNECTED_NO_DATA"));
+        }
+
+        @Test
+        @DisplayName("saves and round-trips Prometheus label overrides")
+        void savesAndRoundTripsLabelOverrides() throws Exception {
+            mvc.perform(post("/api/services/" + SERVICE + "/observation")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"source":"prometheus","endpoint":"http://prometheus.internal:9090",
+                                     "serviceIdentifier":"checkout-service","window":"30d",
+                                     "serviceLabel":"app","routeLabel":"endpoint","methodLabel":"verb"}
+                                    """))
+                    .andExpect(status().isOk());
+
+            var source = saved().observationSource();
+            assertThat(source.label("service")).isEqualTo("app");
+            assertThat(source.label("route")).isEqualTo("endpoint");
+            assertThat(source.label("method")).isEqualTo("verb");
         }
 
         @Test

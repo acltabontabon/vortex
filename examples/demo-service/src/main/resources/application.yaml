@@ -25,14 +25,26 @@ management:
     web:
       exposure:
         # Deliberately narrow. Vortex only needs to read metrics; exposing more would be
-        # convenient and wrong, even in a sample.
-        include: health,info,metrics
+        # convenient and wrong, even in a sample. `prometheus` is the one deliberate exception:
+        # it is what the Production Reality demo stack (see docker-compose.yml) scrapes, and it is
+        # exactly as read-only as `metrics` — a text dump of the same counters, in a different format.
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: always
   metrics:
     tags:
       application: checkout-service
+    distribution:
+      # Off by default in Spring Boot — turned on here so the Production Reality demo can show
+      # Vortex's diagnostic p95 latency figure (see PrometheusObservationSource#verify), not only
+      # its honest "not published" refusal, which is what every service gets without this.
+      percentiles-histogram:
+        http.server.requests: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 logging:
   level:

@@ -1,0 +1,18 @@
+# Scrape config for the Production Reality demo stack (see ../../docker-compose.yml).
+#
+# `application: vortex-demo-service` is the label Vortex's Prometheus adapter looks for by
+# default (ObservationSource.DEFAULT_LABELS maps its "service" role to the `application` label,
+# which is exactly what management.metrics.tags.application already sets on every metric this
+# service publishes) — so pointing Vortex at this Prometheus with service identifier
+# "vortex-demo-service" needs zero label overrides.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: vortex-demo-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["demo-service:8080"]
+        labels:
+          application: vortex-demo-service

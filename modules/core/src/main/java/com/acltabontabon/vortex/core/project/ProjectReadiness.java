@@ -57,16 +57,27 @@ public record ProjectReadiness(
         /**
          * Without it the answer is weaker, and there is still an answer.
          *
-         * <p>A production baseline lives here despite mattering a great deal — without one a
-         * workload level is an invented number and no headroom can be computed at all. It is
-         * optional for a reason that has nothing to do with importance: it is the only signal whose
-         * availability depends on facts outside Vortex. An environment, an API description,
-         * objectives and a workload can each be provided the moment somebody decides to; a record of
-         * what a service actually receives cannot exist for a service that is not serving anything
-         * yet. Marking as unavoidable a thing a whole class of legitimate projects can never supply
-         * turns the distinction into nagging.
+         * <p>Importing an API description is the clearest example: nothing about a run's verdict
+         * depends on Vortex knowing the operation catalog on its own — a workload can be described by
+         * hand against operations the caller already knows — but knowing it makes the evidence easier
+         * to trust and the workload easier to build. Not every signal that merely strengthens things
+         * belongs here, though: see {@link Kind#GROUNDING} for the one that does not.
          */
         ENRICHMENT,
+        /**
+         * Without it, nothing stops the test and nothing corrupts the verdict — but the workload
+         * level driving it is an invented number rather than one grounded in what the service
+         * actually receives.
+         *
+         * <p>Distinct from {@link Kind#ENRICHMENT}: enrichment makes an answer that already exists
+         * stronger, and a project missing it is still offering a complete setup, just a weaker one. A
+         * project missing this is not offering a weaker version of a complete setup — it is missing
+         * the one thing that turns an arbitrary rate into a defensible one. A rough, manually-entered
+         * figure satisfies it exactly as well as an observed one; nothing about it requires the
+         * service to already be in production, so there is no longer a class of project that cannot
+         * supply it, which is what used to keep a production baseline out of the unavoidable set.
+         */
+        GROUNDING,
         /** Not configured at all — it becomes true once a run has happened. */
         RESULT
     }
@@ -143,7 +154,7 @@ public record ProjectReadiness(
                         Kind.EVALUATION, List.of(), null, null),
                 new Item("PRODUCTION_TRAFFIC", "Production traffic recorded", productionObserved,
                         "Record what the service actually receives, so its workload is grounded in "
-                                + "evidence rather than an invented number.", Kind.ENRICHMENT,
+                                + "evidence rather than an invented number.", Kind.GROUNDING,
                         List.of(), null, null),
                 new Item("TEST_EXECUTED", "Test executed", testExecuted,
                         "Run a smoke test to confirm Vortex can reach your service.", Kind.RESULT,
@@ -178,13 +189,14 @@ public record ProjectReadiness(
      * Whether {@code item} is something the service cannot do without — unavoidable on the way to an
      * answer, rather than merely useful once there is one.
      *
-     * <p>Three ways to qualify, and they are different claims. {@link Kind#REQUIRED} means a test
-     * cannot run. {@link Kind#EVALUATION} means it runs and decides nothing. And being the
-     * prerequisite of either means it cannot be reached at all: importing an API does not itself
-     * gate a run — {@link #canRun()} asks for an environment and a workload, and a project with both
-     * can run having imported nothing — but a workload cannot be *defined* without operations to
-     * spread traffic across, so on a project with no workload the import is every bit as unavoidable
-     * as the workload it feeds.
+     * <p>Four ways to qualify, and they are different claims. {@link Kind#REQUIRED} means a test
+     * cannot run. {@link Kind#EVALUATION} means it runs and decides nothing. {@link Kind#GROUNDING}
+     * means it runs and decides something, but on an invented number. And being the prerequisite of
+     * any of those means it cannot be reached at all: importing an API does not itself gate a run —
+     * {@link #canRun()} asks for an environment and a workload, and a project with both can run
+     * having imported nothing — but a workload cannot be *defined* without operations to spread
+     * traffic across, so on a project with no workload the import is every bit as unavoidable as the
+     * workload it feeds.
      *
      * <p>Kept out of {@link #required()} and {@link #canRun()} on purpose. Those two answer "can a
      * test run right now", they are what {@code ExitCode} and the CLI are built on, and widening
@@ -221,13 +233,15 @@ public record ProjectReadiness(
     /**
      * Unavoidable in its own right, before prerequisites are considered.
      *
-     * <p>Two different failures, one answer. {@link Kind#REQUIRED}: no run at all.
-     * {@link Kind#EVALUATION}: a run that decides nothing. {@link Kind#ENRICHMENT} leaves an answer
-     * standing, which is why it is the only one this lets an interface call optional.
+     * <p>Three different failures, one answer. {@link Kind#REQUIRED}: no run at all.
+     * {@link Kind#EVALUATION}: a run that decides nothing. {@link Kind#GROUNDING}: a verdict that
+     * stands on an invented number instead of a real one. {@link Kind#ENRICHMENT} leaves an answer
+     * standing on its own terms, which is why it is the only one this lets an interface call
+     * optional.
      */
     private boolean essential(Item item) {
         return switch (item.kind()) {
-            case REQUIRED, EVALUATION -> true;
+            case REQUIRED, EVALUATION, GROUNDING -> true;
             case ENRICHMENT, RESULT -> false;
         };
     }

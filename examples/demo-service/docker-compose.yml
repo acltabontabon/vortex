@@ -1,0 +1,27 @@
+# Production Reality demo stack: the demo service plus a real Prometheus scraping it, so Vortex's
+# Prometheus support can be exercised against something real instead of only fixtures.
+#
+# Usage: `make demo-stack-up` (or `docker compose -f examples/demo-service/docker-compose.yml up
+# -d --build` directly), then `examples/demo-service/scripts/generate-traffic.sh` to put some
+# requests through it, then point Vortex's Production Reality source at
+# http://localhost:9090, service identifier "vortex-demo-service".
+#
+# Vortex itself is never part of this stack — it is a separate, already-running process that
+# reaches into this network from outside, the same way it would reach a real installation.
+services:
+  demo-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+
+  prometheus:
+    # Pinned, not `latest` — a moving tag would make "does this still work" unanswerable.
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - demo-service

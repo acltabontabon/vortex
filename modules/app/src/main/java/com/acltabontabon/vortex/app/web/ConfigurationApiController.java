@@ -266,7 +266,8 @@ public class ConfigurationApiController {
     private ObservationSourceDto toDto(ObservationSource source) {
         return new ObservationSourceDto(source.kind().name(), source.transport().name(),
                 source.endpoint(), source.serviceIdentifier(), Durations.display(source.window()),
-                maskedHeaders(source));
+                maskedHeaders(source), source.label("service"), source.label("route"),
+                source.label("method"));
     }
 
     private Map<String, String> maskedHeaders(ObservationSource source) {
@@ -805,7 +806,7 @@ public class ConfigurationApiController {
 
     public record ObservationSourceRequest(String source, String transport, String endpoint,
             String serviceIdentifier, String window, List<String> headerName,
-            List<String> headerValue) {
+            List<String> headerValue, String serviceLabel, String routeLabel, String methodLabel) {
     }
 
     @PostMapping("/observation")
@@ -832,11 +833,16 @@ public class ConfigurationApiController {
             ObservationSource source = observationSourceFrom(request);
             var retrieval = calibrationService.verify(source, null);
             return switch (retrieval) {
-                case Retrieved retrieved -> new TestConnectionResponse(true,
-                        source.kind().label() + " answered: a peak of "
-                                + retrieved.observation().peakRate().display() + " requests/sec over the last "
-                                + Durations.display(source.window()) + ". Nothing has been saved or fetched.");
-                case NotRetrieved notRetrieved -> new TestConnectionResponse(false, notRetrieved.describe());
+                case Retrieved retrieved -> {
+                    String note = retrieved.observation().note();
+                    String message = source.kind().label() + " answered: a peak of "
+                            + retrieved.observation().peakRate().display() + " requests/sec over the last "
+                            + Durations.display(source.window()) + ". Nothing has been saved or fetched."
+                            + (note == null || note.isBlank() ? "" : " " + note);
+                    yield new TestConnectionResponse(true, "CONNECTED", message);
+                }
+                case NotRetrieved notRetrieved ->
+                        new TestConnectionResponse(false, connectionState(notRetrieved.kind()), notRetrieved.describe());
             };
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
@@ -869,6 +875,21 @@ public class ConfigurationApiController {
         };
     }
 
+    /** Maps a refusal's cause onto the wire vocabulary the settings UI colours by. {@code null}
+     *  passes through unchanged — a pre-flight refusal never reached a connection at all, so it isn't
+     *  one of the four connection outcomes either. */
+    private String connectionState(NotRetrieved.Kind kind) {
+        if (kind == null) {
+            return null;
+        }
+        return switch (kind) {
+            case UNREACHABLE -> "UNREACHABLE";
+            case AUTHENTICATION_FAILED -> "AUTHENTICATION_FAILED";
+            case INVALID_RESPONSE -> "INVALID_RESPONSE";
+            case NO_DATA -> "CONNECTED_NO_DATA";
+        };
+    }
+
     private ObservationSource observationSourceFrom(ObservationSourceRequest request) {
         ObservationSource.Kind kind = switch (request.source() == null ? "" : request.source().toLowerCase()) {
             case "prometheus" -> ObservationSource.Kind.PROMETHEUS;
@@ -886,7 +907,24 @@ public class ConfigurationApiController {
         String names = request.headerName() == null ? "" : String.join("\n", request.headerName());
         String values = request.headerValue() == null ? "" : String.join("\n", request.headerValue());
         return new ObservationSource(kind, transport, request.endpoint(), request.serviceIdentifier(),
-                Durations.parse(request.window()), parseHeaders(names, values), Map.of());
+                Durations.parse(request.window()), parseHeaders(names, values), labelOverrides(request));
+    }
+
+    /** Only the labels the caller actually overrode — an absent key falls through to
+     *  {@link ObservationSource#label} defaulting individually, so a partial override (e.g. only the
+     *  service label) does not silently blank out the other two. */
+    private Map<String, String> labelOverrides(ObservationSourceRequest request) {
+        Map<String, String> labels = new LinkedHashMap<>();
+        putIfPresent(labels, "service", request.serviceLabel());
+        putIfPresent(labels, "route", request.routeLabel());
+        putIfPresent(labels, "method", request.methodLabel());
+        return labels;
+    }
+
+    private void putIfPresent(Map<String, String> labels, String role, String value) {
+        if (value != null && !value.isBlank()) {
+            labels.put(role, value.trim());
+        }
     }
 
     // ==================================================================== operations / import / review

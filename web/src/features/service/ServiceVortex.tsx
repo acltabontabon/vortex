@@ -2,9 +2,20 @@ import { useId, useMemo, useState } from 'react';
 import { Button, Text, Title, Tooltip, UnstyledButton } from '@mantine/core';
 import { motion, useReducedMotion } from 'motion/react';
 import { IconArrowRight, IconCheck, IconGitBranch } from '@tabler/icons-react';
+import { useConfigurationQuery } from '../../api/configuration';
+import { EnvironmentDrawer, type EnvironmentDrawerState } from './configuration/EnvironmentDrawer';
 import type { ServiceHeader as Header, ReadinessItem } from '../../api/workspace';
+import { ImportOpenApiDrawer } from './ImportOpenApiDrawer';
+import { ObjectivesDrawer } from './ObjectivesDrawer';
+import { ProductionTrafficDrawer } from './ProductionTrafficDrawer';
 import { SignalIcon } from './SignalIcon';
 import classes from './ServiceVortex.module.css';
+
+/** Every step whose CTA opens a scoped drawer instead of navigating to the Configuration page —
+ *  "Workload defined" is the deliberate exception: `TestComposer` is a page-sized form (operation
+ *  mix, load shape, live chart, recommendations), not a quick-add one, so it keeps its full-page
+ *  destination. */
+const DRAWER_KEYS = new Set(['API_IMPORTED', 'ENVIRONMENT', 'OBJECTIVES', 'PRODUCTION_TRAFFIC']);
 
 /**
  * What a service looks like before it can run a meaningful experiment.
@@ -17,16 +28,19 @@ import classes from './ServiceVortex.module.css';
  *
  * <h2>A pipeline, not a wizard</h2>
  *
- * <p>{@link mainSequence} is a fixed, opinionated order — contract, target, workload, objectives —
- * because that is the order a performance question actually gets assembled in, not because anything
- * here refuses to be configured out of order. A signal reachable ahead of the current one is still a
- * real, independently clickable node (see {@link PipelineStep}); the "current" step is simply
- * whichever unsatisfied signal is *first* in that fixed order, so completing things out of sequence
- * just means a later node quietly shows done while an earlier one keeps the stage.
+ * <p>{@link mainSequence} is a fixed, opinionated order — contract, target, workload, objectives,
+ * reality — because that is the order a performance question actually gets assembled in, not
+ * because anything here refuses to be configured out of order. A signal reachable ahead of the
+ * current one is still a real, independently clickable node (see {@link PipelineStep}); the
+ * "current" step is simply whichever unsatisfied signal is *first* in that fixed order, so
+ * completing things out of sequence just means a later node quietly shows done while an earlier one
+ * keeps the stage.
  *
- * <p>Production traffic is deliberately never in this sequence. It is real, valuable context — a
- * workload calibrated against it is a better workload — but it does not gate anything, and sitting
- * it in the same list as the other four would say otherwise. It renders as its own branch instead.
+ * <p>Production traffic sits last in that sequence, not off to the side: {@code Kind.GROUNDING} in
+ * the domain means Vortex will not call a project ready without it, even though — like importing
+ * the API — it never gates a run itself. What still renders as its own optional branch is
+ * {@code AVERAGE_LOAD_WORKLOAD}: a workload sized specifically to compare future releases against,
+ * genuinely nice-to-have rather than unavoidable, and only reachable once a workload exists at all.
  *
  * <h2>What it will not do</h2>
  *
@@ -48,6 +62,31 @@ export function ServiceVortex({
   // `useReducedMotion` returns null before it has resolved, so compare rather than coerce.
   const reducedMotion = useReducedMotion() === true;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [importDrawerOpen, setImportDrawerOpen] = useState(false);
+  const [environmentDrawerState, setEnvironmentDrawerState] = useState<EnvironmentDrawerState | null>(null);
+  const [objectivesDrawerOpen, setObjectivesDrawerOpen] = useState(false);
+  const [productionDrawerOpen, setProductionDrawerOpen] = useState(false);
+  // Only the drawers above need Configuration's data (environment options, current thresholds, the
+  // catalog for production's per-operation weights) — fetched once here rather than threading it
+  // down from a page that isn't mounted while this one is.
+  const configQuery = useConfigurationQuery(serviceId);
+
+  function openDrawerFor(key: string) {
+    switch (key) {
+      case 'API_IMPORTED':
+        setImportDrawerOpen(true);
+        break;
+      case 'ENVIRONMENT':
+        setEnvironmentDrawerState({ mode: 'create' });
+        break;
+      case 'OBJECTIVES':
+        setObjectivesDrawerOpen(true);
+        break;
+      case 'PRODUCTION_TRAFFIC':
+        setProductionDrawerOpen(true);
+        break;
+    }
+  }
 
   const sequence = useMemo(() => mainSequence(header.readiness.items), [header.readiness.items]);
   const branch = useMemo(() => optionalBranch(header.readiness.items), [header.readiness.items]);
@@ -90,6 +129,7 @@ export function ServiceVortex({
                 expanded={item.key === activeItem?.key}
                 onSelect={setSelectedKey}
                 reducedMotion={reducedMotion}
+                onOpenDrawer={openDrawerFor}
               />
             ))}
             <ReadyStep expanded={allDone && activeItem?.key === undefined} allDone={allDone} serviceId={serviceId} />
@@ -101,12 +141,39 @@ export function ServiceVortex({
               header={header}
               expanded={branch.key === activeItem?.key}
               onSelect={setSelectedKey}
+              onOpenDrawer={openDrawerFor}
             />
           )}
         </div>
 
         <ReadinessPanel sequence={sequence} branch={branch} percent={percent} serviceId={serviceId} />
       </div>
+
+      <ImportOpenApiDrawer
+        serviceId={serviceId}
+        opened={importDrawerOpen}
+        onClose={() => setImportDrawerOpen(false)}
+      />
+      <EnvironmentDrawer
+        state={environmentDrawerState}
+        existingNames={(configQuery.data?.environments ?? []).map((e) => e.name)}
+        environmentTypes={configQuery.data?.environmentTypes ?? []}
+        dependencyModes={configQuery.data?.dependencyModes ?? []}
+        serviceId={serviceId}
+        onClose={() => setEnvironmentDrawerState(null)}
+      />
+      <ObjectivesDrawer
+        serviceId={serviceId}
+        thresholds={configQuery.data?.thresholds}
+        opened={objectivesDrawerOpen}
+        onClose={() => setObjectivesDrawerOpen(false)}
+      />
+      <ProductionTrafficDrawer
+        serviceId={serviceId}
+        catalog={configQuery.data?.catalog}
+        opened={productionDrawerOpen}
+        onClose={() => setProductionDrawerOpen(false)}
+      />
     </section>
   );
 }
@@ -120,13 +187,14 @@ const SEQUENCE_RANK: Record<string, number> = {
   WORKLOAD: 2,
   AVERAGE_LOAD_WORKLOAD: 2,
   OBJECTIVES: 3,
+  PRODUCTION_TRAFFIC: 4,
 };
 
 /**
- * The four unavoidable signals, in the fixed order above. RESULT is excluded because "Test
- * executed" is not a signal you configure — it becomes true once a run has happened. Anything that
- * merely narrows a signal still outstanding is excluded too — `distinct` in the domain decides that;
- * once a workload exists it becomes its own node instead of `AVERAGE_LOAD_WORKLOAD` staying visible
+ * The unavoidable signals, in the fixed order above. RESULT is excluded because "Test executed" is
+ * not a signal you configure — it becomes true once a run has happened. Anything that merely
+ * narrows a signal still outstanding is excluded too — `distinct` in the domain decides that; once
+ * a workload exists it becomes its own node instead of `AVERAGE_LOAD_WORKLOAD` staying visible
  * alongside it.
  */
 function mainSequence(items: ReadinessItem[]): ReadinessItem[] {
@@ -193,6 +261,7 @@ const STEP_COPY: Record<string, StepCopy> = {
     question: 'What does reality look like?',
     explanation:
       "Tell Vortex what production normally looks like and it can anchor your workload to something real.",
+    hint: "A ballpark figure is fine — this doesn't require a live observation source, even before the service is really in production.",
     unlocks: 'Workloads can be calibrated against real traffic.',
   },
 };
@@ -228,6 +297,7 @@ function PipelineStep({
   expanded,
   onSelect,
   reducedMotion,
+  onOpenDrawer,
 }: {
   number: number;
   item: ReadinessItem;
@@ -236,6 +306,7 @@ function PipelineStep({
   expanded: boolean;
   onSelect: (key: string | null) => void;
   reducedMotion: boolean;
+  onOpenDrawer: (key: string) => void;
 }) {
   const copy = copyFor(item);
 
@@ -246,7 +317,7 @@ function PipelineStep({
       </span>
 
       {expanded ? (
-        <ActiveCard copy={copy} item={item} header={header} onJump={onSelect} />
+        <ActiveCard copy={copy} item={item} header={header} onJump={onSelect} onOpenDrawer={onOpenDrawer} />
       ) : (
         <CompactStep number={number} copy={copy} item={item} status={status} onSelect={onSelect} />
       )}
@@ -295,11 +366,13 @@ function ActiveCard({
   item,
   header,
   onJump,
+  onOpenDrawer,
 }: {
   copy: StepCopy;
   item: ReadinessItem;
   header: Header;
   onJump: (key: string | null) => void;
+  onOpenDrawer?: (key: string) => void;
 }) {
   if (!item.available) {
     return <BlockedCard item={item} onJump={onJump} />;
@@ -318,14 +391,24 @@ function ActiveCard({
         </Title>
         <Text className={classes.activeExplanation}>{copy.explanation}</Text>
 
-        <Button
-          component="a"
-          href={item.href}
-          rightSection={<IconArrowRight size={15} />}
-          className={classes.activeCta}
-        >
-          {ctaLabel(item)}
-        </Button>
+        {onOpenDrawer && DRAWER_KEYS.has(item.key) ? (
+          <Button
+            onClick={() => onOpenDrawer(item.key)}
+            rightSection={<IconArrowRight size={15} />}
+            className={classes.activeCta}
+          >
+            {ctaLabel(item)}
+          </Button>
+        ) : (
+          <Button
+            component="a"
+            href={item.href}
+            rightSection={<IconArrowRight size={15} />}
+            className={classes.activeCta}
+          >
+            {ctaLabel(item)}
+          </Button>
+        )}
 
         {copy.hint && <Text className={classes.activeHint}>{copy.hint}</Text>}
 
@@ -386,7 +469,7 @@ function doneSummaryFor(item: ReadinessItem, header: Header): string {
     case 'OBJECTIVES':
       return 'Latency and error thresholds are set.';
     case 'PRODUCTION_TRAFFIC':
-      return 'Connected — workloads can calibrate against it.';
+      return 'Recorded — workloads can calibrate against it.';
     default:
       return 'Done.';
   }
@@ -404,7 +487,7 @@ function ctaLabel(item: ReadinessItem): string {
     case 'OBJECTIVES':
       return 'Set objectives';
     case 'PRODUCTION_TRAFFIC':
-      return 'Connect production traffic';
+      return 'Record production traffic';
     default:
       return 'Configure';
   }
@@ -444,11 +527,13 @@ function BranchStep({
   header,
   expanded,
   onSelect,
+  onOpenDrawer,
 }: {
   item: ReadinessItem;
   header: Header;
   expanded: boolean;
   onSelect: (key: string | null) => void;
+  onOpenDrawer: (key: string) => void;
 }) {
   const copy = copyFor(item);
 
@@ -456,17 +541,17 @@ function BranchStep({
     <div className={classes.branch} data-status={item.satisfied ? 'done' : 'open'}>
       <IconGitBranch size={14} className={classes.branchGlyph} aria-hidden="true" />
       {expanded ? (
-        <ActiveCard copy={copy} item={item} header={header} onJump={onSelect} />
+        <ActiveCard copy={copy} item={item} header={header} onJump={onSelect} onOpenDrawer={onOpenDrawer} />
       ) : (
         <UnstyledButton
           className={classes.branchRow}
           onClick={() => onSelect(item.key)}
           aria-label={item.satisfied ? `${item.label}, done` : item.label}
         >
-          <Text className={classes.branchEyebrow}>Optional · Calibrate with reality</Text>
+          <Text className={classes.branchEyebrow}>Optional · {copy.eyebrow}</Text>
           <Text className={classes.compactLabel}>{item.label}</Text>
           <Text className={classes.compactMeta}>
-            {item.satisfied ? 'Connected' : copy.question}
+            {item.satisfied ? 'Done' : copy.question}
           </Text>
         </UnstyledButton>
       )}

@@ -1,0 +1,212 @@
+= Prometheus Production Reality
+:toc:
+:toclevels: 3
+
+How Vortex derives xref:../02-architecture/execution-and-evidence.adoc[Production Reality] —
+`observation.source: prometheus` in `vortex.yaml` — from a real Prometheus installation: what gets
+queried, what a service needs to publish, how to stand up a working example locally, and what to do
+when it doesn't answer the way you expect.
+
+'''
+
+== What Vortex queries
+
+`PrometheusObservationSource` talks to Prometheus's own HTTP API — `/api/v1/query` and
+`/api/v1/query_range` — never `/metrics` directly. Every figure it reports is one of these:
+
+[cols="1,2,3", options="header"]
+|===
+| Figure | Shape | PromQL
+
+| Average rate
+| One instant query
+| `sum(increase(C[window])) / window` — total requests divided by elapsed time, not derived from
+  sampled rates (which extrapolate at series boundaries and would drift from the true mean)
+
+| Peak rate, p95 rate
+| One `query_range`, stepped at the resolution xref:../02-architecture/execution-and-evidence.adoc[`ObservationResolution`]
+  chose for the window
+| `sum(rate(C[resolution]))`, sampled across the window. Peak and p95 are then computed
+  client-side from the raw sample set — never a Prometheus-native subquery, and never a single
+  instantaneous sample mistaken for a peak. See xref:../adr/adr-061-prometheus-query-range-and-connection-kind.adoc[ADR-061]
+  for why.
+
+| Operation mix
+| One instant query
+| `sum by (route, method) (increase(C[window]))`, matched against the operations Vortex has
+  catalogued. A series matching nothing is dropped, not folded into a synthetic "other" — see
+  xref:../adr/adr-059-production-fetch-does-not-require-a-catalog.adoc[ADR-059]
+
+| p95 latency (diagnostic only)
+| Two instant queries, issued only by *Test connection*, never by a fetch that can be saved
+| First, whether any `_bucket` series exist at all; if so,
+  `histogram_quantile(0.95, sum by (le) (rate(H[window])))`. Folded into the connection-test
+  message text, never persisted — see <<latency>>.
+|===
+
+`C` is `http_server_requests_seconds_count` (`REQUEST_COUNTER`); `H` is
+`http_server_requests_seconds_bucket` (`REQUEST_HISTOGRAM`). Neither name is configurable today —
+only the *label* names are (see <<labels>>) — matching the same default every
+Spring Boot + Micrometer service already publishes.
+
+Absence is never rounded to zero. A `query_range` with no samples, a `status: "error"` response, or a
+value Prometheus itself renders as `NaN`/`+Inf`/`-Inf` all become a classified refusal
+(`ProductionObservationSource.NotRetrieved`) with a `Kind` — never a silent `0`.
+
+[#labels]
+== Required labels
+
+Vortex asks for one label per role: which one names the service, the route, and the method. The
+defaults match Spring Boot's own instrumentation exactly, so a stock Spring Boot service needs no
+configuration at all:
+
+[cols="1,1,2", options="header"]
+|===
+| Role | Default label | What it names
+
+| service
+| `application`
+| Which service published this sample — set by `management.metrics.tags.application` in
+  `application.yaml`
+
+| route
+| `uri`
+| The templated path, e.g. `/orders/{id}` — Micrometer's default for Spring MVC/WebFlux
+
+| method
+| `method`
+| The HTTP method, uppercase
+|===
+
+A service publishing under different label names (a custom Micrometer tag, a non-Spring client, a
+Kubernetes/Istio-style label scheme) can override any subset of the three — in the settings UI, under
+*Advanced* on a Prometheus source; in `vortex.yaml`, under `observation.labels`. An unset role falls
+back to its default individually, so overriding only the route label leaves service and method at
+their defaults.
+
+== Prerequisites
+
+* A Spring Boot service with `spring-boot-starter-actuator` and `micrometer-registry-prometheus` on
+  the classpath, exposing `/actuator/prometheus` (`management.endpoints.web.exposure.include:
+  prometheus`).
+* p95 latency additionally needs percentile histogram buckets turned on for the HTTP request timer —
+  off by default in Spring Boot:
++
+[source,yaml]
+----
+management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+----
++
+Without it, Vortex reports latency as diagnostically unavailable rather than fabricating a number —
+see <<latency>>.
+* A Prometheus scraping that service on some interval, reachable from wherever Vortex runs.
+
+None of this is Vortex-specific configuration — it is what most Spring Boot services already do, or a
+few lines added to one that doesn't yet.
+
+== Try it: the demo stack
+
+`examples/demo-service/` ships a complete, runnable example — the demo service instrumented exactly as
+described above, plus a pinned Prometheus scraping it.
+
+[source,bash]
+----
+make demo-stack-up      # builds the demo-service jar, then docker compose up -d --build
+examples/demo-service/scripts/generate-traffic.sh    # puts ~2 req/sec through it for 2 minutes
+make demo-stack-down    # stop everything
+----
+
+`demo-stack-up` starts two containers: the demo service on `:8080`, and Prometheus on `:9090`
+(`examples/demo-service/docker/prometheus/prometheus.yml`, scraping
+`http://demo-service:8080/actuator/prometheus` every 5 seconds). The scrape config labels every
+sample `application: vortex-demo-service` — the default `service` label — so pointing Vortex at
+`http://localhost:9090` with service identifier `vortex-demo-service` needs no label overrides.
+
+=== Validate directly against Prometheus first
+
+Before touching Vortex, confirm Prometheus itself has real data — this isolates "is the stack working"
+from "is Vortex configured correctly":
+
+[source,bash]
+----
+curl -s 'http://localhost:9090/api/v1/query?query=sum(rate(http_server_requests_seconds_count{application="vortex-demo-service"}[1m]))' | python3 -m json.tool
+----
+
+A non-empty `result` with a positive value means the pipeline — service, scrape, Prometheus — is
+working. An empty `result` means no traffic has been generated yet, or the scrape hasn't landed;
+`curl -s http://localhost:9090/api/v1/targets` shows `"health": "up"` once scraping succeeds.
+
+=== Configure Vortex
+
+In a service's *Production Reality* section, choose *Prometheus*, endpoint
+`http://localhost:9090`, service label `vortex-demo-service`, and use *Test connection*. A working
+connection answers with a real peak figure and — once histogram buckets have landed — a p95 latency
+sentence, e.g.:
+
+[example]
+----
+Prometheus answered: a peak of 2.31 requests/sec over the last 1h. Nothing has been saved or fetched.
+Histogram data found — p95 latency ~57ms (http_server_requests_seconds_bucket). Diagnostic only, not saved.
+----
+
+*Fetch*, then *Save this observation*, persists average/peak/p95/mix/coverage/provenance to
+`vortex.yaml`'s `production:` block — never the latency figure (<<latency>>).
+
+[#latency]
+== Latency is diagnostic only
+
+`ProductionObservation` deliberately carries no latency field — calibration and headroom consume
+*rates*, never response times, and `p95ObservedRate` is already a rate's own 95th percentile, not a
+latency percentile wearing the same name. p95 latency is real and computed from real histogram data
+when it exists, but it answers a different question ("can Vortex compute this here at all") than
+Production Reality exists to answer, so it stays confined to `verify()` — the same call *Test
+connection* makes — and is never added to a `Retrieved` observation, never written to `vortex.yaml`,
+and never used by calibration. See xref:../adr/adr-061-prometheus-query-range-and-connection-kind.adoc[ADR-061].
+
+== Troubleshooting
+
+[cols="1,2", options="header"]
+|===
+| Symptom | Likely cause
+
+| Test connection: *Unreachable*
+| The endpoint is wrong, or nothing is listening there from where Vortex runs — check
+  `docker ps` / the URL, not credentials.
+
+| Test connection: *Authentication failed*
+| A header referencing `${NAME}` names an environment variable that isn't set in the shell Vortex is
+  running in, or Prometheus itself rejected the credentials (401/403).
+
+| Test connection: *Connected — no data*
+| Prometheus answered, but nothing matched the service label for this service identifier over the
+  window. Check the identifier matches the label value your service actually publishes
+  (`curl http://<service>/actuator/prometheus \| grep application=`), and that the label name matches
+  (<<labels>>) if it isn't the Micrometer default.
+
+| Test connection: *Invalid response*
+| Prometheus rejected the query outright (a `status: "error"` response), or the endpoint didn't
+  return something Vortex could parse as Prometheus's API — often means `observation.endpoint` points
+  at a dashboard URL rather than the API root.
+
+| Peak looks lower than expected
+| The observed peak is the busiest *sampled average*, not an instantaneous spike — a peak from
+  one-minute samples is a different claim from a peak from ten-second samples. The persisted
+  `sampleResolution` says which was used.
+
+| Operation mix is empty, or coverage is 0%
+| Either no operations are catalogued for this service yet (import an OpenAPI description first), or
+  the route/method label values Prometheus reports don't match the catalogued path templates exactly
+  — Vortex drops an unmatched series rather than guessing at it (ADR-059).
+
+| p95 latency sentence says "not published"
+| The service isn't emitting `_bucket` series — turn on
+  `management.metrics.distribution.percentiles-histogram.http.server.requests` (see Prerequisites).
+
+| p95 latency sentence says "no samples in this window"
+| The histogram exists but received no traffic during the requested window — generate some traffic
+  and try again.
+|===

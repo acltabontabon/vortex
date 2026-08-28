@@ -86,6 +86,11 @@ export interface ObservationSource {
   serviceIdentifier: string;
   windowDisplay: string;
   maskedHeaders: Record<string, string>;
+  /** Effective Prometheus label names — the override when set, otherwise the Micrometer default.
+   *  Ignored for Dynatrace. */
+  serviceLabel: string;
+  routeLabel: string;
+  methodLabel: string;
 }
 
 export interface ThresholdEdit {
@@ -306,13 +311,21 @@ export interface ObservationSourceRequest {
   window: string;
   headerName?: string[];
   headerValue?: string[];
+  /** Prometheus label-name overrides. Blank/absent falls back to the Micrometer default
+   *  (`application` / `uri` / `method`) individually, one label at a time. */
+  serviceLabel?: string;
+  routeLabel?: string;
+  methodLabel?: string;
 }
 
 export const useSaveObservationSourceMutation = (id: string) =>
   useConfigMutation<ObservationSourceRequest>(id, '/observation');
 
+/** `state` is one of `CONNECTED`, `CONNECTED_NO_DATA`, `AUTHENTICATION_FAILED`, `UNREACHABLE`,
+ *  `INVALID_RESPONSE`, or `null` for a pre-flight refusal that never reached a connection at all. */
 export interface TestConnectionResponse {
   succeeded: boolean;
+  state: string | null;
   message: string;
 }
 

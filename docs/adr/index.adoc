@@ -186,6 +186,12 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-059-production-fetch-does-not-require-a-catalog.adoc[059]
 | Fetching production traffic no longer requires an imported operation catalog
+
+| xref:adr-060-production-traffic-is-required-not-optional.adoc[060]
+| Production traffic recorded is unavoidable, not optional
+
+| xref:adr-061-prometheus-query-range-and-connection-kind.adoc[061]
+| Prometheus reads via `query_range`, and a connection test gets its own `Kind` vocabulary
 |===
 
 == Format

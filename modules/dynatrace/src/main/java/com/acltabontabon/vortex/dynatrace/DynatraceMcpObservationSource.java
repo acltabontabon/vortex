@@ -107,7 +107,8 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
         } catch (RuntimeException e) {
             return new NotRetrieved("Could not read production traffic from Dynatrace MCP",
                     e.getMessage() == null ? e.toString() : e.getMessage(),
-                    "Try Test Connection under Settings for more detail.");
+                    "Try Test Connection under Settings for more detail.",
+                    NotRetrieved.Kind.INVALID_RESPONSE);
         }
     }
 
@@ -146,7 +147,8 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
         } catch (RuntimeException e) {
             return new NotRetrieved("Could not reach Dynatrace MCP",
                     e.getMessage() == null ? e.toString() : e.getMessage(),
-                    "Try Test Connection under Settings for more detail.");
+                    "Try Test Connection under Settings for more detail.",
+                    NotRetrieved.Kind.INVALID_RESPONSE);
         }
     }
 
@@ -185,7 +187,8 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
         if (tools instanceof DynatraceTelemetryClient.ToolsFailed failed) {
             return new OrganizationResult.Failure(new NotRetrieved(
                     "Could not read production traffic from Dynatrace MCP",
-                    describe(failed.category()) + ": " + failed.detail(), remedyFor(failed.category())));
+                    describe(failed.category()) + ": " + failed.detail(), remedyFor(failed.category()),
+                    kindFor(failed.category())));
         }
         var listed = (DynatraceTelemetryClient.ToolsListed) tools;
         var executeDql = listed.tools().stream()
@@ -195,7 +198,8 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             return new OrganizationResult.Failure(new NotRetrieved(
                     "Could not read production traffic from Dynatrace MCP",
                     "the server does not advertise '" + DynatraceQueryDefinition.EXECUTE_DQL_TOOL + "'.",
-                    remedyFor(DynatraceMcpFailureCategory.MCP_TOOL_UNAVAILABLE)));
+                    remedyFor(DynatraceMcpFailureCategory.MCP_TOOL_UNAVAILABLE),
+                    NotRetrieved.Kind.INVALID_RESPONSE));
         }
         var resolution = DqlToolSchema.resolveOrganization(executeDql.get().inputSchema(), settings.organization());
         return switch (resolution) {
@@ -204,10 +208,12 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
                     "Could not read production traffic from Dynatrace MCP",
                     "this Dynatrace account has " + ambiguous.options().size() + " organizations and none is "
                             + "configured (" + ambiguous.options() + ").",
-                    "Pick a Dynatrace organization under Settings → Dynatrace, then Save."));
+                    "Pick a Dynatrace organization under Settings → Dynatrace, then Save.",
+                    NotRetrieved.Kind.INVALID_RESPONSE));
             case DqlToolSchema.Failed failed -> new OrganizationResult.Failure(new NotRetrieved(
                     "Could not read production traffic from Dynatrace MCP", failed.detail(),
-                    remedyFor(DynatraceMcpFailureCategory.AMBIGUOUS_ORGANIZATION)));
+                    remedyFor(DynatraceMcpFailureCategory.AMBIGUOUS_ORGANIZATION),
+                    NotRetrieved.Kind.INVALID_RESPONSE));
         };
     }
 
@@ -219,9 +225,9 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
     private record Success(RateStatistics statistics) implements RateResult {
     }
 
-    private record Failure(String what, String why, String remedy) implements RateResult {
+    private record Failure(String what, String why, String remedy, NotRetrieved.Kind kind) implements RateResult {
         NotRetrieved toNotRetrieved() {
-            return new NotRetrieved(what, why, remedy);
+            return new NotRetrieved(what, why, remedy, kind);
         }
     }
 
@@ -237,7 +243,8 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
 
         if (outcome instanceof DynatraceTelemetryClient.Failed failed) {
             return new Failure("Could not read production traffic from Dynatrace MCP",
-                    describe(failed.category()) + ": " + failed.detail(), remedyFor(failed.category()));
+                    describe(failed.category()) + ": " + failed.detail(), remedyFor(failed.category()),
+                    kindFor(failed.category()));
         }
         DynatraceTelemetryResult result = ((DynatraceTelemetryClient.Answered) outcome).result();
 
@@ -246,7 +253,8 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             return new Failure("Could not read production traffic from Dynatrace MCP",
                     rejected.reason().detail(),
                     "Check observation.serviceIdentifier is this service's Dynatrace entity id, and "
-                            + "that the observation window actually had traffic.");
+                            + "that the observation window actually had traffic.",
+                    NotRetrieved.Kind.NO_DATA);
         }
         NormalizedTelemetry telemetry = ((TelemetryNormalizer.Normalized) outcome2).telemetry();
 
@@ -272,6 +280,19 @@ public final class DynatraceMcpObservationSource implements ProductionObservatio
             case NO_DATA -> "no data was returned";
             case MCP_TOOL_UNAVAILABLE -> "the server does not offer the tool Vortex needs";
             case AMBIGUOUS_ORGANIZATION -> "Vortex could not choose which Dynatrace organization to query";
+        };
+    }
+
+    /** Maps this adapter's own, finer-grained failure taxonomy onto the four connection outcomes a
+     *  connection test can report — several categories collapse into one bucket here, which is fine:
+     *  the full-resolution reason survives in {@code why}/{@code remedy} regardless. */
+    private NotRetrieved.Kind kindFor(DynatraceMcpFailureCategory category) {
+        return switch (category) {
+            case CONNECTION_FAILED, QUERY_TIMEOUT -> NotRetrieved.Kind.UNREACHABLE;
+            case AUTHENTICATION_FAILED, PERMISSION_DENIED -> NotRetrieved.Kind.AUTHENTICATION_FAILED;
+            case SERVICE_NOT_FOUND, NO_DATA -> NotRetrieved.Kind.NO_DATA;
+            case QUERY_REJECTED, INVALID_RESPONSE, MCP_TOOL_UNAVAILABLE, AMBIGUOUS_ORGANIZATION ->
+                    NotRetrieved.Kind.INVALID_RESPONSE;
         };
     }
 

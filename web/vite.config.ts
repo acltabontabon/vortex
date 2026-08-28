@@ -13,6 +13,11 @@ export default defineConfig({
   build: {
     outDir: '../modules/app/src/main/resources/static/app',
     emptyOutDir: true,
+    // One entry file by design (see above) — nothing here is route-split, so the whole SPA is one
+    // chunk. That's the right tradeoff for a local, single-user app served off disk rather than a
+    // CDN: raise the warning threshold past today's size instead of introducing lazy-loaded routes
+    // to chase a metric that doesn't matter here.
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
         entryFileNames: 'main.js',

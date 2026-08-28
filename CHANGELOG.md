@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- Hardened Prometheus Production Reality support, proven end to end against a real Prometheus, not
+  only fixtures: peak and p95 throughput now come from `query_range` sample sets instead of a
+  Prometheus-only subquery, so a bad sample (NaN/±Inf) can never silently become a zero and the
+  approach stays portable to other Prometheus-compatible backends. A connection test now reports a
+  classified state — connected, connected with no data, authentication failed, unreachable, or
+  invalid response — instead of a bare pass/fail, both in the API and in the settings UI. Prometheus
+  label names (service/route/method) are now overridable from the settings UI's Advanced section for
+  services that don't publish Micrometer's default label names. *Test connection* additionally
+  reports a real p95 latency figure via `histogram_quantile` when the service publishes histogram
+  buckets — diagnostic only, never persisted, never used for calibration (see ADR-061). A new
+  `examples/demo-service/docker-compose.yml` stack (`make demo-stack-up`) pairs the demo service,
+  now instrumented with `micrometer-registry-prometheus`, with a real pinned Prometheus container and
+  a traffic-generation script, so the whole pipeline is runnable locally with one command. See
+  `docs/04-reference/prometheus-production-reality.adoc` and ADR-061.
+
+### Changed
+
+- The guided setup pipeline's "Import OpenAPI", "Add a target", "Set objectives" and "Record
+  production traffic" steps now each open a scoped drawer — just the form each one needs — instead
+  of navigating to the full Configuration page. "Describe a workload" still goes to its own page;
+  its composer is a page-sized form, not a quick-add one. The paste tab's textarea (both in the new
+  Import drawer and on the Configuration page's own Operations section) is now much larger and
+  monospace, so pasting a full OpenAPI document is actually usable.
+- Production traffic recorded is no longer optional — a service cannot be presented as ready for an
+  experiment without a recorded figure, manual or observed. It still never blocks a test from
+  running, and a rough ballpark estimate satisfies it exactly as well as a live observation source,
+  including for a service that isn't in production yet. See ADR-060.
+
+### Fixed
+
+- `./mvnw ... package`/`spring-boot:run` no longer prints `EBADENGINE` warnings during the frontend
+  build — the Node version the build downloads for itself (independent of whatever Node is on the
+  host) is bumped to the latest 22.x LTS release, which is what `jsdom`/`undici` now require.
+- The Vite production bundle no longer warns about chunk size on every build — the SPA is
+  intentionally one file (see `vite.config.ts`), so the warning threshold now reflects that instead
+  of nagging about a tradeoff already made on purpose.
+
 ## [0.1.0-alpha.21] - 2026-08-28
 
 ### Changed

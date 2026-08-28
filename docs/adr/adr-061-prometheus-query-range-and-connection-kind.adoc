@@ -1,0 +1,82 @@
+= ADR-061: Prometheus reads via `query_range`, and a connection test gets its own `Kind` vocabulary
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+Hardening `PrometheusObservationSource` into something proven against a real Prometheus (not only
+fixtures) forced two decisions that are not obvious from reading the code alone.
+
+=== `query_range`, not a Prometheus-native subquery
+
+The peak and p95-of-throughput figures could be computed with one instant query using Prometheus's
+subquery syntax — `max_over_time(sum(rate(C[r]))[W:r])` — which is concise and lets the server do the
+aggregation. Subqueries are a Prometheus-native extension, though, not part of the PromQL surface every
+Prometheus-compatible backend implements identically; the user's spec explicitly named Grafana Mimir,
+Thanos and Amazon Managed Prometheus as future extension points (not built now, but not to be designed
+against either). Committing every read to a Prometheus-only feature would make that extension harder
+than it needs to be later.
+
+There's a second reason independent of portability: a subquery hands the aggregation to the server as
+an opaque number, so Vortex can't inspect the individual samples before they're combined. Sanitizing
+NaN/+Inf/-Inf per-sample (see `RestClientPrometheusClient.sanitize`) — never letting a bad sample
+silently become a zero that participates in a max — requires the raw sample set, not a pre-aggregated
+scalar.
+
+=== A connection test's outcome needs more than a boolean
+
+`PrometheusObservationSource.verify` (and the equivalent on `DynatraceObservationSource` /
+`DynatraceMcpObservationSource`) already distinguished several failure causes in prose — reachable but
+wrong credentials, reachable but the service was never heard of, not reachable at all. The wire layer
+collapsed all of that into `succeeded: boolean`, so a Settings page reader had to parse English to tell
+"your token is wrong" from "check the URL."
+
+The obvious existing candidate to reuse was `core.metrics.TelemetryAvailability`
+(`AVAILABLE`/`NO_DATA`/`UNSUPPORTED`/`UNREACHABLE`/`UNAUTHORIZED`/`MALFORMED`), the vocabulary
+ADR-033 already established for "absence carries a cause." It was considered and rejected: ADR-031
+draws a hard boundary between `ProductionObservationSource` and `ObservabilityProvider` because they
+answer different questions with different failure meanings, and `TelemetryAvailability.UNSUPPORTED`
+in particular describes a live-run watcher's gap (a metric the running platform doesn't expose), which
+has no equivalent in a one-shot production-history query. Reusing the enum would mean either leaving
+values unreachable from this port or reinterpreting them, both of which quietly erode the boundary
+ADR-031 was written to keep.
+
+== Decision
+
+Peak and p95-of-throughput now come from `PrometheusRangeResult` (`query_range`, stepped at the
+resolution `ObservationResolution` already chose), sanitized and reduced client-side by
+`PrometheusQuantile`. Average and the operation mix are unchanged — `sum(increase(...))` instant
+queries, which were already correct and portable and had no reason to move.
+
+`ProductionObservationSource.NotRetrieved` gains a fourth, additive component:
+
+[source,java]
+----
+enum Kind { UNREACHABLE, AUTHENTICATION_FAILED, INVALID_RESPONSE, NO_DATA }
+----
+
+a sibling to `TelemetryAvailability`, not a reuse of it — new, smaller, and scoped to exactly the four
+outcomes a connection test to a production-history source can have. `null` is a legitimate value,
+reserved for a pre-flight refusal that never reached a connection at all (no source configured, a
+zero-length window) — that isn't a claim about reachability, credentials, or data, so it isn't forced
+into one of the four. Every adapter behind the port (`ObservationHttp.classify`, shared by Prometheus
+and Dynatrace-REST; `DynatraceMcpObservationSource`'s own failure sites) now tags its own
+`NotRetrieved` values with the applicable `Kind`, so the port is consistent across every implementation
+rather than half-migrated. The wire layer maps `Kind` onto a small string vocabulary
+(`ConfigurationApiController.connectionState`) that the settings UI colours by.
+
+== Consequences
+
+Every read Vortex issues against Prometheus goes through `/api/v1/query` or `/api/v1/query_range` —
+never a subquery — which is the shape a future Mimir/Thanos/AMP adapter could implement without
+touching `PrometheusObservationSource` itself, and keeps sample-level sanitization inside Vortex's own
+code rather than trusting a server-side aggregate.
+
+A connection test result now carries a `state` a UI can style consistently
+(`CONNECTED`/`CONNECTED_NO_DATA`/`AUTHENTICATION_FAILED`/`UNREACHABLE`/`INVALID_RESPONSE`, or absent),
+without discarding the prose message that already explains what to do about it. The cost is one more
+enum to keep in sync across three adapter implementations when a new failure mode is added — judged
+worth it because the alternative (stretching `TelemetryAvailability` to cover a port it was never
+designed for) would have made ADR-031's boundary a title without a shape.

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Anchor, Button, Divider, Group, List, NumberInput, Select, Stack, Table, Text, TextInput, Textarea } from '@mantine/core';
+import { Alert, Anchor, Button, Collapse, Divider, Group, Select, Stack, Table, Text, TextInput, List } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { Link } from 'react-router-dom';
 import type { Catalog, ObservationSource, WorkloadSuggestion } from '../../../api/configuration';
@@ -7,7 +7,6 @@ import {
   useFetchAndSaveProductionMutation,
   useFetchProductionMutation,
   useLookupDynatraceEntityMutation,
-  useRecordProductionMutation,
   useSaveObservationSourceMutation,
   useTestObservationSourceMutation,
 } from '../../../api/configuration';
@@ -19,12 +18,33 @@ import { TrafficDistribution } from '../../../components/TrafficDistribution';
 import { extractErrorMessage } from '../../../lib/queryFallback';
 import { HeaderRows } from './HeaderRows';
 import { rowsFromMasked, type HeaderRow } from './headerRowUtils';
+import { RecordedTrafficPanel } from './RecordedTrafficPanel';
 import classes from './ProductionRealitySection.module.css';
 
 function headerArrays(rows: HeaderRow[]): { headerName?: string[]; headerValue?: string[] } {
   const named = rows.filter((row) => row.name.trim());
   if (named.length === 0) return {};
   return { headerName: named.map((row) => row.name), headerValue: named.map((row) => row.value) };
+}
+
+/** Maps a connection-test state onto the same pass/warn/fail vocabulary the rest of the settings UI
+ *  already uses. `null` covers a pre-flight refusal that never reached a connection — falls back to
+ *  the plain succeeded/failed split so it still reads sensibly. */
+function connectionStateAppearance(state: string | null, succeeded: boolean): { color: string; title: string } {
+  switch (state) {
+    case 'CONNECTED':
+      return { color: 'pass', title: 'Connected' };
+    case 'CONNECTED_NO_DATA':
+      return { color: 'warn', title: 'Connected — no data' };
+    case 'AUTHENTICATION_FAILED':
+      return { color: 'fail', title: 'Authentication failed' };
+    case 'UNREACHABLE':
+      return { color: 'fail', title: 'Unreachable' };
+    case 'INVALID_RESPONSE':
+      return { color: 'warn', title: 'Invalid response' };
+    default:
+      return { color: succeeded ? 'pass' : 'warn', title: 'Test connection' };
+  }
 }
 
 /**
@@ -239,119 +259,6 @@ export function ProductionRealitySection({
   );
 }
 
-function RecordedTrafficPanel({
-  serviceId,
-  catalog,
-  onSaved,
-}: {
-  serviceId: string;
-  catalog: Catalog;
-  onSaved: () => void;
-}) {
-  const recordMutation = useRecordProductionMutation(serviceId);
-  const [peakRate, setPeakRate] = useState<number | ''>('');
-  const [averageRate, setAverageRate] = useState<number | ''>('');
-  const [p95Rate, setP95Rate] = useState<number | ''>('');
-  const [source, setSource] = useState('');
-  const [note, setNote] = useState('');
-  const [weights, setWeights] = useState<Record<string, number>>({});
-
-  const recordError = extractErrorMessage(recordMutation, 'Something went wrong recording production traffic.');
-
-  function onRecord() {
-    if (peakRate === '') return;
-    recordMutation.mutate(
-      {
-        peakRate: Number(peakRate),
-        averageRate: averageRate === '' ? undefined : Number(averageRate),
-        p95ObservedRate: p95Rate === '' ? undefined : Number(p95Rate),
-        mixOperation: catalog.operations.map((op) => op.id),
-        mixWeight: catalog.operations.map((op) => weights[op.id] ?? 0),
-        source: source || undefined,
-        note: note || undefined,
-      },
-      {
-        onSuccess: (r) => {
-          notifications.show({ message: r.message, color: 'pass' });
-          onSaved();
-        },
-      }
-    );
-  }
-
-  return (
-    <div>
-      {recordError && (
-        <Text size="sm" c="fail" mb="xs">
-          {recordError}
-        </Text>
-      )}
-      <Group grow>
-        <NumberInput
-          label="Peak rate (req/sec)"
-          required
-          min={0}
-          step={0.1}
-          value={peakRate}
-          onChange={(v) => setPeakRate(typeof v === 'number' ? v : '')}
-        />
-        <NumberInput
-          label="Average rate (req/sec)"
-          min={0}
-          step={0.1}
-          value={averageRate}
-          onChange={(v) => setAverageRate(typeof v === 'number' ? v : '')}
-        />
-        <NumberInput
-          label="p95 rate (req/sec)"
-          min={0}
-          step={0.1}
-          value={p95Rate}
-          onChange={(v) => setP95Rate(typeof v === 'number' ? v : '')}
-        />
-      </Group>
-
-      {catalog.operations.length > 0 && (
-        <Stack gap={4} mt="sm">
-          <Text size="xs" c="dimmed">
-            Operation mix (relative weights)
-          </Text>
-          {catalog.operations.map((op) => (
-            <Group key={op.id} justify="space-between" wrap="nowrap">
-              <Text size="sm">
-                {op.method} {op.path}
-              </Text>
-              <NumberInput
-                min={0}
-                step={1}
-                w={100}
-                value={weights[op.id] ?? 0}
-                onChange={(v) =>
-                  setWeights((prev) => ({ ...prev, [op.id]: typeof v === 'number' ? v : 0 }))
-                }
-              />
-            </Group>
-          ))}
-        </Stack>
-      )}
-
-      <Group grow mt="sm">
-        <TextInput
-          label="Source"
-          placeholder="Grafana · checkout-service overview"
-          value={source}
-          onChange={(e) => setSource(e.currentTarget.value)}
-        />
-        <Textarea label="Note" minRows={1} value={note} onChange={(e) => setNote(e.currentTarget.value)} />
-      </Group>
-
-      <Button mt="sm" size="sm" onClick={onRecord} loading={recordMutation.isPending} disabled={peakRate === ''}>
-        Record
-      </Button>
-    </div>
-  );
-}
-
 function ObservationSourcePanel({
   serviceId,
   serviceName,
@@ -378,8 +285,17 @@ function ObservationSourcePanel({
   );
   const [lookupQuery, setLookupQuery] = useState(serviceName);
 
+  // Only ever the override — an empty string here means "use the Micrometer default", never a
+  // literal blank label name, so it's fine to leave unset when a Prometheus source has never had
+  // one saved.
+  const [serviceLabel, setServiceLabel] = useState(source?.serviceLabel ?? '');
+  const [routeLabel, setRouteLabel] = useState(source?.routeLabel ?? '');
+  const [methodLabel, setMethodLabel] = useState(source?.methodLabel ?? '');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   const usingMcp = kind === 'dynatrace' && transport === 'mcp';
   const mcpConfigured = settingsQuery.data?.dynatraceMcp.enabled ?? false;
+  const isPrometheus = kind === 'prometheus';
 
   function payload() {
     return {
@@ -389,6 +305,13 @@ function ObservationSourcePanel({
       serviceIdentifier,
       window,
       ...(usingMcp ? {} : headerArrays(headerRows)),
+      ...(isPrometheus
+        ? {
+            serviceLabel: serviceLabel.trim() || undefined,
+            routeLabel: routeLabel.trim() || undefined,
+            methodLabel: methodLabel.trim() || undefined,
+          }
+        : {}),
     };
   }
 
@@ -420,7 +343,12 @@ function ObservationSourcePanel({
       )}
 
       {test.data && (
-        <Alert color={test.data.succeeded ? 'pass' : 'warn'} title="Test connection" mt="md" mb="md">
+        <Alert
+          color={connectionStateAppearance(test.data.state, test.data.succeeded).color}
+          title={connectionStateAppearance(test.data.state, test.data.succeeded).title}
+          mt="md"
+          mb="md"
+        >
           {test.data.message}
         </Alert>
       )}
@@ -533,6 +461,46 @@ function ObservationSourcePanel({
         </Group>
 
         {!usingMcp && <HeaderRows rows={headerRows} onChange={setHeaderRows} />}
+
+        {isPrometheus && (
+          <div>
+            <Button
+              size="compact-sm"
+              variant="subtle"
+              color="gray"
+              className={classes.manageAction}
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              {showAdvanced ? 'Hide advanced' : 'Advanced'}
+            </Button>
+            <Collapse expanded={showAdvanced}>
+              <Text size="xs" c="dimmed" mt="xs" mb="xs">
+                Only needed if this service publishes Micrometer metrics under different label names.
+                Leave blank to use the Spring Boot defaults.
+              </Text>
+              <Group grow align="flex-start">
+                <TextInput
+                  label="Service label name"
+                  placeholder="application"
+                  value={serviceLabel}
+                  onChange={(e) => setServiceLabel(e.currentTarget.value)}
+                />
+                <TextInput
+                  label="Route label name"
+                  placeholder="uri"
+                  value={routeLabel}
+                  onChange={(e) => setRouteLabel(e.currentTarget.value)}
+                />
+                <TextInput
+                  label="Method label name"
+                  placeholder="method"
+                  value={methodLabel}
+                  onChange={(e) => setMethodLabel(e.currentTarget.value)}
+                />
+              </Group>
+            </Collapse>
+          </div>
+        )}
 
         <Group mt="sm">
           <Button onClick={onSave} loading={save.isPending}>

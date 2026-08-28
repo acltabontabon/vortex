@@ -82,7 +82,8 @@ public final class DynatraceObservationSource implements ProductionObservationSo
                     "Could not read production traffic from Dynatrace",
                     "the environment variable " + missing + ", referenced by observation.headers, "
                             + "is not set in this shell.",
-                    "Export an API token with the metrics.read scope before calibrating.");
+                    "Export an API token with the metrics.read scope before calibrating.",
+                    NotRetrieved.Kind.AUTHENTICATION_FAILED);
         }
 
         Duration window = request.window().duration();
@@ -102,7 +103,8 @@ public final class DynatraceObservationSource implements ProductionObservationSo
                         "no request data was returned for entity " + source.serviceIdentifier()
                                 + " over the last " + Durations.display(window) + ".",
                         "Check observation.entity is the service's entity id (it starts with "
-                                + "SERVICE-), and that the token has the metrics.read scope.");
+                                + "SERVICE-), and that the token has the metrics.read scope.",
+                        NotRetrieved.Kind.NO_DATA);
             }
 
             Optional<Double> p95 = scalar(source, p95Selector, request);
@@ -149,7 +151,8 @@ public final class DynatraceObservationSource implements ProductionObservationSo
                     "Could not reach Dynatrace",
                     "the environment variable " + missing + ", referenced by the headers, is not "
                             + "set in the shell Vortex is running in.",
-                    "Export it and restart Vortex, then test again.");
+                    "Export it and restart Vortex, then test again.",
+                    NotRetrieved.Kind.AUTHENTICATION_FAILED);
         }
 
         String peakSelector = REQUEST_COUNT + ":max";
@@ -162,7 +165,8 @@ public final class DynatraceObservationSource implements ProductionObservationSo
                         "no request data was found for entity " + source.serviceIdentifier()
                                 + " over the last " + Durations.display(window.duration()) + ".",
                         "Check the entity id is this service's (it starts with SERVICE-), and that "
-                                + "the token carries the metrics.read scope.");
+                                + "the token carries the metrics.read scope.",
+                        NotRetrieved.Kind.NO_DATA);
             }
             return new Retrieved(new ProductionObservation(
                     null, null, rate(peak.get(), resolution.toSeconds()), null, null, resolution,

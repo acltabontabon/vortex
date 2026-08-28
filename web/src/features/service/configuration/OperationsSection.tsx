@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Badge, Button, Group, List, Stack, Tabs, Text, TextInput, Textarea } from '@mantine/core';
+import { Badge, Button, Group, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import type { Catalog, CatalogOperation } from '../../../api/configuration';
-import { useImportCatalogMutation, useReviewOperationMutation } from '../../../api/configuration';
+import { useReviewOperationMutation } from '../../../api/configuration';
 import { RequestDataDrawer } from '../requestdata/RequestDataDrawer';
+import { ImportForm } from './ImportForm';
 import classes from './OperationsSection.module.css';
 
 /**
@@ -21,81 +22,6 @@ export function OperationsSection({ serviceId, catalog }: { serviceId: string; c
     return <ImportForm serviceId={serviceId} />;
   }
   return <CatalogView serviceId={serviceId} catalog={catalog} />;
-}
-
-function ImportForm({ serviceId, prefillUrl }: { serviceId: string; prefillUrl?: string }) {
-  const [url, setUrl] = useState(prefillUrl ?? '');
-  const [content, setContent] = useState('');
-  const mutation = useImportCatalogMutation(serviceId);
-
-  function submit() {
-    mutation.mutate(
-      { url: url || undefined, content: content || undefined },
-      {
-        onSuccess: (response) => {
-          if (response.succeeded) {
-            notifications.show({ message: response.message!, color: 'pass' });
-            if (response.info) {
-              notifications.show({ message: response.info, color: 'neutral' });
-            }
-          } else {
-            notifications.show({ message: response.error!, color: 'fail' });
-          }
-        },
-      }
-    );
-  }
-
-  return (
-    <div>
-      <Text size="sm" fw={600} mb={4}>
-        Import an API description
-      </Text>
-      <Text size="sm" c="dimmed" mb="sm">
-        OpenAPI 3.x, as a URL Vortex fetches or pasted directly.
-      </Text>
-      <Tabs defaultValue="url">
-        <Tabs.List>
-          <Tabs.Tab value="url">From a URL</Tabs.Tab>
-          <Tabs.Tab value="paste">Paste it</Tabs.Tab>
-        </Tabs.List>
-        <Tabs.Panel value="url" pt="sm">
-          <TextInput
-            placeholder="https://api.example.com/openapi.yaml"
-            value={url}
-            onChange={(e) => setUrl(e.currentTarget.value)}
-          />
-        </Tabs.Panel>
-        <Tabs.Panel value="paste" pt="sm">
-          <Textarea
-            placeholder="openapi: 3.0.0..."
-            minRows={6}
-            value={content}
-            onChange={(e) => setContent(e.currentTarget.value)}
-          />
-        </Tabs.Panel>
-      </Tabs>
-
-      {mutation.data && !mutation.data.succeeded && (
-        <div style={{ marginTop: '0.75rem' }}>
-          <Text size="sm" c="fail">
-            {mutation.data.error}
-          </Text>
-          {mutation.data.errorDetails.length > 0 && (
-            <List size="sm" mt={4}>
-              {mutation.data.errorDetails.map((d) => (
-                <List.Item key={d}>{d}</List.Item>
-              ))}
-            </List>
-          )}
-        </div>
-      )}
-
-      <Button mt="sm" onClick={submit} loading={mutation.isPending} disabled={!url && !content}>
-        Import
-      </Button>
-    </div>
-  );
 }
 
 function CatalogView({ serviceId, catalog }: { serviceId: string; catalog: Catalog }) {

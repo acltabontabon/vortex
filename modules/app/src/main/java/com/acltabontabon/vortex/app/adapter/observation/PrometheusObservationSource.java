@@ -1,6 +1,5 @@
 package com.acltabontabon.vortex.app.adapter.observation;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.acltabontabon.vortex.core.capacity.ObservationSource;
 import com.acltabontabon.vortex.core.capacity.OperationMixCoverage;
 import com.acltabontabon.vortex.core.capacity.ProductionObservation;
@@ -15,6 +14,7 @@ import com.acltabontabon.vortex.core.workload.WeightedOperation;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,19 +33,22 @@ import org.springframework.web.client.RestClient;
  * {@code C}:
  *
  * <ul>
- *   <li><strong>peak</strong> — {@code max_over_time(sum(rate(C[r]))[W:r])}, the busiest {@code r}
- *       of the window.</li>
- *   <li><strong>p95 request rate</strong> — {@code quantile_over_time(0.95, ...)} over that same
- *       sample set, so the two are directly comparable.</li>
- *   <li><strong>average</strong> — {@code sum(increase(C[W])) / W}, deliberately <em>not</em>
- *       {@code avg_over_time} of a rate subquery. {@code rate()} extrapolates at series boundaries,
- *       so averaging its samples drifts from the true mean, whereas total requests divided by
- *       elapsed time is the definition of one.</li>
+ *   <li><strong>peak</strong> — the highest of the samples {@code query_range} returns for
+ *       {@code sum(rate(C[r]))}, stepped every {@code r} across {@code W}.</li>
+ *   <li><strong>p95 request rate</strong> — the 95th-percentile of that same sample set, computed
+ *       client-side by {@link PrometheusQuantile} rather than by a {@code quantile_over_time}
+ *       subquery — subqueries are a Prometheus-native feature not guaranteed on every
+ *       Prometheus-compatible backend, and computing it here means Vortex sanitizes the raw samples
+ *       itself rather than trusting an opaque server-side aggregate.</li>
+ *   <li><strong>average</strong> — {@code sum(increase(C[W])) / W}, deliberately <em>not</em> derived
+ *       from the same sample set. {@code rate()} extrapolates at series boundaries, so averaging its
+ *       samples drifts from the true mean, whereas total requests divided by elapsed time is the
+ *       definition of one.</li>
  * </ul>
  *
- * <p>The resolution is chosen by {@link com.acltabontabon.vortex.core.capacity.ObservationResolution} rather than
- * here, and travels back with the observation — a peak from one-minute samples and a peak from
- * hourly samples are different claims about the same traffic.
+ * <p>The resolution is chosen by {@link com.acltabontabon.vortex.core.capacity.ObservationResolution}
+ * rather than here, and travels back with the observation — a peak from one-minute samples and a
+ * peak from hourly samples are different claims about the same traffic.
  *
  * <h2>Attribution, and what is not invented</h2>
  * The composition query groups by route and method and is matched against the operations Vortex
@@ -53,20 +56,34 @@ import org.springframework.web.client.RestClient;
  * Vortex can only issue requests against catalogued operations, so an invented entry would produce a
  * workload it cannot run. What it does instead is record how much traffic was matched, because
  * narrowing the evidence is acceptable and quietly overstating its completeness is not.
+ *
+ * <h2>Latency is diagnostic only</h2>
+ * {@link #verify} — and only {@code verify}, never {@link #retrieve} — additionally asks whether
+ * histogram buckets exist and, if so, computes a real p95 latency figure via
+ * {@code histogram_quantile}. That figure is folded into the {@code note} of the peak-only
+ * observation {@code verify} already returns for review, and surfaces in the connection-test message
+ * text — it is never added to the retrieved observation, never persisted, and never used for
+ * calibration. {@link ProductionObservation} deliberately carries no latency field; this does not
+ * reopen that decision, it answers a different question ("can Vortex compute this at all here") in a
+ * place nothing downstream can mistake for evidence.
  */
 public final class PrometheusObservationSource implements ProductionObservationSource {
 
     private static final Logger log = LoggerFactory.getLogger(PrometheusObservationSource.class);
 
-    /** The counter a Micrometer-instrumented Spring service publishes for HTTP requests. */
-    static final String REQUEST_COUNTER = "http_server_requests_seconds_count";
-
-    private static final String QUERY_PATH = "/api/v1/query";
-
-    private final RestClient client;
+    private final java.util.function.Function<ObservationSource, PrometheusClient> clientFactory;
 
     public PrometheusObservationSource(RestClient.Builder builder) {
-        this.client = ObservationHttp.client(builder);
+        RestClient restClient = ObservationHttp.client(builder);
+        this.clientFactory = source -> new RestClientPrometheusClient(restClient, source.endpoint(),
+                headers -> ObservationHttp.headers(source).apply(headers));
+    }
+
+    /** Test seam — a fake {@link PrometheusClient} exercises {@link #retrieve}/{@link #verify}'s
+     *  orchestration (which queries are issued, in what order, and how the answers are turned into
+     *  an observation or a classified refusal) without a socket. */
+    PrometheusObservationSource(java.util.function.Function<ObservationSource, PrometheusClient> clientFactory) {
+        this.clientFactory = clientFactory;
     }
 
     @Override
@@ -90,40 +107,40 @@ public final class PrometheusObservationSource implements ProductionObservationS
                     "the environment variable " + missing + ", referenced by observation.headers, "
                             + "is not set in this shell.",
                     "Export it before calibrating, the same way you do for a run's authorisation "
-                            + "header.");
+                            + "header.",
+                    NotRetrieved.Kind.AUTHENTICATION_FAILED);
         }
 
         Duration window = request.window().duration();
         Duration resolution = request.resolution();
-        String selector = selector(source);
-
-        String peakQuery = peakQuery(source, window, resolution);
-        String p95Query = "quantile_over_time(0.95, sum(rate(" + selector + "["
-                + step(resolution) + "]))[" + step(window) + ":" + step(resolution) + "])";
-        String averageQuery = "sum(increase(" + selector + "[" + step(window) + "])) / "
-                + window.toSeconds();
-        String mixQuery = "sum by (" + source.label("route") + ", " + source.label("method")
-                + ") (increase(" + selector + "[" + step(window) + "]))";
-        String totalQuery = "sum(increase(" + selector + "[" + step(window) + "]))";
+        Instant end = request.window().end();
+        PrometheusClient promClient = clientFactory.apply(source);
+        String rateExpr = PrometheusQueries.rateExpression(source, resolution);
 
         try {
-            Optional<Double> peak = scalar(source, peakQuery);
-            if (peak.isEmpty() || peak.get() <= 0) {
+            PrometheusRangeResult range = promClient.queryRange(rateExpr, request.window().start(), end, resolution);
+            if (!range.success()) {
+                return invalidResponse(source, range.errorType(), range.error());
+            }
+            List<Double> samples = range.firstSeriesValues();
+            Double peak = PrometheusQuantile.max(samples);
+            if (peak == null || peak <= 0) {
                 return new NotRetrieved(
                         "Could not read production traffic from Prometheus",
                         "the query returned no data for " + source.serviceIdentifier()
                                 + " over the last " + Durations.display(window) + ".",
                         "Check observation.service matches the '" + source.label("service")
                                 + "' label your service publishes, and that "
-                                + REQUEST_COUNTER + " exists in this Prometheus.");
+                                + PrometheusQueries.REQUEST_COUNTER + " exists in this Prometheus.",
+                        NotRetrieved.Kind.NO_DATA);
             }
+            Double p95 = PrometheusQuantile.quantile(samples, 0.95);
 
-            Optional<Double> p95 = scalar(source, p95Query);
-            Optional<Double> average = scalar(source, averageQuery);
+            Optional<Double> average = promClient.query(PrometheusQueries.averageQuery(source, window), end).firstValue();
 
-            JsonNode mixResult = query(source, mixQuery);
+            PrometheusQueryResult mixResult = promClient.query(PrometheusQueries.mixQuery(source, window), end);
             Mix mix = attribute(mixResult, source, request.operations());
-            Optional<Double> total = scalar(source, totalQuery);
+            Optional<Double> total = promClient.query(PrometheusQueries.totalQuery(source, window), end).firstValue();
 
             OperationMixCoverage coverage = total
                     .map(observed -> new OperationMixCoverage(
@@ -138,15 +155,15 @@ public final class PrometheusObservationSource implements ProductionObservationS
 
             return new Retrieved(new ProductionObservation(
                     average.map(RequestsPerSecond::of).orElse(null),
-                    p95.map(RequestsPerSecond::of).orElse(null),
-                    RequestsPerSecond.of(peak.get()),
+                    RequestsPerSecond.of(p95),
+                    RequestsPerSecond.of(peak),
                     mix.entries().isEmpty() ? null : OperationMix.of(mix.entries()),
                     coverage,
                     resolution,
                     "Prometheus (" + source.serviceIdentifier() + ")",
                     Observation.over(request.window().start(), request.window().end()),
-                    new ObservationProvenance(id(), peakQuery, source.serviceIdentifier(),
-                            browseUrl(source, peakQuery)),
+                    new ObservationProvenance(id(), rateExpr, source.serviceIdentifier(),
+                            browseUrl(source, rateExpr)),
                     ""));
 
         } catch (RuntimeException e) {
@@ -162,13 +179,20 @@ public final class PrometheusObservationSource implements ProductionObservationS
                     "Could not reach Prometheus",
                     "the environment variable " + missing + ", referenced by the headers, is not "
                             + "set in the shell Vortex is running in.",
-                    "Export it and restart Vortex, then test again.");
+                    "Export it and restart Vortex, then test again.",
+                    NotRetrieved.Kind.AUTHENTICATION_FAILED);
         }
 
-        String peakQuery = peakQuery(source, window.duration(), resolution);
+        PrometheusClient promClient = clientFactory.apply(source);
+        String rateExpr = PrometheusQueries.rateExpression(source, resolution);
         try {
-            Optional<Double> peak = scalar(source, peakQuery);
-            if (peak.isEmpty() || peak.get() <= 0) {
+            PrometheusRangeResult range = promClient.queryRange(rateExpr, window.start(), window.end(), resolution);
+            if (!range.success()) {
+                return invalidResponse(source, range.errorType(), range.error());
+            }
+            List<Double> samples = range.firstSeriesValues();
+            Double peak = PrometheusQuantile.max(samples);
+            if (peak == null || peak <= 0) {
                 // Reached and answered, and answered about nothing. Distinct from an unreachable
                 // endpoint, and much more often the actual problem: the label value is wrong.
                 return new NotRetrieved(
@@ -177,81 +201,70 @@ public final class PrometheusObservationSource implements ProductionObservationS
                                 + source.serviceIdentifier() + "\" over the last "
                                 + Durations.display(window.duration()) + ".",
                         "Check the service value matches the label your service publishes, and that "
-                                + REQUEST_COUNTER + " exists in this Prometheus.");
+                                + PrometheusQueries.REQUEST_COUNTER + " exists in this Prometheus.",
+                        NotRetrieved.Kind.NO_DATA);
             }
+
+            String latencyNote = latencyDiagnostic(promClient, source, window.duration(), end(window));
+
             return new Retrieved(new ProductionObservation(
-                    null, null, RequestsPerSecond.of(peak.get()), null, null, resolution,
+                    null, null, RequestsPerSecond.of(peak), null, null, resolution,
                     "Prometheus (" + source.serviceIdentifier() + ")",
                     Observation.over(window.start(), window.end()),
-                    new ObservationProvenance(id(), peakQuery, source.serviceIdentifier(),
-                            browseUrl(source, peakQuery)),
-                    ""));
+                    new ObservationProvenance(id(), rateExpr, source.serviceIdentifier(),
+                            browseUrl(source, rateExpr)),
+                    latencyNote));
         } catch (RuntimeException e) {
             return ObservationHttp.classify(source, e);
         }
     }
 
+    // ------------------------------------------------------------------ diagnostic-only latency
+
+    /**
+     * Two questions, in order: does the histogram exist at all (structural), and if so does it have
+     * samples in this window (volume). Collapsing them into one query cannot tell "never
+     * instrumented" from "instrumented but silent this month" — exactly the distinction that matters
+     * to someone deciding whether to enable histogram publishing.
+     *
+     * <p>Never called from {@link #retrieve}. See the class Javadoc for why this stays out of the
+     * retrieved observation entirely.
+     */
+    private String latencyDiagnostic(PrometheusClient promClient, ObservationSource source,
+            Duration window, Instant time) {
+        PrometheusQueryResult existence = promClient.query(
+                PrometheusQueries.histogramExistenceQuery(source), time);
+        Optional<Double> bucketCount = existence.success() ? existence.firstValue() : Optional.empty();
+        if (bucketCount.isEmpty() || bucketCount.get() <= 0) {
+            return "Histogram buckets required for p95 latency are not published by this Prometheus ("
+                    + PrometheusQueries.REQUEST_HISTOGRAM + ").";
+        }
+
+        PrometheusQueryResult latency = promClient.query(
+                PrometheusQueries.latencyP95Query(source, window), time);
+        Optional<Double> p95Seconds = latency.success() ? latency.firstValue() : Optional.empty();
+        if (p95Seconds.isEmpty() || p95Seconds.get() < 0) {
+            return "Histogram data exists but had no samples in this window.";
+        }
+        long millis = Math.round(p95Seconds.get() * 1000);
+        return "Histogram data found — p95 latency ~" + millis + "ms ("
+                + PrometheusQueries.REQUEST_HISTOGRAM + "). Diagnostic only, not saved.";
+    }
+
+    private static Instant end(TimeWindow window) {
+        return window.end();
+    }
+
     // ------------------------------------------------------------------ querying
 
-    /** The peak expression, in one place, so a test and a fetch ask the same question. */
-    private String peakQuery(ObservationSource source, Duration window, Duration resolution) {
-        return "max_over_time(sum(rate(" + selector(source) + "[" + step(resolution) + "]))["
-                + step(window) + ":" + step(resolution) + "])";
-    }
-
-    private String selector(ObservationSource source) {
-        return REQUEST_COUNTER + "{" + source.label("service") + "=\""
-                + source.serviceIdentifier().replace("\"", "\\\"") + "\"}";
-    }
-
-    private JsonNode query(ObservationSource source, String expression) {
-        return ObservationHttp.parse(client.get()
-                .uri(source.endpoint() + QUERY_PATH + "?query="
-                        + URLEncoder.encode(expression, StandardCharsets.UTF_8))
-                .accept(org.springframework.http.MediaType.ALL)
-                .headers(headers -> ObservationHttp.headers(source).apply(headers))
-                .retrieve()
-                .body(String.class));
-    }
-
-    /**
-     * The single value of an instant query.
-     *
-     * <p>Empty when Prometheus answered but had nothing to say. That is an ordinary outcome — a
-     * service with no traffic in the window, or a label that matches nothing — and it is not the
-     * same as a failure, so it does not become one.
-     */
-    private Optional<Double> scalar(ObservationSource source, String expression) {
-        return scalarFrom(query(source, expression));
-    }
-
-    /**
-     * The mapping half of {@link #scalar}, separated so it can be driven from recorded responses.
-     *
-     * <p>Package-private rather than private for exactly that reason: the interesting behaviour here
-     * is what Vortex makes of a body it did not write, and that is worth testing against real
-     * captured output rather than a stub server's idea of it.
-     */
-    static Optional<Double> scalarFrom(JsonNode body) {
-        if (body == null || !"success".equals(body.path("status").asText())) {
-            return Optional.empty();
-        }
-        JsonNode result = body.path("data").path("result");
-        if (!result.isArray() || result.isEmpty()) {
-            return Optional.empty();
-        }
-        JsonNode value = result.get(0).path("value");
-        if (!value.isArray() || value.size() < 2) {
-            return Optional.empty();
-        }
-        try {
-            double parsed = Double.parseDouble(value.get(1).asText());
-            return Double.isFinite(parsed) ? Optional.of(parsed) : Optional.empty();
-        } catch (NumberFormatException e) {
-            // Prometheus renders NaN as a string. A metric that exists but has no samples in the
-            // window is exactly this case, and it means "nothing observed", not "malformed".
-            return Optional.empty();
-        }
+    private NotRetrieved invalidResponse(ObservationSource source, String errorType, String error) {
+        String detail = errorType.isBlank() ? error : errorType + ": " + error;
+        return new NotRetrieved(
+                "Could not read production traffic from Prometheus",
+                "Prometheus rejected the query" + (detail.isBlank() ? "." : " (" + detail + ")."),
+                "The query Vortex issued is shown above; try it in Prometheus directly to see what "
+                        + "it objects to.",
+                NotRetrieved.Kind.INVALID_RESPONSE);
     }
 
     /** Matched entries plus how much traffic they account for. */
@@ -265,11 +278,12 @@ public final class PrometheusObservationSource implements ProductionObservationS
      * counts through directly avoids a second rounding step and keeps the ratios exactly as
      * Prometheus reported them.
      */
-    static Mix attribute(JsonNode body, ObservationSource source, List<ObservedOperation> operations) {
+    static Mix attribute(PrometheusQueryResult result, ObservationSource source,
+            List<ObservedOperation> operations) {
         List<WeightedOperation> entries = new ArrayList<>();
         double matched = 0;
 
-        if (body == null || !"success".equals(body.path("status").asText())) {
+        if (!result.success()) {
             return new Mix(entries, 0);
         }
 
@@ -279,15 +293,14 @@ public final class PrometheusObservationSource implements ProductionObservationS
         }
 
         Map<ObservedOperation, Double> counts = new LinkedHashMap<>();
-        for (JsonNode series : body.path("data").path("result")) {
-            JsonNode metric = series.path("metric");
-            String route = metric.path(source.label("route")).asText("");
-            String method = metric.path(source.label("method")).asText("");
+        for (PrometheusQueryResult.VectorSample sample : result.vector()) {
+            String route = sample.labels().getOrDefault(source.label("route"), "");
+            String method = sample.labels().getOrDefault(source.label("method"), "");
             ObservedOperation operation = byKey.get(key(method, route));
             if (operation == null) {
                 continue;
             }
-            double count = seriesValue(series);
+            double count = sample.valueIfPresent().filter(v -> v > 0).orElse(0.0);
             if (count > 0) {
                 counts.merge(operation, count, Double::sum);
                 matched += count;
@@ -297,19 +310,6 @@ public final class PrometheusObservationSource implements ProductionObservationS
         counts.forEach((operation, count) ->
                 entries.add(WeightedOperation.of(operation.operationId(), (int) Math.max(1, Math.round(count)))));
         return new Mix(entries, matched);
-    }
-
-    private static double seriesValue(JsonNode series) {
-        JsonNode value = series.path("value");
-        if (!value.isArray() || value.size() < 2) {
-            return 0;
-        }
-        try {
-            double parsed = Double.parseDouble(value.get(1).asText());
-            return Double.isFinite(parsed) ? parsed : 0;
-        } catch (NumberFormatException e) {
-            return 0;
-        }
     }
 
     private static String key(String method, String path) {
@@ -325,10 +325,5 @@ public final class PrometheusObservationSource implements ProductionObservationS
     private String browseUrl(ObservationSource source, String expression) {
         return source.endpoint() + "/graph?g0.expr="
                 + URLEncoder.encode(expression, StandardCharsets.UTF_8) + "&g0.tab=1";
-    }
-
-    /** Prometheus duration literals: whole seconds, which every version accepts. */
-    private String step(Duration duration) {
-        return duration.toSeconds() + "s";
     }
 }

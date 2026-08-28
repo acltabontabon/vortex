@@ -56,6 +56,8 @@ The ideas that determine whether a result can be trusted, independent of any one
 
 * xref:04-reference/configuration.adoc[Configuration reference] — every key in `vortex.yaml`, and
   what it means
+* xref:04-reference/prometheus-production-reality.adoc[Prometheus Production Reality] — what Vortex
+  queries, required labels, the demo stack, and troubleshooting
 * xref:schema/vortex-evidence-v2.schema.json[Evidence schema] — the machine-readable `vortex.evidence/2`
   contract a run's export conforms to
 

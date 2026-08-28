@@ -51,12 +51,13 @@ export interface Target {
 /**
  * What sort of readiness item this is — a different question from whether it is done.
  *
- * <p>Three failures, each different. `REQUIRED`: no run. `EVALUATION`: a run that decides nothing.
- * `ENRICHMENT`: an answer that still stands, just less confidently — the only one an interface may
- * call optional. `RESULT` is not configuration at all: nobody sets it, it becomes true once a run
- * has happened. All decided in `ProjectReadiness.Kind`, never here.
+ * <p>Four failures, each different. `REQUIRED`: no run. `EVALUATION`: a run that decides nothing.
+ * `GROUNDING`: a run that decides something, but on an invented number. `ENRICHMENT`: an answer
+ * that still stands, just less confidently — the only one an interface may call optional. `RESULT`
+ * is not configuration at all: nobody sets it, it becomes true once a run has happened. All decided
+ * in `ProjectReadiness.Kind`, never here.
  */
-export type ReadinessKind = 'REQUIRED' | 'EVALUATION' | 'ENRICHMENT' | 'RESULT';
+export type ReadinessKind = 'REQUIRED' | 'EVALUATION' | 'GROUNDING' | 'ENRICHMENT' | 'RESULT';
 
 export interface ReadinessItem {
   /** Stable identity. Switch on this, never on `label`, which is prose and will be reworded. */

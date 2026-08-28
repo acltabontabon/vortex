@@ -208,39 +208,35 @@ class ProjectReadinessTest {
         ProjectReadiness nothing =
                 new ProjectReadiness(false, false, false, false, false, false, false);
 
-        for (String key : List.of("PRODUCTION_TRAFFIC", "AVERAGE_LOAD_WORKLOAD")) {
-            Item item = itemNamed(nothing, key);
-            assertThat(item.kind()).as("%s", key).isEqualTo(ProjectReadiness.Kind.ENRICHMENT);
-            assertThat(nothing.effectivelyRequired(item)).as("%s is optional", key).isFalse();
-        }
+        Item item = itemNamed(nothing, "AVERAGE_LOAD_WORKLOAD");
+        assertThat(item.kind()).isEqualTo(ProjectReadiness.Kind.ENRICHMENT);
+        assertThat(nothing.effectivelyRequired(item)).as("optional").isFalse();
     }
 
 
     /**
-     * The production baseline is the one signal whose availability is not Vortex's to decide.
-     *
-     * <p>It matters a great deal — an ungrounded workload level is an invented number, and no
-     * headroom can be computed without something real to compare against. It is optional anyway,
-     * because a service that is not serving anything yet cannot have a record of what it receives,
-     * and a distinction that nags a whole class of legitimate projects about something impossible
-     * stops being a distinction worth drawing.
+     * The production baseline used to be optional because a service not yet serving anything could
+     * not have a record of what it receives. That stopped being true the moment a rough,
+     * manually-entered figure became just as valid an answer as an observed one — every project can
+     * supply a number, so the one thing left to decide is whether Vortex should keep calling it
+     * optional. It should not: an ungrounded workload level is an invented number, and headroom
+     * computed against an invented number is not headroom.
      */
     @Test
-    @DisplayName("a production baseline stays optional, because a new service cannot have one")
-    void productionTrafficStaysOptional() {
+    @DisplayName("a production baseline is unavoidable but never blocks a run")
+    void productionTrafficIsGroundingButNotBlocking() {
         ProjectReadiness nothing =
                 new ProjectReadiness(false, false, false, false, false, false, false);
 
         Item production = itemNamed(nothing, "PRODUCTION_TRAFFIC");
-        assertThat(production.kind()).isEqualTo(ProjectReadiness.Kind.ENRICHMENT);
-        assertThat(nothing.effectivelyRequired(production)).isFalse();
-
-        // Everything else the vortex shows can be supplied the moment somebody decides to.
-        for (String key : List.of("API_IMPORTED", "ENVIRONMENT", "WORKLOAD", "OBJECTIVES")) {
-            assertThat(nothing.effectivelyRequired(itemNamed(nothing, key)))
-                    .as("%s is always actionable, so it is never optional", key)
-                    .isTrue();
-        }
+        assertThat(production.kind()).isEqualTo(ProjectReadiness.Kind.GROUNDING);
+        assertThat(production.requiredToRun())
+                .as("a run without a baseline still happens")
+                .isFalse();
+        assertThat(nothing.blockers()).noneMatch(item -> item.key().equals("PRODUCTION_TRAFFIC"));
+        assertThat(nothing.effectivelyRequired(production))
+                .as("but the verdict it feeds should not rest on an invented number")
+                .isTrue();
     }
 
     /**
