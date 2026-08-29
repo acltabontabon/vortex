@@ -91,5 +91,4 @@ EPL permits without restriction on the surrounding work.
 
 ## Vortex's own licence
 
-Not yet chosen. This is a pre-1.0 internal project; a licence will be selected before any external
-distribution.
+Apache License 2.0. See [LICENSE](LICENSE).

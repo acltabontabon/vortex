@@ -1,6 +1,8 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for any coding agent — or human contributor — working in this repository. It applies
+regardless of which tool you are: these are the rules of the codebase, not the conventions of one
+assistant.
 
 ## What Vortex is
 
@@ -10,6 +12,11 @@ breakpoints, headroom) with an optional local-AI (Ollama) interpretation layered
 other way around. Read [README.md](README.md) for the product model (Service → Workload →
 Evaluation → Run → Evidence) before touching domain code; it explains *why* the domain is shaped the
 way it is, not just what it does.
+
+k6 is the execution engine, not the product. Vortex owns orchestration, safety, evidence,
+interpretation boundaries, execution history, and the developer workflow around it. Deterministic
+evidence belongs in core logic; AI may interpret that evidence but must never fabricate or replace a
+deterministic measurement.
 
 ## Commands
 
@@ -44,18 +51,13 @@ Render docs (AsciiDoc under `docs/`) before submitting doc changes; it fails on 
 make docs           # or ./scripts/docs-build.sh — needs `gem install asciidoctor`
 ```
 
-If that reports `asciidoctor not found`, check whether it is installed but off `PATH` before
-installing it again — Homebrew's Ruby puts gem binaries in
-`/opt/homebrew/lib/ruby/gems/<version>/bin`, which is not on `PATH` by default.
-
 ## Architecture
 
 Modular monolith, one process, one jar. Full diagram and rationale:
 [docs/02-architecture/architecture.adoc](docs/02-architecture/architecture.adoc).
 
 Backend modules live under `modules/`, the frontend lives under `web/`, and the demo/sample system
-lives under `examples/demo-service/` (paired with its Vortex config at `examples/checkout-service/`)
-— module names and artifact IDs below are unchanged by that layout.
+lives under `examples/demo-service/` (paired with its Vortex config at `examples/checkout-service/`).
 
 ```
 vortex-core        domain, application services, ports, deterministic calculators — ZERO compile
@@ -66,6 +68,8 @@ vortex-openapi      OpenAPI import (quarantines swagger-parser)
 vortex-k6           workload generation, process execution, k6 output parsing (quarantines
                     ProcessBuilder and k6 wire formats)
 vortex-ai           assistant, prompts, response handling (quarantines Spring AI / Ollama)
+vortex-dynatrace    production-observation and telemetry integration via Dynatrace MCP (quarantines
+                    the MCP client and Dynatrace's wire formats)
 vortex-persistence  SQLite, Flyway migrations, repositories, artifacts, vortex.yaml (quarantines
                     sqlite-jdbc, Flyway, YAML)
 vortex-app          composition root: web (React SPA, served over a JSON API), SSE, small
@@ -75,8 +79,8 @@ vortex-web          React + TypeScript + Mantine SPA, built by Vite, compiled in
                     modules/app/src/main/resources/static/app/ and shipped inside the same jar
 ```
 
-Everything external to the domain sits behind a port in `com.acltabontabon.vortex.core.port` (`PerformanceEngine`,
-`PerformanceAssistant`, `ObservabilityProvider`, `ProductionObservationSource`,
+Everything external to the domain sits behind a port in `com.acltabontabon.vortex.core.port`
+(`PerformanceEngine`, `PerformanceAssistant`, `ObservabilityProvider`, `ProductionObservationSource`,
 `TelemetryCollector`, `ServiceCatalogImporter`, `ConfigurationStore`, `ArtifactStore`, `LocalLab`,
 `Clock`, repositories). The web UI is the only supported interface, and it calls application
 services directly — there is no separate "headless mode" implementation to keep in sync.
@@ -93,7 +97,25 @@ once a run already has a verdict. Do not add an `ANALYZING` execution state — 
 
 `RAW EVIDENCE → NORMALIZED MEASUREMENTS → DETERMINISTIC FINDINGS → INTERPRETATION`. Each tier is
 reachable from the one above it; reports must keep them visibly distinct so a reader can tell a
-measurement from an opinion. See [docs/02-architecture/execution-and-evidence.adoc](docs/02-architecture/execution-and-evidence.adoc).
+measurement from an opinion. See
+[docs/02-architecture/execution-and-evidence.adoc](docs/02-architecture/execution-and-evidence.adoc).
+
+### The AI boundary
+
+```
+Measurements → deterministic evaluation → evidence → optional AI interpretation
+```
+
+never
+
+```
+Measurements → a language model → truth
+```
+
+An AI finding must always cite `EvidenceIds` that resolve against measurements Vortex actually
+collected; one that cannot is discarded before a user sees it. AI is never the pass/fail authority —
+thresholds, breakpoints, headroom and regression deltas are computed by ordinary code, and a model
+only interprets figures Vortex has already calculated.
 
 ### Storage
 
@@ -101,14 +123,33 @@ measurement from an opinion. See [docs/02-architecture/execution-and-evidence.ad
 (local index) vs `~/.vortex/executions/<id>/` (immutable per-run evidence). The database is never
 the source of truth for what to test, and nothing needed to reproduce a run lives only in it.
 
-### Frontend
+## Engineering principles
 
-The interface is React + Mantine ([ADR-035](docs/adr/adr-035-react-and-mantine-as-the-interface.adoc)),
-end to end — the earlier Thymeleaf/htmx server-rendered UI ([ADR-004](docs/adr/adr-004-thymeleaf-and-htmx.adoc),
-now superseded) has been fully removed, dependency and all. `SpaController` forwards every route not
-owned elsewhere to the SPA's `index.html`; React owns the app shell (top bar, service switcher,
-runtime status, command palette) and every page. Every `vortex-app` REST controller returns JSON
-only — there is no view-rendering controller left, and no Thymeleaf dependency in `modules/app/pom.xml`.
+- **Local-first.** No server-side deployment; the workbench runs on the developer's own machine
+  against services they control.
+- **Evidence over vibes.** Every claim traces back to a measurement, with the conditions that
+  produced it attached.
+- **Deterministic core, adapters around external systems.** Thresholds, breakpoints and headroom are
+  ordinary code, not model output; anything that talks to k6, Ollama, SQLite, Docker or an
+  observability provider sits behind a port.
+- **Safe by default.** A run must never start against a non-local target without an explicit, typed
+  confirmation of the target environment, and mutation operations are never silently selected.
+- **No shell command construction from untrusted input.** Workload generation and process
+  invocation never interpolate unsanitised strings into a command line.
+- **Secrets are referenced, never persisted.** A resolved secret must never reach a plan, artifact,
+  log, or prompt — only its source reference does.
+- **Observability degradation is surfaced, not swallowed.** A gap is reported as `NO_DATA`,
+  `UNSUPPORTED`, `UNAUTHORIZED`, `UNREACHABLE` or `MALFORMED`, never silently treated as zero or
+  omitted.
+- **Configuration is portable.** What to test lives in the service's own repository, not locked
+  inside Vortex's local database.
+- **Failures are diagnosable.** Every user-facing error states what happened, why, and what to do
+  next.
+- **Tests validate behavior, not implementation trivia.** Assert the property that matters, not the
+  shape of the artefact that happens to demonstrate it today.
+- **Boring, maintainable code over cleverness.** No speculative abstractions, no god services, no
+  `Utils` classes, no reflection-heavy magic, no `DTO → command → service → manager → handler →
+  executor` chains.
 
 ## Coding standards
 
@@ -122,16 +163,15 @@ only — there is no view-rendering controller left, and no Thymeleaf dependency
   time only at render.
 - Every user-facing error states what happened, why, and what to do next — `"Process exited 1"` is
   not acceptable.
-- Avoid: god services, `Utils` classes, static mutable state, reflection-heavy magic, deep
-  inheritance, `DTO → command → service → manager → handler → executor` chains.
-- Comments explain *why* (a decision, a constraint, a trap), never *what* — the code already says that.
+- Comments explain *why* (a decision, a constraint, a trap), never *what* — the code already says
+  that.
 
 ## Non-negotiable invariants
 
-These are tested; if a change makes one of these tests fail, the test is probably right, not the change:
+These are tested; if a change makes one of these tests fail, the test is probably right, not the
+change:
 
-- An AI finding must never survive without resolvable evidence (`EvidenceIds`) — see the AI
-  capability workflow below.
+- An AI finding must never survive without resolvable evidence (`EvidenceIds`).
 - An unevaluated objective must never be reported as passed.
 - A capacity or headroom figure must never be produced detached from the conditions that produced it
   (version, environment, dependency mode, workload model, operation mix, objectives, duration).
@@ -141,12 +181,47 @@ These are tested; if a change makes one of these tests fail, the test is probabl
 - Arrival rate and concurrency must never be conflated, and a workload level must never drop its unit.
 - One operation's measurements must never be attributed to another.
 
+## Rules for making changes
+
+- Understand the module you're editing before you edit it — read
+  [docs/02-architecture/architecture.adoc](docs/02-architecture/architecture.adoc) and the module
+  boundary table above.
+- Preserve public API compatibility unless the change is intentionally about breaking it.
+- Update tests alongside behavior, and documentation alongside behavior, configuration or
+  architecture changes — a change that alters what a user sees or configures is not done until the
+  relevant doc under `docs/` (or the README) reflects it.
+- Avoid drive-by refactoring unrelated to the task at hand.
+- Avoid adding a dependency without justification — `vortex-core` in particular has zero compile
+  dependencies, enforced by Maven; that is a deliberate constraint, not an oversight.
+- Follow existing conventions rather than introducing a new pattern for something the codebase
+  already does one way.
+- Preserve the security boundaries above — do not weaken target-safety confirmation, secret
+  handling, or the AI/deterministic-evidence boundary to make a feature easier to build.
+- Run the appropriate verification (build, tests, lint, docs build) before declaring work complete.
+
+## Things agents must not do
+
+- Do not make AI responsible for a deterministic pass/fail decision.
+- Do not weaken the non-local-target confirmation or any other safety control to simplify a change.
+- Do not log a resolved secret, or let one reach an artifact, evidence file, or prompt.
+- Do not introduce a hidden network call — anything that talks to an external system belongs behind
+  an explicit port with a documented, user-visible reason.
+- Do not assume an external target is safe to run traffic against; the target-confirmation flow
+  exists because that assumption has real consequences.
+- Do not introduce vendor lock-in without justification, or add a dependency `vortex-core` would
+  have to carry.
+- Do not silently swallow a telemetry or observability failure — classify and surface the gap.
+- Do not commit local state or generated artifacts (build output, `.vortex/` workspace data, local
+  databases) unless the repository already tracks that exact kind of file deliberately.
+- Do not add tool-specific assumptions (about Claude Code, Cursor, Copilot, or any other single
+  assistant) to shared project documentation — this file included.
+
 ## Common extension points
 
-- **Evidence writer**: `EvidenceJsonWriter`/`EvidenceMarkdownWriter` in `com.acltabontabon.vortex.app.evidence`
-  write every completed run's evidence to its artifact directory. Add a case to
-  `SecretsNeverExportTest`. A writer only ever takes a `RunEvidence` — never reach around
-  `EvidenceSanitizer` for the execution or plan (ArchUnit-enforced).
+- **Evidence writer**: `EvidenceJsonWriter`/`EvidenceMarkdownWriter` in
+  `com.acltabontabon.vortex.app.evidence` write every completed run's evidence to its artifact
+  directory. Add a case to `SecretsNeverExportTest`. A writer only ever takes a `RunEvidence` —
+  never reach around `EvidenceSanitizer` for the execution or plan (ArchUnit-enforced).
 - **AI capability**: prompt as a resource under `modules/ai/src/main/resources/ai/`, bump
   `PromptLibrary.VERSION` if response shape/substance could change, add a `PerformanceAssistant`
   method, extend `FakePerformanceAssistant` with its failure modes, and if it produces findings they
@@ -154,13 +229,16 @@ These are tested; if a change makes one of these tests fail, the test is probabl
   Vortex could calculate deterministically.
 - **Observability provider**: implement `ObservabilityProvider`; return only what was actually
   measured (absence, not a default). Classify gaps honestly (`NO_DATA`, `UNSUPPORTED`,
-  `UNAUTHORIZED`, `UNREACHABLE`, `MALFORMED`) — see [ADR-033](docs/adr/adr-033-derived-evidence-is-labelled.adoc).
+  `UNAUTHORIZED`, `UNREACHABLE`, `MALFORMED`) — see
+  [ADR-033](docs/adr/adr-033-derived-evidence-is-labelled.adoc).
 - **Production observation source**: implement `ProductionObservationSource` (a distinct port from
-  `ObservabilityProvider` by design — [ADR-031](docs/adr/adr-031-production-observation-has-its-own-port.adoc)).
-  Speak only in `OperationId`/method/path; put query-language specifics in `ObservationProvenance`;
-  report `sampleResolution` and `OperationMixCoverage` honestly rather than overstating coverage.
+  `ObservabilityProvider` by design — see
+  [ADR-031](docs/adr/adr-031-production-observation-has-its-own-port.adoc)). Speak only in
+  `OperationId`/method/path; put query-language specifics in `ObservationProvenance`; report
+  `sampleResolution` and `OperationMixCoverage` honestly rather than overstating coverage.
 - **DB migration**: add `V<n>__<description>.sql` under
-  `modules/persistence/src/main/resources/db/migration/`; never edit an applied one; Flyway runs at startup.
+  `modules/persistence/src/main/resources/db/migration/`; never edit an applied one; Flyway runs at
+  startup.
 - **Validity reason code**: add to `ValidityReason` *only* if a measurement Vortex already collects
   produces it, add its rule to `RunQualityAssessor`, and put the threshold it compares against in
   `ValidityPolicy` rather than in the rule. Every finding must state the number it crossed, cite
@@ -169,11 +247,12 @@ These are tested; if a change makes one of these tests fail, the test is probabl
   result page, printable report, and both evidence writers read the same model, so it stays
   consistent everywhere.
 - **Project detector**: implement `ProjectDetector`, returning `Finding`s with evidence and a
-  `Confidence` — never persist anything (ArchUnit-enforced) and never throw for "not found," only for
-  "could not finish," which `ProjectDiscoveryService` turns into a partial-failure message rather than
-  failing the whole scan. A detector needing only the JDK belongs in
+  `Confidence` — never persist anything (ArchUnit-enforced) and never throw for "not found," only
+  for "could not finish," which `ProjectDiscoveryService` turns into a partial-failure message
+  rather than failing the whole scan. A detector needing only the JDK belongs in
   `core.discovery.detectors`; one needing a library (YAML, for instance) is an adapter in
-  `app.discovery` instead — see [ADR-063](docs/adr/adr-063-project-discovery-is-synchronous-and-stateless.adoc).
+  `app.discovery` instead — see
+  [ADR-063](docs/adr/adr-063-project-discovery-is-synchronous-and-stateless.adoc).
 
 ## Testing notes
 
@@ -188,4 +267,6 @@ These are tested; if a change makes one of these tests fail, the test is probabl
 ## Decisions
 
 Consequential, hard-to-reverse, or "why on earth is it like that?" changes get an ADR under
-[docs/adr/](docs/adr/index.adoc) — including what it costs, not just what it gains. Trivial decisions don't.
+[docs/adr/](docs/adr/index.adoc) — including what it costs, not just what it gains. Trivial decisions
+don't. ADRs are historical records: when a decision is superseded, link forward to what replaced it
+rather than rewriting what was actually decided at the time.

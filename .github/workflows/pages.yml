@@ -43,12 +43,11 @@ jobs:
           npm ci
           npm run build
 
-      # The repo is private, so this jar is never publicly downloadable straight from
-      # GitHub. Fetching it here with the workflow's own token and publishing it
-      # alongside the static site gives visitors a real, public, direct download
-      # without changing repo visibility or committing the binary to git. Written into
-      # dist/ (the build output) rather than the site/ source, and after the build so
-      # `npm run build`'s emptyOutDir doesn't wipe it back out.
+      # Fetching the latest release jar here and publishing it alongside the static site
+      # gives visitors a direct download from the landing page itself, without sending
+      # them to the GitHub Releases page first. Written into dist/ (the build output)
+      # rather than the site/ source, and after the build so `npm run build`'s
+      # emptyOutDir doesn't wipe it back out.
       - name: Bundle latest release jar into the site
         env:
           GH_TOKEN: ${{ github.token }}

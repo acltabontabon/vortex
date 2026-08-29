@@ -1097,8 +1097,9 @@ Vortex already grades three things and keeps them apart:
 | How well corroborated is this deterministic finding?
 |===
 
-Vortex does not yet grade whether a run was carried out as specified — see
-xref:../01-product/roadmap.adoc[the roadmap]'s current-validity work.
+`RunQuality` grades exactly that: `VALID`, `DEGRADED` or `INVALID`, each backed by a
+`ValidityReason` that cites the measurement it fired on. See
+xref:../01-product/roadmap.adoc#runquality[the roadmap] for the full reason-code table.
 
 === What this is not
 

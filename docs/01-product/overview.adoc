@@ -318,6 +318,7 @@ Every test plan should answer: _what are we trying to learn?_
 _In practice:_ plans carry an explicit intent, and the result page opens by returning to the
 question rather than by showing a chart.
 
+[[scope-and-non-goals]]
 == Scope and non-goals
 
 === What the MVP does

@@ -51,6 +51,20 @@ Thumbs.db
 # Logs
 *.log
 
+# Local secrets — Vortex itself never persists a resolved secret, but keep local credential
+# files out of the tree defensively. (modules/app/src/test/resources/discovery-fixtures/ ships
+# intentional fake-credential fixtures that are already tracked; this does not affect them.)
+.env
+.env.*
+application-local.*
+application-dev.*
+*.pem
+*.key
+*.p12
+*.jks
+credentials*
+secrets*
+
 # Native image build output
 modules/app/target/vortex
 *.build_artifacts.txt

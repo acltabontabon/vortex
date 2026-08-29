@@ -1,5 +1,16 @@
 # Contributing to Vortex
 
+## Submitting a change
+
+1. Fork the repository and create a branch off `main`.
+2. Make your change, following the standards below.
+3. Run the checks that apply — `./mvnw clean verify`, `npm run lint && npm test` in `web/` if you
+   touched the frontend, `make docs` if you touched `docs/`.
+4. Open a pull request. The PR template's checklist mirrors the checks above; fill in what applies
+   and remove what doesn't.
+5. For a bug or a feature idea, an issue is welcome but not required before a PR — use the templates
+   under `.github/ISSUE_TEMPLATE/` if you'd rather discuss first.
+
 ## Getting a build
 
 ```bash
@@ -27,6 +38,16 @@ Or as a jar:
 ```bash
 ./mvnw -pl modules/app -am package -DskipTests
 java -jar modules/app/target/vortex.jar
+```
+
+## Repository layout
+
+```
+modules/   Backend Vortex modules
+web/       Vortex Workbench frontend
+examples/  Sample systems and Vortex configurations
+docs/      Architecture and product documentation
+scripts/   Development and repository tooling
 ```
 
 ## Architecture in one page

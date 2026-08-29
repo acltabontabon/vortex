@@ -285,7 +285,7 @@ linking that file. What is missing is turning "Vortex noticed a Postgres image" 
 declared dependency — type, version, a resource envelope (CPU/memory) — with sensible presets for the
 well-known types (Postgres: database name, user, port, optional init SQL; Redis: port, memory) and a
 reasonable generic, container-backed path for anything else. That declared configuration then becomes
-part of a run's evidence, the same way environment and workload already are: `Target loan-service:1.7`
+part of a run's evidence, the same way environment and workload already are: `Target checkout-service:1.7`
 alongside `PostgreSQL 17 · 2 CPU · 2 GiB`, `Redis 8 · 512 MiB`. *Boundaries.* This changes what is
 *declared*, not what local lab is permitted to *do* — the existing rule holds without exception: local
 lab may point at a Compose file, start it, stop it and report what happened; it must not generate

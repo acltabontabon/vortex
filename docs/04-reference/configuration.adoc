@@ -144,21 +144,21 @@ Anything else is a mapping whose first key names the source:
 [source,yaml]
 ----
 operations:
-  createApplication:
+  createOrder:
     reviewed: true
     headers:
-      x-client-id: "lending-web"                       # fixed
+      x-client-id: "checkout-web"                      # fixed
       Authorization: "Bearer ${API_TOKEN}"             # environment
       x-idempotency-key: { generated: uuid }
       x-session: { generated: random-string, lifecycle: per-vu, length: 16 }
     pathValues:
-      id: { dataset: customers, field: customerId }
+      id: { dataset: accounts, field: accountId }
     queryValues:
       channel: "web"
-    body: '{"customerId":"","productCode":"","submittedAt":""}'
+    body: '{"accountId":"","productCode":"","submittedAt":""}'
     bodyValues:
-      customerId:  { dataset: customers, field: customerId }
-      productCode: "CREDIT_CARD"
+      accountId:   { dataset: accounts, field: accountId }
+      productCode: "STANDARD"
       submittedAt: { generated: timestamp }
     expect:
       status: [200, 201]
