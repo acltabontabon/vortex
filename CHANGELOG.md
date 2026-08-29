@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## [0.1.0-alpha.22] - 2026-08-30
+
 ### Added
 
 - Setting objectives (Configuration → Expectations) is no longer guesswork: type a p95/p99 latency or
