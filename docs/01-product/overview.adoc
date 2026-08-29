@@ -705,39 +705,42 @@ hypothesis may never claim `HIGH` merely because two figures moved together.
 explicitly, because "Vortex cannot identify the saturation point because connection-pool telemetry
 was not collected" is far more useful than a confident guess.
 
-=== Vocabulary reserved for Phase 4
+=== Vocabulary from Phase 4
 
-These terms describe a stricter, resource-aware notion of capacity that Vortex does not yet compute.
-They are defined now so that when they do appear, they are recognised rather than mistaken for
-today's `tested SLO-compliant capacity`. See xref:roadmap.adoc[] for the phase they belong to.
+These terms describe a stricter, resource-aware notion of capacity beyond today's
+`tested SLO-compliant capacity`. Defined here so they are recognised rather than mistaken for it. Nine
+of Phase 4's ten slices are now implemented — see xref:roadmap.adoc[] for exactly which, and for the
+one still open (the result page's five-block restructuring).
 
 *Sustainable capacity* — the highest offered level that was actually generated as offered, met every
 objective, was held rather than passed through, tracked offered load, and reached no observed
-resource limit. Stricter than tested SLO-compliant capacity, and frequently lower or absent. Planned;
-not implemented today. See xref:roadmap.adoc[].
+resource limit. Stricter than tested SLO-compliant capacity, and frequently lower or absent.
+Implemented (`SustainableCapacityCalculator`); the headline capacity figure today. See
+xref:roadmap.adoc[].
 
 *Throughput ceiling* — the level beyond which increasing offered load stops producing proportionally
-increased achieved throughput. A property of the system, not of an agreement. Planned; not
-implemented today. See xref:roadmap.adoc[].
+increased achieved throughput. A property of the system, not of an agreement. Implemented
+(`ThroughputCeiling`). See xref:roadmap.adoc[].
 
 *Resource limit* — the level at which an observed resource reached the constraint it is measured
-against. Distinct from system saturation, which is inferred from client-side symptoms. Planned; not
-implemented today. See xref:roadmap.adoc[].
+against. Distinct from system saturation, which is inferred from client-side symptoms. Implemented,
+as one of the four limits in `LimitFindings`. See xref:roadmap.adoc[].
 
 *First limiting signal* — which of the four limits a run reached first, and where it was a resource
-limit, which resource. Stated only where evidence identifies one. Planned; not implemented today.
-See xref:roadmap.adoc[].
+limit, which resource. Stated only where evidence identifies one. Implemented
+(`LimitFindings.first()`). See xref:roadmap.adoc[].
 
 *Run quality* — whether the experiment was carried out as specified: valid, degraded or invalid,
 with reason codes citing measurements. Separate from the verdict, which says whether the service met
-its objectives. Planned; not implemented today. See xref:roadmap.adoc[].
+its objectives. Implemented (`RunQuality`, `RunQualityAssessor`, `ValidityReason`). See
+xref:roadmap.adoc[].
 
 *Resource signal* — a measurement classified by what kind of resource it describes (CPU, memory,
 network, disk, runtime memory, runtime pause, pool, queue, threads), whose system it describes
-(system under test, load generator, dependency), and the limit it is relative to. Planned; not
-implemented today. See xref:roadmap.adoc[].
+(system under test, load generator, dependency), and the limit it is relative to. Implemented
+(`ResourceKind`, `ResourceScope`, `ResourceLimit`). See xref:roadmap.adoc[].
 
-=== Vocabulary reserved for Phase 8
+=== Vocabulary reserved for Phase 5
 
 Terms for a capability the roadmap describes but Vortex does not yet build. Defined now for the same
 reason as the terms above: so they are recognised later rather than reinvented differently.

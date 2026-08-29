@@ -294,7 +294,7 @@ Provenance today answers *what was measured, by what, over what window*. It does
 *where the generator that produced the load actually ran* — local process, or remote worker, and if
 remote, what shape. That is a planned extension, not a present-tense one: the roadmap's remote and
 distributed execution direction
-(xref:../01-product/roadmap.adoc[roadmap], Phase 5) needs a result to state execution mode, provider,
+(xref:../01-product/roadmap.adoc[roadmap], Phase 8) needs a result to state execution mode, provider,
 worker count and shape and the generator's own tool versions alongside everything `EvidenceProvenance`
 already records, the same way it needs
 <<fingerprint-included,the plan fingerprint>> to already state what test ran.

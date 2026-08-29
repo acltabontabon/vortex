@@ -26,7 +26,94 @@ Ollama integration, workload explanation, evidence-based result interpretation
 with citation validation, next-test recommendations.
 
 Working today. Still to come: richer proposal workflows, and tool-calling once local models handle
-it reliably enough to be worth the complexity.
+it reliably enough to be worth the complexity. The three richer workflows below are that "still to
+come" made concrete.
+
+== Phase 2.5 — Intelligent test design 🔜
+
+Phase 2 taught Vortex to explain a workload and interpret a result. This phase is about the moments
+*before* either of those: choosing what to test, phrasing a threshold, and understanding an unfamiliar
+term — the points where someone who is not a performance specialist currently has to guess, or ask
+someone who is. Every capability here keeps Phase 2's discipline: AI explains or drafts, and a
+deterministic system decides, validates or computes (ADR-007). Where a capability derives or suggests
+configuration, it follows the same shape Vortex already uses for AI-generated content —
+_detect/derive/generate → show proposal → allow edits → user approves → persist_ (the same rule
+Project Discovery already lives by, and the same pipeline `security.adoc` documents for AI: proposal
+→ schema validation → safety validation → k6 validation → human review → execution). Nothing here
+gets a shortcut around that.
+
+=== Threshold Assistant — ✅ already implemented
+
+Before drafting this as future work, it is worth stating plainly what already ships: Vortex already
+stops developers inventing arbitrary thresholds. `ThresholdRecommender` derives deterministic
+candidates — labelled things like _Balanced_, _Production parity_ and _Stricter objective_ — from
+production P95/error-rate observations and from the best valid baseline run, with staleness and
+evidence-quality handled explicitly (`ThresholdEvidence`, `EvidenceStaleness`,
+`ThresholdSanityChecker`). Setting an objective in Configuration → Expectations shows how it compares
+to the tested baseline it came from — "52% stricter than your baseline" — with a warning if it is
+unrealistically strict or too loose to catch a real regression (`HelpMeChoosePanel.tsx`). None of it
+is AI-generated; it is ordinary deterministic code reading evidence Vortex already collected, exactly
+as ADR-007 requires. The one refinement not yet built is a threshold's history across many runs, so a
+team can see how an objective itself has moved over time, not only how the current one compares to
+one baseline.
+
+=== Explain This 🔜
+
+*What it is.* A narrow, contextual explanation beside a term someone is likely to not know yet —
+arrival rate, pre-allocated VUs, p95, generator saturation, sustainable capacity — rather than a
+chat surface. *Developer value.* Makes Vortex usable by someone who has never run a performance test,
+without requiring them to read a textbook first. *Scope.* A fourth `PerformanceAssistant` method,
+alongside today's `explainWorkload`/`analyze`/`compareExecutions`, given only the already-known fact
+it is explaining (the term, and the concrete number or configuration beside it) — never open-ended
+chat history. *Boundaries.* Explains a fact Vortex already computed or is about to use; never invents
+one, never decides anything, and is always optional — someone who already knows what arrival rate
+means never has to see it. *Likely integrations.* `PromptLibrary` (a fifth prompt template, `v7`),
+rendered as a small inline action next to the term in whichever `SubsectionHeader`-anchored panel
+already shows it. *Example.* Beside _Arrival rate_ on the workload builder: "Arrival rate controls how
+many iterations Vortex attempts to start per unit of time. Unlike concurrency-based tests, Vortex can
+increase the required virtual users as request duration grows."
+
+=== AI Workload Translator 🔜
+
+*What it is.* Converts a plain-language statement of intent ("we normally handle around 150 TPS,
+peaks around 500, reads are 70% of it — can we survive twice our current peak?") into a draft
+workload using Vortex's existing `TestType`/`OperationMix`/stage vocabulary. *Developer value.*
+Removes the blank-page problem of picking a test type, stage ladder and mix by hand. *Scope.* One new
+capability that stops at a *draft* — the flow is natural-language intent → AI translation → structured
+draft workload → the same deterministic validation every workload already goes through (safety
+policy, mutation review, rate ceilings, threshold evaluation) → user review → user approval →
+persisted workload. The draft is rendered as ordinary, inspectable Vortex configuration from the
+moment it exists — never hidden behind a chat bubble — the same principle Phase 3's calibration
+proposals already apply. *Boundaries.* AI never bypasses target safety, mutation review, resource
+limits, rate ceilings or threshold validation; it cannot make a workload runnable on its own, only
+draft one for a human to approve. Would need one new `WorkloadSource` value ("AI-translated") beside
+today's observed/derived/manual, so a workload's provenance still says honestly where its numbers
+came from. *Likely integrations.* `PerformanceAssistant`, the existing workload builder, `WorkloadSource`,
+`ExecutionPolicy`. *Example.* Typed intent produces "Stress test, 150 → 300 → 500 → 750 → 1000
+req/sec, 70/30 read/write, validating ≈2× current peak" as an editable draft, with an *Edit workload*
+and *Use this draft* choice — never a silently-created, already-runnable test.
+
+=== What Should I Test? 🔜
+
+*What it is.* Import-time triage of an operation catalog into sensible starting points — baseline
+candidate, likely high-frequency read, mutation needing review, operation requiring test data,
+operation excluded by safety policy — rather than a bare list of endpoints. *Developer value.*
+Answers "where do I even start?" (already one of the product's own before/after examples in
+xref:overview.adoc[the product overview]) the moment an OpenAPI import or Project Discovery scan
+finishes. *Scope.* Built primarily from facts Vortex already has deterministically: HTTP-method
+mutation classification (`ExecutionPolicy`), whether an operation's request data has been reviewed
+(`OperationBinding.reviewed`), and — once configured — the production operation mix from Phase 3.
+This is a natural extension of the existing, deterministic `WorkloadRecommender`, which already
+proposes a next test shape *after* a run completes; this applies the same judgment *before* the first
+one. Optional AI narrative sits on top, explaining why a suggested starting point makes sense or
+summarising an ambiguous operation description — never deciding which operations are safe to include.
+*Boundaries.* Never auto-enables a mutation operation; recommendations are phrased as "sensible places
+to start given what Vortex knows," not as objectively correct tests, and improve as more evidence
+(production mix, prior runs) becomes available. *Likely integrations.* `WorkloadRecommender`,
+`ExecutionPolicy`, `OperationBinding`, Project Discovery, Phase 3's production mix. *Example.* After
+importing an accounts API: baseline `GET /accounts/{id}`; a mixed read workload of 65/35 across two
+GETs; `POST /accounts/{id}/cancel` flagged as a mutation excluded automatically, with an explicit
+"review before including" note.
 
 == Phase 3 — Production-informed performance engineering ✅
 
@@ -71,6 +158,11 @@ measured and what it merely computed, and then holding that line in the evidence
   the share of traffic they account for is kept separately, so a partial match cannot quietly become
   the definition of the whole service. Below four requests in five, Vortex refuses to build workloads
   from it.
+* *Correlation is by route and method, not by specification identity.* An observed operation is
+  matched to the catalog by its HTTP method and path template, the dimensions Prometheus and Dynatrace
+  actually expose — not by an OpenAPI `operationId`, which no observability system carries. Where a
+  source can express richer correlation (an explicit user mapping, a span attribute), it stays
+  source-specific rather than forcing every provider through one shared vocabulary.
 * *Stage alignment carries its basis.* k6 reports its virtual-user count, so a concurrency workload's
   stage boundaries can be measured; an arrival-rate workload's cannot, and are computed from planned
   durations. A signal aligned by a computed boundary is still correlated evidence and never
@@ -86,8 +178,8 @@ measured and what it merely computed, and then holding that line in the evidence
   observed alongside the degradation, not shown to have produced it.
 
 Still to come: a remote and distributed execution path for the runs that outgrow one machine (Phase
-5), and, optionally and later, deciding whether a change in this evidence should stop a pipeline
-(<<automation-ci-quality-gates,Automation / CI quality gates>>). Keeping the second of those out of
+8), and, optionally and later, deciding whether a change in this evidence should stop a pipeline
+(Phase 6, <<automation-ci-quality-gates,Automation / CI quality gates>>). Keeping the second of those out of
 Phase 3 is deliberate — producing the evidence and acting on it are different problems.
 
 The destination is defensible capacity evidence, not charts. Vortex keeps what it needs to explain its
@@ -111,6 +203,143 @@ Deliberately not built: values captured from a prerequisite request. The model i
 source slots in — the ADR says exactly what it would need — but a setup-request mechanism is the
 first step towards a workflow engine, and it should be a decision taken on its own.
 
+== Phase 3.6 — Request and dataset preparation 🔜
+
+Phase 3.5 gave a request value four honest sources. This phase is about the two frictions that sit
+just outside that model: getting from "here is an endpoint" to "here is a request Vortex can send,"
+and getting from "I need realistic data" to actually having it — without turning either into a
+workflow engine, which Phase 3.5 already declined to become.
+
+=== OpenAPI → runnable request
+
+*What it is.* Most of this already exists and is worth stating precisely rather than re-proposing.
+`SchemaSampleGenerator` already produces a schema-valid sample body from an OpenAPI schema — honouring
+examples, defaults, enums, required fields, and recursing through nested objects and arrays, labelled
+`PayloadProvenance.SCHEMA_GENERATED`. `RequestDataDrawer` already lets someone review and override
+every value source per operation, and `ProjectReadiness` already tracks per-service readiness.
+*Developer value.* What is missing is a *finer* answer to "can I run this yet?" than today's
+reviewed/not-reviewed and mutating/not-mutating flags give. *Scope.* Per-operation runnable-state
+labels — needs data, needs a path parameter, needs authentication, mutation needs approval, ready —
+surfaced beside the operation rather than only inside its drawer. *Boundaries.* This does not mean
+auto-applying a schema hint to a value source: ADR-036 already settled that a `format: uuid` field is
+offered as a suggestion (_Generated · UUID_) and never silently applied, because a schema says how a
+value looks, not what it means, and this phase keeps that rule exactly as written. *Likely
+integrations.* `SchemaSampleGenerator`, `RequestDataDrawer`, `ProjectReadiness`. *Future extension.*
+One operation's response feeding another's request — `POST /accounts` creating an id that
+`GET /accounts/{id}` then needs — is the same gap ADR-036 already names and scopes as `CapturedValue`
+(a setup request, one extracted field, one named variable); this phase does not build it, only points
+at where it plugs in when it is taken up.
+
+=== Import from curl 🔜
+
+*What it is.* Paste a `curl` command and get a draft operation and request data back — method, URL,
+headers, body, path and query parameters — without running anything. *Developer value.* A curl command
+copied from a browser's network tab or a teammate's terminal is the lowest-friction way developers
+already share a request; today that has no path into Vortex except retyping it. *Scope.* Parse only —
+the pasted text is never passed to a shell or executed (consistent with the `ProcessBuilder`-only,
+no-shell-anywhere rule `security.adoc` already holds Vortex to for k6 itself); a bearer token or other
+recognisable secret header is rewritten to `${NAME}` and offered for binding, the same
+`EnvironmentValue` mechanism Phase 3.5 already has, rather than stored as a literal. *Boundaries.*
+Produces a draft for review like every other import path — never an executable request on its own,
+and never a general HTTP client. *Likely integrations.* `RequestDataDrawer`, `EnvironmentValue`,
+the operation catalog. *Future extension.* HAR and Postman collections are structurally similar
+import sources; naming them here is not a commitment to build either, only a note that curl is the
+first and most universal of a small family.
+
+=== Realistic dataset preparation 🔜
+
+*What it is.* Making it dramatically easier to prepare enough realistic, reusable data to run a
+workload, without becoming a data-generation platform. *Developer value.* Performance tests routinely
+stall before any load is generated because nobody has ten thousand realistic customer records lying
+around. *Scope.* Two things Phase 3.5 does not yet do: schema-aware *bulk* generation — the same
+type-aware logic `SchemaSampleGenerator` already applies to one sample body, extended to produce many
+deterministic, seedable rows for a dataset rather than a single request — and an explicit
+prepare → validate → use → reset lifecycle, so a dataset's state during a run is never a mystery.
+*Boundaries.* Deterministic generation stays the core mechanism; AI may optionally propose realistic
+semantic values (a plausible-looking name or address) but never decides what a dataset contains
+without review, and nothing here writes into an external system — datasets stay local unless
+explicitly made portable, exactly as ADR-036 already requires. *Likely integrations.* `Generator`,
+`DatasetFormat`, `DatasetParser`, `SchemaSampleGenerator`. *Future extension.* Relationships between
+generated data — a customer id an account belongs to, an account id a transaction references — are
+the same `CapturedValue` gap named above under OpenAPI → runnable request, not a second mechanism;
+this phase does not overpromise a relational data-generation system ahead of that decision.
+
+== Phase 3.7 — Local experiment convenience 🔜
+
+Vortex already runs a service's own declared dependencies for a local test — see
+xref:../02-architecture/architecture.adoc#local-lab[local lab]. This phase enriches what Vortex
+already knows about those dependencies; it does not compete with Compose or become a second
+orchestrator. The rule stays exactly what it already is: *Vortex does not own your Compose file.*
+
+=== Local Dependency Lab
+
+*What it is.* Turning a dependency Vortex already recognises into a named, typed thing with a
+declared resource envelope, rather than an opaque line in somebody's Compose file. *Developer value.*
+Dependency configuration materially affects performance, so it belongs beside the workload as
+something a person can see, vary and reproduce — not left implicit in infrastructure nobody is looking
+at when a run's numbers move. *Scope.* Two capabilities already exist and are being built on, not
+replaced: `LocalLab`/`DockerLocalLab` already start and stop *the whole* Compose file a service
+references (any dependency it declares, not only the service itself), and Project Discovery's
+`DockerComposeYamlDetector` already recognises Postgres, Redis, Kafka and WireMock images and proposes
+linking that file. What is missing is turning "Vortex noticed a Postgres image" into a first-class
+declared dependency — type, version, a resource envelope (CPU/memory) — with sensible presets for the
+well-known types (Postgres: database name, user, port, optional init SQL; Redis: port, memory) and a
+reasonable generic, container-backed path for anything else. That declared configuration then becomes
+part of a run's evidence, the same way environment and workload already are: `Target loan-service:1.7`
+alongside `PostgreSQL 17 · 2 CPU · 2 GiB`, `Redis 8 · 512 MiB`. *Boundaries.* This changes what is
+*declared*, not what local lab is permitted to *do* — the existing rule holds without exception: local
+lab may point at a Compose file, start it, stop it and report what happened; it must not generate
+Compose files, continuously monitor containers, manage arbitrary Docker resources, or turn a
+successful `docker compose up` into proof the service is ready to test (see
+xref:../02-architecture/architecture.adoc#local-lab[what a local lab is, and is not]). Declaring a
+resource envelope and recording it as evidence is recording *configuration*, not asserting *health* —
+the same distinction Vortex already draws everywhere else between what was measured and what was
+merely configured. *Likely integrations.* `LocalLab`, `DockerLocalLab`, `LocalLabSettings`,
+`DockerComposeYamlDetector`, `vortex.yaml`. *Relationship to Phase 5.* This is still the same boundary
+xref:../02-architecture/architecture.adoc#local-lab-vs-dependency-simulation[local lab and dependency
+simulation are not the same concern] already draws: this phase answers _is the dependency running, and
+with how much resource_; Phase 5 answers _how does it behave once it is_.
+
+=== Dependency resource profiles
+
+*What it is.* Reusable, named resource and configuration variants for a service's declared
+dependencies — default, minimal, production-like, constrained — so the same workload can be run
+against deliberately different local conditions as a controlled variable. Deliberately *not* called
+"dependency profiles" on their own: Phase 5 already reserves that name for something else entirely — a
+production-derived *latency and failure distribution*. A profile here changes how much CPU or memory a
+locally-running Postgres is given; a profile there changes how a proxy in front of it behaves. Naming
+them differently is meant to prevent exactly the confusion two things both called "profile" would
+cause. *Developer value.* Turns "does this survive a smaller database" from a manual reconfiguration
+into choosing a name. *Scope.* A named set of resource/config overrides per declared dependency,
+explicit and reproducible, recorded in `vortex.yaml` alongside the dependency itself. *Boundaries.*
+Stays scoped to resource limits and connection-level configuration for *local* dependencies — it is
+not a general environment-management product, and it does not touch dataset size, dependency version
+switching mid-run, or anything Phase 5 already owns. *Likely integrations.* Local Dependency Lab
+above, `vortex.yaml`.
+
+=== Environment Doctor
+
+*What it is.* Richer, more actionable diagnostics before a run starts — explicitly an evolution of
+what already exists, not a new subsystem. Vortex already has two readiness mechanisms:
+`PreflightService`, which runs per-run checks (engine availability, operations, thresholds, secrets,
+request-data preview, generated-script validation, target reachability) before a run is allowed to
+start, and `DoctorReport`, which reports machine capability (Java, k6, Docker/Compose, workspace,
+local AI). *Developer value.* Catching a condition that will make an experiment invalid, misleading or
+needlessly fail is worth more before the run than after it — several of `RunQuality`'s reason codes
+(`GENERATOR_SATURATED`, `TELEMETRY_INCOMPLETE`, `TARGET_UNAVAILABLE_DURING_RUN`) describe exactly the
+kind of thing a richer preflight could predict rather than only explain afterward. *Scope.* New
+diagnostic categories layered onto `PreflightService`/`DoctorReport` as they become possible: dependency
+readiness (once Local Dependency Lab exists above), host resource pressure (already measurable today
+via the load-generator resource observation Phase 4.4 added — see <<observe-the-generator,4.4>>),
+telemetry reachability, and test-data readiness. Each finding keeps the blocker/warning/informational
+distinction `PreflightCheck` already has, and names a remedy rather than a bare failure — "PostgreSQL
+cannot start because port 5432 is already in use; Vortex can assign an available local port instead,"
+never "port conflict." *Boundaries.* This is presentation and coverage growth on an existing
+mechanism, not a rewrite — there is no competing "Environment Doctor" concept alongside preflight, only
+preflight reporting more than it does today. *Likely integrations.* `PreflightService`, `DoctorReport`,
+`PreflightCheck`, `RunQuality`'s reason codes, Local Dependency Lab and Phase 4's generator
+observation above.
+
 == Phase 4 — HTTP foundation hardening ✅
 
 _Working today: a run reads everything k6 reports about itself, including the work its generator
@@ -125,7 +354,9 @@ reported separately, sustainable capacity is the headline, and headroom is compu
 *This phase was a gate, not a list.* Every phase before it was useful on its own and none blocked the
 one before it. This one was different on purpose: it is where Vortex stopped broadening and made the
 HTTP capability trustworthy enough that a second transport can reuse it instead of forcing a
-redesign. Phases 5 to 8 waited behind it — see <<deferred-behind-the-gate>>.
+redesign. Phases 5 to 8 waited behind it — see <<deferred-behind-the-gate>>. Nine of its ten P0 slices
+are now built; the gate is not yet formally closed only because 4.10's result-page restructuring is
+still open — see <<p0>>.
 
 The question a Vortex run should be able to answer at the end of it:
 
@@ -135,8 +366,10 @@ How much load did this service sustainably handle, what happened to the system w
 where did it approach its limits, and how much is that conclusion worth?
 ____
 
-Today Vortex answers the first clause well, the second partially, the third by inference from
-client-side symptoms, and the fourth only for the parts of the evidence it already grades.
+Vortex now answers all four clauses from measured or deterministically-computed evidence — sustainable
+capacity, the four limits, resource behaviour scoped by kind and system, and run quality with its
+reason codes. What remains is presentational, not evidentiary: the result page (4.10) does not yet
+surface that answer in the five-block order this phase intends.
 
 === What already exists, and is not being rebuilt
 
@@ -201,75 +434,113 @@ A large share of this phase's conceptual work is done. What follows is inventory
 The hard epistemic work — what may be claimed, and from what — is largely done. What is missing is
 narrower and more specific than "resource monitoring".
 
-=== What is genuinely missing
+=== What was genuinely missing, and is now built
 
-*Resources are named numbers, not typed signals.* `ResourcePressure` decides a signal is near its
+The gaps below were the honest state of the codebase when this phase began. A verification pass
+against the current source shows nine of the ten P0 slices are now implemented and wired into real
+execution, comparison and adapter code, each with dedicated tests
+(`FourLimitsTest`, `SustainableCapacityTest`, `RunQualityAssessorTest`, `GeneratorCeilingWithheldTest`,
+`PhaseFourCompatibilityTest`). Only the result page's restructuring (4.10) remains outstanding. The
+paragraphs are kept as written, because they explain *why* each slice mattered, with a status line
+added to each so this section stops reading as a list of things still to do:
+
+*Resources are named numbers, not typed signals.* `ResourcePressure` decided a signal is near its
 limit when its unit is percent and its value is at least ninety. That is a rule about a unit: an
-error rate of 92% satisfies it, a heap at 3.9 GB of 4 GB does not. Nothing in the domain knows which
-signals are CPU, which system each describes, or what limit any of them approaches. See
-xref:../adr/adr-037-resource-observation-is-typed.adoc[ADR-037].
+error rate of 92% satisfies it, a heap at 3.9 GB of 4 GB does not. See
+xref:../adr/adr-037-resource-observation-is-typed.adoc[ADR-037]. +
+*✅ Done.* `ResourceKind`, `ResourceScope` and `ResourceLimit` exist; `ResourcePressure` now compares
+against a declared limit, and the Actuator, Prometheus and Dynatrace adapters classify their own
+signals into kind, scope and limit rather than testing a bare number against ninety.
 
-*Vortex has never measured the machine generating the traffic.* Every resource signal it collects
-describes the target. It therefore cannot tell "the service could not go faster" from "we could not
-ask faster" — the single most damaging failure mode in load testing, and the one that turns a
-generator's ceiling into a quoted service capacity.
+*Vortex had never measured the machine generating the traffic.* Every resource signal it collected
+described the target. It therefore could not tell "the service could not go faster" from "we could
+not ask faster" — the single most damaging failure mode in load testing, and the one that turns a
+generator's ceiling into a quoted service capacity. +
+*✅ Done.* `LoadGeneratorObservabilityProvider` reads host CPU/memory (`OperatingSystemMXBean`) and
+the k6 process's own CPU (`ProcessHandle`), scoped `LOAD_GENERATOR`/`LOAD_GENERATOR_HOST`, sampled on
+every run rather than only when asked.
 
-*The k6 ingest reads four metrics.* `http_reqs`, `http_req_failed`, `http_req_duration` and `vus`.
-`dropped_iterations` — the direct evidence that the generator failed to produce the offered rate — is
+*The k6 ingest read four metrics.* `http_reqs`, `http_req_failed`, `http_req_duration` and `vus`.
+`dropped_iterations` — the direct evidence that the generator failed to produce the offered rate — was
 discarded, along with the connection/TLS/waiting phase breakdown and the status distribution. Every
-non-2xx is one undifferentiated "failure".
+non-2xx was one undifferentiated "failure". +
+*✅ Done.* `K6RawMetricsAggregator` reads `dropped_iterations`/`iterations` into `LoadGeneration`;
+`K6SummaryParser` builds a full connect/TLS/wait/receive breakdown; `K6OutcomeClassifier` turns status
+and k6 error codes into a `ReliabilityBreakdown` distinguishing timeout, connection, transport and
+application failures rather than one undifferentiated count.
 
-*No concept of experiment validity.* Nothing asks whether the run was carried out as specified: too
+*No concept of experiment validity.* Nothing asked whether the run was carried out as specified: too
 short, too few samples, telemetry that stopped after two stages, a warm-up that never finished, a
 target that fell over mid-run. See
 xref:../adr/adr-038-run-quality-grades-the-experiment.adoc[ADR-038] and the current-state axes
-described in xref:../03-performance-model/experiments.adoc[experiments] — the full design for the
-missing fourth axis is expanded in slice 4.5 below.
+described in xref:../03-performance-model/experiments.adoc[experiments]. +
+*✅ Done* — see <<runquality,4.5>> below; the "not built today" language that used to sit there is
+stale and has been removed.
 
 *One limit, doing the work of four.* Objective breakpoint, throughput ceiling, resource limit and
-system saturation are four different findings that routinely disagree, and only two of them exist.
+system saturation are four different findings that routinely disagree, and only two of them existed.
 "Slow" and "full" are not the same diagnosis. See
-xref:../adr/adr-039-four-limits-not-one.adoc[ADR-039].
+xref:../adr/adr-039-four-limits-not-one.adoc[ADR-039]. +
+*✅ Done.* `LimitFindings` carries all four together and resolves which was reached first;
+`ThroughputCeiling` and `SystemSaturationDetector` are real, tested classes alongside the existing
+objective breakpoint and resource limit.
 
-*Capacity is the highest level that passed.* Not the highest level that was demonstrably generated,
+*Capacity was the highest level that passed.* Not the highest level that was demonstrably generated,
 met its objectives, was held rather than passed through, tracked offered load, and reached no
-observed resource limit.
+observed resource limit. +
+*✅ Done.* `SustainableCapacityCalculator` evaluates exactly the five conditions below (4.7), and
+`HeadroomCalculator` now takes sustainable capacity as its numerator — the old overload was removed
+outright rather than kept as a fallback.
 
-*Provenance omits the machine.* `EvidenceProvenance` records Vortex, k6, JVM and container image
-versions, the plan fingerprint, timestamps and artifacts. It does not record the operating system,
-the architecture, the host's core count or memory, which providers were consulted, what they could
-not supply, or how good the run was. A capacity figure without the shape of the machine that produced
-it is not reproducible six months later.
+*Provenance omitted the machine.* `EvidenceProvenance` recorded Vortex, k6, JVM and container image
+versions, the plan fingerprint, timestamps and artifacts. It did not record the operating system, the
+architecture, the host's core count or memory, which providers were consulted, what they could not
+supply, or how good the run was. A capacity figure without the shape of the machine that produced it
+is not reproducible six months later. +
+*✅ Done.* `EvidenceProvenance` now carries `HostShape` (OS, OS version, architecture, available
+processors, total memory) and `TelemetryCoverage` (providers consulted and their availability)
+alongside the `RunQualityAssessment`, under schema `vortex.evidence/2`.
 
-*Comparison compares four numbers.* Latency percentiles, error rate and achieved throughput.
-Not resource efficiency, not breakpoint movement, not capacity movement, not headroom, and not
-whether both runs had the same telemetry available — two runs with different observability coverage
-are not equally informative and today are treated as though they were.
+*Comparison compared four numbers.* Latency percentiles, error rate and achieved throughput. Not
+resource efficiency, not breakpoint movement, not capacity movement, not headroom, and not whether
+both runs had the same telemetry available — two runs with different observability coverage were not
+equally informative and were treated as though they were. +
+*✅ Done.* `DeltaKind` now includes `CAPACITY`, `BREAKPOINT_MOVEMENT`, `HEADROOM` and `RUN_QUALITY`;
+`Comparability`/`RefusedDelta` treat telemetry coverage as a qualifier rather than silently ignoring
+the difference, and an `INVALID` run is refused as a baseline.
+
+*The result page does not yet reflect the model.* +
+*🚧 Partial — the one slice still open.* Every block the model below describes (4.10) is rendered
+somewhere in `RunEvidenceView.tsx` today, but as roughly a dozen sections rather than the five in the
+prescribed reading order, and the experiment/validity block currently appears near the top rather than
+last. The underlying data is complete; only the page's structure needs the pass described in 4.10.
 
 '''
 
 [#p0]
 === P0 — foundation correctness
 
-Required before the gate. Each slice ends with evidence a run can be checked against.
+Required before the gate. Each slice ends with evidence a run can be checked against. *4.1 through
+4.9 are done* — verified against the current source, each with its own test, not merely described
+here. *4.10 is the one slice still open.*
 
-*4.1 — Read the rest of what k6 already reports.* `dropped_iterations`, `iterations`, the
+*4.1 — Read the rest of what k6 already reports. ✅ Done.* `dropped_iterations`, `iterations`, the
 `http_req_connecting` / `http_req_tls_handshaking` / `http_req_waiting` breakdown, and the HTTP
-status distribution. No new dependency, no new adapter, no protocol work — the sample stream already
-contains all of it and the aggregator throws it away. This is the cheapest slice in the phase and the
-one every validity rule depends on.
+status distribution — `K6RawMetricsAggregator` and `K6SummaryParser` read all of it; nothing is
+thrown away any more.
 
-*4.2 — Reliability becomes a distribution, not a count.* Status-class breakdown, timeouts,
+*4.2 — Reliability becomes a distribution, not a count. ✅ Done.* Status-class breakdown, timeouts,
 connection failures and transport failures reported as distinct outcomes rather than one "failure"
-tally. A 503 at 400 requests/sec and a connection reset at 400 requests/sec are different findings.
+tally, via `ReliabilityBreakdown` and `K6OutcomeClassifier`. A 503 at 400 requests/sec and a
+connection reset at 400 requests/sec are now different findings.
 
-*4.3 — Typed resource signals.* `ResourceKind`, `ResourceScope`, `ResourceLimit`; classification
-tables in the three existing adapters; `ResourcePressure` re-expressed as a comparison against a
-declared limit rather than against the number ninety. Unclassified signals keep working and stay
-uncitable as limiting resources. (ADR-037)
+*4.3 — Typed resource signals. ✅ Done.* `ResourceKind`, `ResourceScope`, `ResourceLimit` exist;
+classification tables live in all three adapters; `ResourcePressure` compares against a declared
+limit rather than against the number ninety. Unclassified signals keep working and stay uncitable as
+limiting resources. (ADR-037)
 
 [[observe-the-generator]]
-*4.4 — Observe the load generator.* A local reader supplying CPU and memory scoped
+*4.4 — Observe the load generator. ✅ Done.* A local reader supplying CPU and memory scoped
 `LOAD_GENERATOR`. This is the one new provider P0 requires, and it earns its place by being the only
 way to tell whose limit was reached. No new dependency: host CPU and memory from
 `OperatingSystemMXBean`, the k6 child process's CPU from `ProcessHandle`, a containerised runner's
@@ -281,9 +552,10 @@ and the reason code below simply does not fire. Its silence is never read as pro
 healthy.
 
 [[runquality]]
-*4.5 — `RunQuality`.* Not built today: no `RunQuality` class, reason-code enum, or exit-code-5
-handling exists anywhere in `vortex-core`. This slice adds a fourth axis underneath the three that
-already exist — `Verdict` (were the objectives met), `BoundaryStatus` (did the tested levels form a
+*4.5 — `RunQuality`. ✅ Done.* `RunQuality`, `RunQualityAssessor`, `ValidityReason` and
+`ValidityPolicy` exist in `vortex-core`, tested (`RunQualityAssessorTest`) and wired through
+`EffectiveTestPlan`, execution, and the evidence contract. This slice adds a fourth axis underneath
+the three that already exist — `Verdict` (were the objectives met), `BoundaryStatus` (did the tested levels form a
 capacity boundary), `EvidenceStrength` (how well corroborated is a finding, see
 xref:../03-performance-model/experiments.adoc[experiments]) — answering a different question: was
 the experiment itself carried out as specified?
@@ -404,32 +676,37 @@ heuristic health score (no blended number, no letter grade), not a replacement f
 its objectives — both appear, neither is derived from the other), and not a way to hide bad results
 (a service that failed under valid conditions failed). (ADR-038)
 
-*4.6 — Throughput ceiling and the four limits.* Detect `offered ↑, achieved flat, latency ↑` and
-report it separately from the objective breakpoint and from a resource limit. Name the first limiting
-signal where the evidence supports one, and say plainly when it does not. (ADR-039)
+*4.6 — Throughput ceiling and the four limits. ✅ Done.* Detects `offered ↑, achieved flat, latency
+↑` and reports it separately from the objective breakpoint and from a resource limit, via
+`ThroughputCeiling` and `LimitFindings` (`FourLimitsTest`). Names the first limiting signal where the
+evidence supports one, and says plainly when it does not. (ADR-039)
 
-*4.7 — Sustainable capacity.* The five-condition definition, with per-test-type sustain-duration
-defaults behind condition 3. Reported as the headline figure with today's tested SLO-compliant
+*4.7 — Sustainable capacity. ✅ Done.* The five-condition definition, with per-test-type
+sustain-duration defaults behind condition 3, in `SustainableCapacityCalculator`
+(`SustainableCapacityTest`). Reported as the headline figure with today's tested SLO-compliant
 capacity beneath it as *highest level that passed*, and each unmet condition stated. Headroom's
-numerator moves to sustainable capacity — a deliberate discontinuity in a figure teams may already
-be tracking. (ADR-039)
+numerator now takes sustainable capacity — the prior overload was removed rather than kept as a
+fallback. (ADR-039)
 
-*4.8 — Provenance completion.* Operating system, architecture, host core count and memory, telemetry
-providers consulted, telemetry availability summary and run quality added to `EvidenceProvenance` and
-to the exported contract. This is a schema change: `vortex.evidence/2`, with the mapping written as
-an explicit function so a domain change stops it compiling. Pre-1.0 there is no v1 reader and no dual
-support — the version is bumped and old files stay tagged with the contract they were written under.
+*4.8 — Provenance completion. ✅ Done.* Operating system, architecture, host core count and memory
+(`HostShape`), telemetry providers consulted, telemetry availability summary and run quality added to
+`EvidenceProvenance` and to the exported contract, under schema `vortex.evidence/2`. Pre-1.0 there is
+no v1 reader and no dual support — the version is bumped and old files stay tagged with the contract
+they were written under.
 
-*4.9 — Comparison learns the new evidence.* Deltas for capacity, breakpoint movement, headroom and
-run quality; telemetry availability added as a comparability qualifier so two runs with different
-coverage are compared with that difference stated; a run whose quality is `INVALID` refused as a
-baseline.
+*4.9 — Comparison learns the new evidence. ✅ Done.* Deltas for capacity, breakpoint movement,
+headroom and run quality (`DeltaKind`); telemetry availability added as a comparability qualifier
+(`Comparability`, `RefusedDelta`) so two runs with different coverage are compared with that
+difference stated; a run whose quality is `INVALID` refused as a baseline.
 
-*4.10 — The result page reflects the model.* Five blocks, in the order an engineer reads them —
-*Load* (requested versus achieved), *Service* (throughput, latency, reliability), *Resources* (what
-was observed, scoped, against limits), *Capacity* (limits, sustainable capacity, headroom),
-*Experiment* (run quality, missing telemetry, what the evidence does not support). Conclusions first,
-measurements behind them. Not a metrics dashboard.
+*4.10 — The result page reflects the model. 🚧 Partial — the remaining P0 item.* Five blocks, in the
+order an engineer reads them — *Load* (requested versus achieved), *Service* (throughput, latency,
+reliability), *Resources* (what was observed, scoped, against limits), *Capacity* (limits, sustainable
+capacity, headroom), *Experiment* (run quality, missing telemetry, what the evidence does not
+support). Conclusions first, measurements behind them. Not a metrics dashboard. Every one of the five
+blocks' underlying data already exists and is rendered somewhere in `RunEvidenceView.tsx` today — the
+work left is consolidating roughly a dozen current sections into this five-block order, with
+Experiment moved from near the top to last.
 
 [#p1]
 === P1 — foundation depth
@@ -503,7 +780,7 @@ The dependencies are real, not administrative:
 ADR imposes on itself, and building it earlier would mean inventing heuristics and then deleting
 them. Sustainable capacity cannot be defined before run quality, because its first condition *is* run
 quality. The last three slices are parallel and each consumes the finished model rather than shaping
-it.
+it. 4.1 through 4.9 are built in this order today; 4.10 is the one dependent slice still open.
 
 '''
 
@@ -571,13 +848,14 @@ work end to end.
 Not cancelled — sequenced. Each of these is worth more after the foundation than before it, and two
 of them would have to be partly redone if built first.
 
-*Remote and distributed execution (Phase 5)* multiplies the number of load generators — first by
-moving one off the machine the engineer is watching, and only later by running several at once.
-Deciding whether a generator was the limiting system is materially harder once it is not local, and
-building either stage before `RunQuality` and the four limits exist would mean building that
-reasoning twice: once for a host, once for a worker fleet.
+*Production-informed dependency simulation (Phase 5)* depends on two pieces of this phase directly.
+`RunQuality` needs to be able to say whether a simulated dependency behaved as configured during a
+run, and `ResourceScope.DEPENDENCY` (ADR-037) is how a resource signal describing a simulated
+dependency is told apart from one describing the system under test or the load generator. Building
+dependency simulation ahead of either would mean inventing a smaller version of both and then
+reconciling them later.
 
-*Automation / CI quality gates*, if and when they are built, put a verdict in a pipeline. A gate
+*Automation / CI quality gates (Phase 6)*, if and when they are built, put a verdict in a pipeline. A gate
 that fails a build on a run whose validity nobody assessed is a gate that will be switched off
 within a month. Automated regression detection in particular should consume run quality, capacity
 movement and efficiency deltas — all of which are P0 and P1 here.
@@ -587,12 +865,11 @@ model reuses telemetry, resource observation, validity, saturation, capacity and
 unchanged, and only the measurement layer differs. Building it against today's model would either
 inherit the gaps or force a redesign of both at once.
 
-*Production-informed dependency simulation (Phase 8)* depends on two pieces of this phase directly.
-`RunQuality` needs to be able to say whether a simulated dependency behaved as configured during a
-run, and `ResourceScope.DEPENDENCY` (ADR-037) is how a resource signal describing a simulated
-dependency is told apart from one describing the system under test or the load generator. Building
-dependency simulation ahead of either would mean inventing a smaller version of both and then
-reconciling them later.
+*Remote and distributed execution (Phase 8)* multiplies the number of load generators — first by
+moving one off the machine the engineer is watching, and only later by running several at once.
+Deciding whether a generator was the limiting system is materially harder once it is not local, and
+building either stage before `RunQuality` and the four limits exist would mean building that
+reasoning twice: once for a host, once for a worker fleet.
 
 *Team dashboards and cross-service comparison* aggregate conclusions across services. Aggregating
 conclusions whose validity is not yet expressible produces a page of numbers that cannot be defended
@@ -601,197 +878,337 @@ individually, let alone in a row.
 The two *Ongoing* items are unaffected: native-image verification is orthogonal, and organisational
 policy packs remain a documented concept rather than an empty framework.
 
-== Phase 5 — Remote and distributed execution 🔜
+== Phase 5 — Production-informed dependency simulation 🔜
 
-Local execution is Vortex's whole story today, and this phase does not change that story — it adds
-a second one beside it. The architectural shape belongs in
-xref:../02-architecture/architecture.adoc#remote-execution[Remote and distributed execution]; this
-section is the product direction and the sequencing that gets there.
-
-[quote]
-____
-Local Vortex remains local-first and self-contained. A Vortex Coordinator exists only when Vortex
-crosses into remote execution infrastructure, and it is never in the way of a local test.
-____
-
-A developer must always be able to do exactly this, with nothing remote involved:
+Local testing has a fidelity problem that Phase 3 does not close. Deriving a workload from observed
+production traffic reproduces _what arrives_ at the service under test; it says nothing about _what
+happens next_ when that service calls its own dependencies.
 
 ----
-Vortex Workbench
-    ↓
-local k6
-    ↓
-localhost / target
+Production                              Local
+
+Service A                               Service A
+    │                                       │
+    │ real network / infrastructure         │ localhost / Docker network
+    │ latency                               │
+    ▼                                       ▼
+Service B                               Service B
 ----
 
-What changes is that, for the runs one machine cannot generate or that need a controlled and
-disposable execution environment, the Workbench gains a second path to choose instead:
+A dependency that answers in 20–300 ms in production typically answers in 1–3 ms on the same laptop
+as the service under test. That is not only a latency error. Dependency latency governs how long a
+request holds a connection, a thread or a virtual thread; how deep a queue grows before it drains; how
+much memory a service accumulates waiting on responses; how often a timeout or retry fires; and where
+backpressure and saturation actually begin. An isolated test whose dependencies answer in a
+millisecond never exercises any of that — it measures a service that never has to wait, which is not
+the service that runs in production.
+
+Reproducing production's _incoming_ workload without reproducing the conditions that workload executes
+under does not make a local result production-informed in the way that matters for concurrency,
+pooling and saturation findings. This phase closes that gap for dependencies, the way Phase 3 closed
+it for arrival traffic.
+
+=== Dependency profiles
+
+A service may declare which of its dependencies materially participate in its workload — not every
+downstream call, only the ones that plausibly affect concurrency, latency or saturation:
 
 ----
-Vortex Workbench
-    ↓
-Vortex Coordinator
-    ↓
-Kubernetes API
-    ↓
-Ephemeral Job (Vortex Runner + k6)
-    ↓
-Target
+checkout-service
+
+Dependencies
+  inventory-service
+  payment-gateway
+  fraud-check
 ----
 
-Both paths are expected to eventually read, from the user's side, as choosing an execution
-environment rather than switching products:
+Each declared dependency carries three things: a production identity (what it corresponds to in the
+observation source), a local target (where it actually runs during a local test), and the production
+observation source Vortex should ask about it:
 
 ----
-Execution Environment
+inventory-service
 
-● Local
-○ Performance Cluster
+Production identity    Dynatrace service entity
+Local target            http://localhost:9081
+Observation source       Dynatrace
 ----
 
-No UI work is implied by naming that here — it is noted so the eventual interface change is not a
-surprise, the same discipline the roadmap already applies to async workload testing (Phase 7) and
-dependency simulation (Phase 8).
+Vortex derives a reusable _dependency profile_ from what that source reports about the dependency's
+observed behaviour. A profile describes the dependency as production actually behaves, not any one
+test — the same shape the roadmap already gives production traffic itself (Phase 3's workload source).
 
-=== Why this is not simply "Phase 5, unchanged"
+=== Not an average
 
-The direction below refines rather than replaces what this phase already said: distributed execution
-was already on the roadmap, routed through the
-https://github.com/grafana/k6-operator[k6 Operator]
-(xref:../adr/adr-010-k6-operator-for-distributed-execution.adoc[ADR-010]). What changes is the
-mechanism, not the destination — a Vortex Coordinator talking to the Kubernetes API directly and
-running a purpose-built Vortex Runner inside an ephemeral Job, rather than a `TestRun` manifest
-handed to the Operator to schedule. ADR-010's actual decision — *Vortex will not build a distributed
-scheduler* — is unaffected; Kubernetes remains the scheduler either way. The mechanism change is now
-recorded as its own decision,
-xref:../adr/adr-040-vortex-coordinator-for-remote-execution.adoc[ADR-040], which formally supersedes
-ADR-010 — see
-xref:../02-architecture/architecture.adoc#remote-execution[Relationship to ADR-010 and ADR-040] for
-the architectural reasoning.
-
-The other refinement is sequencing. The phase previously read as one step — generate manifests,
-execute against Kubernetes, extend safety. It is staged instead, because distributed execution and
-remote execution are different amounts of new risk and neither should be built to validate the other:
-
-=== Stage 1 — Local execution, preserved
-
-Already true today, and the property this phase is most likely to erode by accident if
-"architectural symmetry" is allowed to creep in. No Coordinator, no Kubernetes, no network
-connectivity to Vortex infrastructure and no remote authentication are ever required to run a test.
-This is worth restating as a roadmap stage precisely because it is not one — it is the baseline every
-later stage is checked against.
-
-=== Stage 2 — One remote worker
-
-The first real remote milestone, and deliberately boring:
-
-[quote]
-____
-A user can click Run in the Vortex Workbench, choose a remote execution environment, execute the
-same Vortex test on one ephemeral EKS worker, and receive trustworthy evidence back.
-____
-
-That single path validates, without any distribution complexity to confound the result: Workbench →
-Coordinator communication, the remote execution contract, Kubernetes Job lifecycle, Runner
-packaging, workload materialisation, evidence transport, generator resource evidence (the same
-signal Phase 4 <<observe-the-generator,4.4>> adds for a local run, now read from a worker instead),
-cancellation, failure semantics and execution-environment evidence. Getting one worker right first is what makes
-distribution in Stage 3 additive rather than a second debugging exercise layered on an unproven path.
-
-=== Stage 3 — Distributed execution
-
-Only once Stage 2 is reliable. The Coordinator partitions a requested workload across several
-Runners and aggregates their evidence — and worker saturation, worker failure, missing evidence or
-incomplete delivery has to affect confidence and verdict correctly, not just get averaged away:
+A single average latency does not represent a distribution, and modelling a dependency by its average
+would misrepresent exactly the behaviour this phase exists to reproduce:
 
 ----
-Runner A   requested 5,000 rps   delivered 4,995 rps   CPU 61%    healthy
-Runner B   requested 5,000 rps   delivered 5,001 rps   CPU 58%    healthy
-Runner C   requested 5,000 rps   delivered 4,200 rps   CPU 100%   saturated, dropping iterations
-Runner D   requested 5,000 rps   delivered 4,980 rps   CPU 63%    healthy
+average = 45 ms
+
+does not represent
+
+p50 = 18 ms   p90 = 72 ms   p95 = 110 ms   p99 = 320 ms
 ----
 
-A naive rollup reports `Requested 20,000 / Delivered 19,176 / FAIL` — which blames the target for a
-generator that ran out of headroom. The correct read, extending
-xref:../adr/adr-038-run-quality-grades-the-experiment.adoc[`RunQuality`] and its reason codes
-(<<runquality,4.5>>) per worker instead of once, is:
+The tail is where concurrency, connection-pool exhaustion, queueing, timeouts and retries actually
+happen — a dependency holding a connection open for 320 ms once in a hundred calls behaves very
+differently under load from one that never exceeds 45 ms, and an average cannot tell them apart. A
+dependency profile is therefore a _distribution_, not a figure: p50/p90/p95/p99 at minimum, with room
+for jitter characteristics, a timeout rate and a failure rate alongside it. The exact statistical
+model — how a distribution is fit, resampled or replayed — is deliberately not decided here; it is the
+first design question when this phase becomes active, not before.
 
-[quote]
-____
-Target capacity: INCONCLUSIVE. The requested workload was not successfully generated — Runner C
-saturated before delivering its assigned share.
-____
+=== Observation is not simulation
 
-*Failure to generate the requested workload is not evidence that the target cannot handle the
-requested workload.* Vortex already lives by that sentence for one generator; distributed execution's
-only real evidentiary job is applying it per worker.
-
-=== Stage 4 — Smarter worker allocation
-
-Only if actual usage demonstrates the need: calibrated worker capacity, workload-aware shard sizing,
-heterogeneous worker capabilities, dedicated worker pools, topology-aware placement. Not designed
-now, and not built ahead of evidence that Stage 3's even split is actually a limitation somebody has
-hit.
-
-=== The safety model extends, it does not get rebuilt
-
-`ExecutionPolicy` and typed `SafetyDecision` confirmation
-(xref:../02-architecture/security.adoc[safety policies]) already gate a run against an environment's
-declared rate limit; `EnvironmentCapabilities.distributedExecutionAllowed` already exists in
-configuration as a per-environment flag (xref:../04-reference/configuration.adoc[configuration
-reference]) even though nothing reads it yet. Remote execution is the reason it will: a shared
-performance environment opts in explicitly, the same typed-confirmation discipline applies to a
-Coordinator-submitted run as to a local one, and the invariant that a run never starts against a
-non-local target without an explicit confirmation does not get a quieter remote exception.
-
-=== What remote execution does not make Vortex
-
-Kubernetes does scheduling, pod placement, worker lifecycle and resource allocation. Vortex does
-workload semantics, objectives, evidence and verdicts. Vortex will not build its own scheduler,
-cluster manager, service mesh or distributed-compute platform to get there — see
-xref:../02-architecture/architecture.adoc#remote-execution[guardrails] for the full list of what
-stays deliberately unbuilt, including persistent runner fleets, worker discovery protocols,
-heartbeat/lease systems, adaptive sharding, autoscaling, and multi-region or multi-cloud execution.
-None of it earns its place until *does this materially improve the confidence, repeatability,
-scalability or usability of a performance experiment?* answers yes.
-
-=== Relationship to Phase 7 and Phase 8
-
-Remote execution should not assume `Runner == HTTP/k6` forever — Phase 7's event-driven transports
-are a reason to keep the Runner's execution runtime and its transport separate, not a reason to build
-transport plugins now; neither phase needs the other to start. And remote execution may eventually be
-a more realistic place to run a dependency-simulated topology than a laptop — but
-Phase 8 changes what a dependency does, this phase changes where the generator runs, and neither
-implies the other. They stay architecturally separate, the same discipline that already keeps
-dependency simulation out of local lab
-(xref:../02-architecture/architecture.adoc#local-lab-vs-dependency-simulation[local lab and
-dependency simulation are not the same concern]).
-
-=== Sequencing, and why
+Dynatrace, or whichever source supplies a dependency's numbers, must not become part of the execution
+engine. The roles stay separate, the same way Phase 3 kept `ProductionObservationSource`
+(xref:../adr/adr-031-production-observation-has-its-own-port.adoc[ADR-031]) apart from the engine that
+runs a test:
 
 ----
-Trustworthy local execution        (Phase 3 · Phase 4)
+Dynatrace
+    │
+    ▼
+Production observation
+    │
+    ▼
+Dependency profile
+    │
+    ▼
+Simulation plan
+    │
+    ▼
+Network / dependency simulation
+----
+
+Dynatrace is an observation provider here, exactly as it already is in Phase 3 — not something the
+simulation depends on directly. The two adapters that supply workload objectives today (Prometheus,
+Dynatrace) are the two candidates for supplying dependency profiles, and the same discipline applies:
+another source — OpenTelemetry-backed, Datadog, Grafana/Prometheus, manual configuration, or a
+service's own historical Vortex observations — is worth adding when somebody has one and needs it, not
+on spec. OpenTelemetry remains how a service _emits_ telemetry, not a third source Vortex would query;
+that line does not move for this phase.
+
+=== Vortex orchestrates simulation; it does not build a network emulator
+
+Reproducing observed latency, jitter, timeouts and failures on a live connection is a solved problem —
+Toxiproxy and Linux `tc`/`netem` are mature, purpose-built tools for exactly this. Vortex's job is the
+performance-testing model built on top: profiles, the mapping from a declared dependency to a running
+proxy, the simulation plan, the UX for turning it on, and the evidence that records what was actually
+simulated. The low-level mechanics of delaying or dropping packets are not something Vortex should
+reimplement.
+
+Which tool — Toxiproxy, `netem`, or something else — is a decision for an ADR written when this phase
+is actually taken up, informed by what each can express against what dependency profiles need to
+express. Nothing here commits to one.
+
+Conceptually, simulation sits between the service under test and a dependency it already calls, so the
+service itself needs no code changes:
+
+----
+                    Vortex Load Generator
+                            │
+                            ▼
+                    Service Under Test
+                            │
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+           Proxy         Proxy         Proxy
+              │             │             │
+       dependency      dependency      dependency
+         profile         profile         profile
+              │             │             │
+              ▼             ▼             ▼
+        Local Service   Local Service     Mock
+----
+
+=== The abstraction is a dependency profile, not a latency profile
+
+Latency is the first characteristic worth simulating, and the only one this phase needs to design in
+detail. Naming the concept `LatencyProfile` would make it too narrow to survive its own second
+release — a dependency's production behaviour is more than how long it takes to answer:
+
+----
+DependencyProfile
+
+  latencyDistribution     p50, p90, p95, p99, jitter        ← this phase
+  errorRate                                                  ← plausible later
+  timeoutRate                                                ← plausible later
+  connectionFailureRate                                      ← plausible later
+  bandwidthCharacteristics                                   ← plausible later
+----
+
+Rate limits, concurrency limits and retry-related behaviour are further out still, and none of them
+are designed here — the point is only that `DependencyProfile` is shaped so latency is one
+characteristic among several, not the definition of the type.
+
+=== Beyond latency: the fuller set of conditions, and what each one actually needs
+
+Not every condition worth reproducing is a statistical distribution derived from production, and
+conflating them would overstate what each needs and where it comes from:
+
+[cols="1,3", options="header"]
+|===
+| Condition | What it needs
+
+| Latency, jitter, error rate, timeout rate
+| A `DependencyProfile` derived from observation, replayed through a proxy (Toxiproxy/`netem` or
+  equivalent) — this phase's core mechanism, above.
+
+| Reduced connection-pool limits
+| A configuration change on the service under test or the dependency itself, not a proxy — this is a
+  workload-side condition Vortex can already vary today, named here for completeness rather than as
+  new mechanism.
+
+| CPU- or memory-constrained dependency
+| A resource limit on the dependency's own container. This needs no Toxiproxy/`netem` at all — it is
+  the resource envelope Phase 3.7's dependency resource profiles already declare, applied as a
+  deliberately tighter variant rather than a new capability.
+
+| Dependency restart, or unavailable for a controlled interval
+| An availability condition layered on top of a running dependency, closer to Local Lab's start/stop
+  than to a `DependencyProfile` field — recorded on the same timeline as the other conditions below,
+  but a different mechanism from replaying a latency distribution.
+
+| Packet loss
+| Where the platform genuinely supports it (`netem` on Linux; not guaranteed everywhere) — named
+  honestly as conditional rather than promised universally.
+|===
+
+The unifying idea is not "one bigger `DependencyProfile`." It is that a test can declare, on an
+explicit timeline, what condition each declared dependency is under — whichever of the mechanisms
+above actually produces it:
+
+----
+00:00  normal
+05:00  database latency +200 ms         (DependencyProfile, replayed)
+10:00  database recovered
+15:00  test complete
+----
+
+*Terminology, not yet decided.* Candidates worth weighing when this phase is actually designed:
+_Dependency Conditions_, _Dependency Constraints_, _Degraded Dependencies_. All three deliberately
+avoid implying a full chaos-engineering platform — see "What this phase does not make Vortex," below,
+which already draws that line and continues to.
+
+=== What a test would declare
+
+Eventually, a workload's environment would expose something conceptually equivalent to:
+
+----
+Environment              Local
+Production dependency
+simulation                Enabled
+----
+
+and Vortex would, in order: resolve the declared dependency topology for the service under test; load
+the selected production observations; derive dependency profiles from them; generate a simulation
+plan; configure the corresponding network/proxy simulation for each declared dependency; execute the
+workload; and record what was actually simulated as part of the run's evidence. The user describes
+services and dependencies; Vortex owns the mechanics in between — the same shape Phase 3 already gives
+calibration (observe → propose → review → run), extended one stage further.
+
+=== Evidence must still answer "under what conditions?"
+
+A run made with dependency simulation enabled is not exempt from the reproducibility discipline the
+rest of Vortex already holds itself to
+(xref:../02-architecture/execution-and-evidence.adoc[execution and evidence]). A reader six months
+later must be able to answer: which dependencies were simulated, from which profile, observed over
+what window, from which source, using what simulation configuration, and which profile version.
+Without that, a capacity figure produced under simulation is exactly the kind of context-free number
+Vortex exists to prevent — "we handle 1000 TPS", except the missing context this time is what the
+dependencies were doing rather than where the test ran.
+
+=== This stays isolated, and stays honest about it
+
+A dependency simulated from real production statistics is still a dependency that is not the real one.
+xref:../03-performance-model/experiments.adoc[Isolated versus integrated tests] already draws this
+line conservatively: a run is integrated only when dependencies are real and the infrastructure is
+production-like, and everything else is isolated, however remote the machine — that rule does not bend
+for a well-informed simulation. What changes is not the classification but its honesty: a simulated
+run could be labelled `LOCAL / PRODUCTION-INFORMED` rather than plain `LOCAL`, saying its dependency
+behaviour is grounded in observation rather than invented, without claiming the one thing only an
+integrated test can support.
+
+Vortex must never describe this capability as making local testing equivalent to production —
+Kubernetes scheduling, cloud network topology, service meshes, TLS termination paths, noisy neighbours,
+shared infrastructure contention, database topology, production resource contention and cross-service
+GC/runtime behaviour are not reproduced by simulating one dependency's latency distribution, and no
+amount of profile fidelity closes all of them. Say _production-informed local performance testing_.
+Never _production-equivalent_, _production-identical_ or _production replica_ — the purpose is
+increased fidelity, not the pretence that local infrastructure has become production.
+
+=== What this phase does not make Vortex
+
+Reproducing observed dependency latency and failure characteristics is fidelity in service of a
+capacity question, not fault injection for its own sake. Chaos Mesh and Litmus already do fault
+injection well (xref:overview.adoc[scope and non-goals]); this phase does not compete with them, and a
+dependency profile is not a chaos experiment — it replays what a dependency was actually observed
+doing, not an arbitrary failure somebody chose to see what breaks.
+
+=== Strategic relationship to the rest of the roadmap
+
+Vortex's direction is progressively: observe production, derive realistic objectives from it,
+reproduce a meaningful workload, measure system behaviour, and produce evidence. This phase extends
+that pipeline rather than replacing it — production observation now informs both sides of the
+experiment, not only the traffic arriving at it:
+
+----
+Observe production
+        │
+        ├── workload characteristics    (Phase 3)
+        │
+        └── dependency characteristics  (this phase)
+                    │
+                    ▼
+        Construct performance experiment
+                    │
+                    ▼
+              Execute locally
+                    │
+                    ▼
+                 Measure
+                    │
+                    ▼
+        Compare against objectives
+                    │
+                    ▼
+             Produce evidence
+----
+
+The long-term idea is not "Vortex generates load against a target." It is closer to: Vortex
+reconstructs enough of a service's observed production behaviour — both what arrives and what it waits
+on — to make a local performance experiment mean something.
+
+=== Where this sits, and what has to be true first
+
+This is not the next priority. Vortex's current work is Phase 4 — making HTTP measurement, resource
+observation and experiment validity trustworthy. Manipulating dependency behaviour before that
+foundation is solid would produce a more elaborate version of the same problem Phase 4 exists to fix: a
+confident number resting on evidence nobody can yet grade.
+
+----
+HTTP performance foundation (Phase 4)
         │
         ▼
-Single remote worker                (Stage 2)
+Resource observability — DEPENDENCY-scoped signals (ADR-037, part of Phase 4)
         │
         ▼
-Trustworthy remote evidence         (RunQuality extended per worker)
+Production baseline / Dynatrace integration (Phase 3 — already done)
         │
         ▼
-Distributed execution                (Stage 3)
+Dependency modelling — declared dependencies and profiles, this phase's own first slice
         │
         ▼
-Advanced placement / capacity       (Stage 4 — only if needed)
+Production-informed dependency simulation
 ----
 
-Phase 4 sits above this phase for a reason stronger than sequencing convenience: distributed
-execution multiplies execution capacity, and it multiplies bad evidence exactly as fast if the
-evidence semantics underneath it are still wrong. See <<deferred-behind-the-gate,deferred behind the
-gate>>, above.
+See <<deferred-behind-the-gate>>, above, for exactly what this phase needs from Phase 4 before it can
+start.
 
 [[automation-ci-quality-gates]]
-== Optional — Automation / CI quality gates 🔜
+== Phase 6 — Automation / CI quality gates (optional) 🔜
 
 Vortex today is the Workbench alone — see
 xref:../adr/adr-043-cli-and-ci-surface-removed.adoc[ADR-043]. Everything below is explicitly
@@ -1000,285 +1417,194 @@ Kafka management UI, or a distributed workflow simulator. See
 xref:overview.adoc[scope and non-goals]. The transport changes; the questions Vortex asks about a
 system under test do not.
 
-== Phase 8 — Production-informed dependency simulation 🔜
+== Phase 8 — Remote and distributed execution 🔜
 
-Local testing has a fidelity problem that Phase 3 does not close. Deriving a workload from observed
-production traffic reproduces _what arrives_ at the service under test; it says nothing about _what
-happens next_ when that service calls its own dependencies.
+Local execution is Vortex's whole story today, and this phase does not change that story — it adds
+a second one beside it. The architectural shape belongs in
+xref:../02-architecture/architecture.adoc#remote-execution[Remote and distributed execution]; this
+section is the product direction and the sequencing that gets there.
 
-----
-Production                              Local
+[quote]
+____
+Local Vortex remains local-first and self-contained. A Vortex Coordinator exists only when Vortex
+crosses into remote execution infrastructure, and it is never in the way of a local test.
+____
 
-Service A                               Service A
-    │                                       │
-    │ real network / infrastructure         │ localhost / Docker network
-    │ latency                               │
-    ▼                                       ▼
-Service B                               Service B
-----
-
-A dependency that answers in 20–300 ms in production typically answers in 1–3 ms on the same laptop
-as the service under test. That is not only a latency error. Dependency latency governs how long a
-request holds a connection, a thread or a virtual thread; how deep a queue grows before it drains; how
-much memory a service accumulates waiting on responses; how often a timeout or retry fires; and where
-backpressure and saturation actually begin. An isolated test whose dependencies answer in a
-millisecond never exercises any of that — it measures a service that never has to wait, which is not
-the service that runs in production.
-
-Reproducing production's _incoming_ workload without reproducing the conditions that workload executes
-under does not make a local result production-informed in the way that matters for concurrency,
-pooling and saturation findings. This phase closes that gap for dependencies, the way Phase 3 closed
-it for arrival traffic.
-
-=== Dependency profiles
-
-A service may declare which of its dependencies materially participate in its workload — not every
-downstream call, only the ones that plausibly affect concurrency, latency or saturation:
+A developer must always be able to do exactly this, with nothing remote involved:
 
 ----
-loan-application-service
-
-Dependencies
-  loan-account-service
-  customer-service
-  mambu
+Vortex Workbench
+    ↓
+local k6
+    ↓
+localhost / target
 ----
 
-Each declared dependency carries three things: a production identity (what it corresponds to in the
-observation source), a local target (where it actually runs during a local test), and the production
-observation source Vortex should ask about it:
+What changes is that, for the runs one machine cannot generate or that need a controlled and
+disposable execution environment, the Workbench gains a second path to choose instead:
 
 ----
-loan-account-service
-
-Production identity    Dynatrace service entity
-Local target            http://localhost:9081
-Observation source       Dynatrace
+Vortex Workbench
+    ↓
+Vortex Coordinator
+    ↓
+Kubernetes API
+    ↓
+Ephemeral Job (Vortex Runner + k6)
+    ↓
+Target
 ----
 
-Vortex derives a reusable _dependency profile_ from what that source reports about the dependency's
-observed behaviour. A profile describes the dependency as production actually behaves, not any one
-test — the same shape the roadmap already gives production traffic itself (Phase 3's workload source).
-
-=== Not an average
-
-A single average latency does not represent a distribution, and modelling a dependency by its average
-would misrepresent exactly the behaviour this phase exists to reproduce:
+Both paths are expected to eventually read, from the user's side, as choosing an execution
+environment rather than switching products:
 
 ----
-average = 45 ms
+Execution Environment
 
-does not represent
-
-p50 = 18 ms   p90 = 72 ms   p95 = 110 ms   p99 = 320 ms
+● Local
+○ Performance Cluster
 ----
 
-The tail is where concurrency, connection-pool exhaustion, queueing, timeouts and retries actually
-happen — a dependency holding a connection open for 320 ms once in a hundred calls behaves very
-differently under load from one that never exceeds 45 ms, and an average cannot tell them apart. A
-dependency profile is therefore a _distribution_, not a figure: p50/p90/p95/p99 at minimum, with room
-for jitter characteristics, a timeout rate and a failure rate alongside it. The exact statistical
-model — how a distribution is fit, resampled or replayed — is deliberately not decided here; it is the
-first design question when this phase becomes active, not before.
+No UI work is implied by naming that here — it is noted so the eventual interface change is not a
+surprise, the same discipline the roadmap already applies to async workload testing (Phase 7) and
+dependency simulation (Phase 5).
 
-=== Observation is not simulation
+=== Why this is not simply "Phase 8, unchanged"
 
-Dynatrace, or whichever source supplies a dependency's numbers, must not become part of the execution
-engine. The roles stay separate, the same way Phase 3 kept `ProductionObservationSource`
-(xref:../adr/adr-031-production-observation-has-its-own-port.adoc[ADR-031]) apart from the engine that
-runs a test:
+The direction below refines rather than replaces what this phase already said: distributed execution
+was already on the roadmap, routed through the
+https://github.com/grafana/k6-operator[k6 Operator]
+(xref:../adr/adr-010-k6-operator-for-distributed-execution.adoc[ADR-010]). What changes is the
+mechanism, not the destination — a Vortex Coordinator talking to the Kubernetes API directly and
+running a purpose-built Vortex Runner inside an ephemeral Job, rather than a `TestRun` manifest
+handed to the Operator to schedule. ADR-010's actual decision — *Vortex will not build a distributed
+scheduler* — is unaffected; Kubernetes remains the scheduler either way. The mechanism change is now
+recorded as its own decision,
+xref:../adr/adr-040-vortex-coordinator-for-remote-execution.adoc[ADR-040], which formally supersedes
+ADR-010 — see
+xref:../02-architecture/architecture.adoc#remote-execution[Relationship to ADR-010 and ADR-040] for
+the architectural reasoning.
 
-----
-Dynatrace
-    │
-    ▼
-Production observation
-    │
-    ▼
-Dependency profile
-    │
-    ▼
-Simulation plan
-    │
-    ▼
-Network / dependency simulation
-----
+The other refinement is sequencing. The phase previously read as one step — generate manifests,
+execute against Kubernetes, extend safety. It is staged instead, because distributed execution and
+remote execution are different amounts of new risk and neither should be built to validate the other:
 
-Dynatrace is an observation provider here, exactly as it already is in Phase 3 — not something the
-simulation depends on directly. The two adapters that supply workload objectives today (Prometheus,
-Dynatrace) are the two candidates for supplying dependency profiles, and the same discipline applies:
-another source — OpenTelemetry-backed, Datadog, Grafana/Prometheus, manual configuration, or a
-service's own historical Vortex observations — is worth adding when somebody has one and needs it, not
-on spec. OpenTelemetry remains how a service _emits_ telemetry, not a third source Vortex would query;
-that line does not move for this phase.
+=== Stage 1 — Local execution, preserved
 
-=== Vortex orchestrates simulation; it does not build a network emulator
+Already true today, and the property this phase is most likely to erode by accident if
+"architectural symmetry" is allowed to creep in. No Coordinator, no Kubernetes, no network
+connectivity to Vortex infrastructure and no remote authentication are ever required to run a test.
+This is worth restating as a roadmap stage precisely because it is not one — it is the baseline every
+later stage is checked against.
 
-Reproducing observed latency, jitter, timeouts and failures on a live connection is a solved problem —
-Toxiproxy and Linux `tc`/`netem` are mature, purpose-built tools for exactly this. Vortex's job is the
-performance-testing model built on top: profiles, the mapping from a declared dependency to a running
-proxy, the simulation plan, the UX for turning it on, and the evidence that records what was actually
-simulated. The low-level mechanics of delaying or dropping packets are not something Vortex should
-reimplement.
+=== Stage 2 — One remote worker
 
-Which tool — Toxiproxy, `netem`, or something else — is a decision for an ADR written when this phase
-is actually taken up, informed by what each can express against what dependency profiles need to
-express. Nothing here commits to one.
+The first real remote milestone, and deliberately boring:
 
-Conceptually, simulation sits between the service under test and a dependency it already calls, so the
-service itself needs no code changes:
+[quote]
+____
+A user can click Run in the Vortex Workbench, choose a remote execution environment, execute the
+same Vortex test on one ephemeral EKS worker, and receive trustworthy evidence back.
+____
 
-----
-                    Vortex Load Generator
-                            │
-                            ▼
-                    Service Under Test
-                            │
-              ┌─────────────┼─────────────┐
-              ▼             ▼             ▼
-           Proxy         Proxy         Proxy
-              │             │             │
-       dependency      dependency      dependency
-         profile         profile         profile
-              │             │             │
-              ▼             ▼             ▼
-        Local Service   Local Service     Mock
-----
+That single path validates, without any distribution complexity to confound the result: Workbench →
+Coordinator communication, the remote execution contract, Kubernetes Job lifecycle, Runner
+packaging, workload materialisation, evidence transport, generator resource evidence (the same
+signal Phase 4 <<observe-the-generator,4.4>> adds for a local run, now read from a worker instead),
+cancellation, failure semantics and execution-environment evidence. Getting one worker right first is what makes
+distribution in Stage 3 additive rather than a second debugging exercise layered on an unproven path.
 
-=== The abstraction is a dependency profile, not a latency profile
+=== Stage 3 — Distributed execution
 
-Latency is the first characteristic worth simulating, and the only one this phase needs to design in
-detail. Naming the concept `LatencyProfile` would make it too narrow to survive its own second
-release — a dependency's production behaviour is more than how long it takes to answer:
+Only once Stage 2 is reliable. The Coordinator partitions a requested workload across several
+Runners and aggregates their evidence — and worker saturation, worker failure, missing evidence or
+incomplete delivery has to affect confidence and verdict correctly, not just get averaged away:
 
 ----
-DependencyProfile
-
-  latencyDistribution     p50, p90, p95, p99, jitter        ← this phase
-  errorRate                                                  ← plausible later
-  timeoutRate                                                ← plausible later
-  connectionFailureRate                                      ← plausible later
-  bandwidthCharacteristics                                   ← plausible later
+Runner A   requested 5,000 rps   delivered 4,995 rps   CPU 61%    healthy
+Runner B   requested 5,000 rps   delivered 5,001 rps   CPU 58%    healthy
+Runner C   requested 5,000 rps   delivered 4,200 rps   CPU 100%   saturated, dropping iterations
+Runner D   requested 5,000 rps   delivered 4,980 rps   CPU 63%    healthy
 ----
 
-Rate limits, concurrency limits and retry-related behaviour are further out still, and none of them
-are designed here — the point is only that `DependencyProfile` is shaped so latency is one
-characteristic among several, not the definition of the type.
+A naive rollup reports `Requested 20,000 / Delivered 19,176 / FAIL` — which blames the target for a
+generator that ran out of headroom. The correct read, extending
+xref:../adr/adr-038-run-quality-grades-the-experiment.adoc[`RunQuality`] and its reason codes
+(<<runquality,4.5>>) per worker instead of once, is:
 
-=== What a test would declare
+[quote]
+____
+Target capacity: INCONCLUSIVE. The requested workload was not successfully generated — Runner C
+saturated before delivering its assigned share.
+____
 
-Eventually, a workload's environment would expose something conceptually equivalent to:
+*Failure to generate the requested workload is not evidence that the target cannot handle the
+requested workload.* Vortex already lives by that sentence for one generator; distributed execution's
+only real evidentiary job is applying it per worker.
 
-----
-Environment              Local
-Production dependency
-simulation                Enabled
-----
+=== Stage 4 — Smarter worker allocation
 
-and Vortex would, in order: resolve the declared dependency topology for the service under test; load
-the selected production observations; derive dependency profiles from them; generate a simulation
-plan; configure the corresponding network/proxy simulation for each declared dependency; execute the
-workload; and record what was actually simulated as part of the run's evidence. The user describes
-services and dependencies; Vortex owns the mechanics in between — the same shape Phase 3 already gives
-calibration (observe → propose → review → run), extended one stage further.
+Only if actual usage demonstrates the need: calibrated worker capacity, workload-aware shard sizing,
+heterogeneous worker capabilities, dedicated worker pools, topology-aware placement. Not designed
+now, and not built ahead of evidence that Stage 3's even split is actually a limitation somebody has
+hit.
 
-=== Evidence must still answer "under what conditions?"
+=== The safety model extends, it does not get rebuilt
 
-A run made with dependency simulation enabled is not exempt from the reproducibility discipline the
-rest of Vortex already holds itself to
-(xref:../02-architecture/execution-and-evidence.adoc[execution and evidence]). A reader six months
-later must be able to answer: which dependencies were simulated, from which profile, observed over
-what window, from which source, using what simulation configuration, and which profile version.
-Without that, a capacity figure produced under simulation is exactly the kind of context-free number
-Vortex exists to prevent — "we handle 1000 TPS", except the missing context this time is what the
-dependencies were doing rather than where the test ran.
+`ExecutionPolicy` and typed `SafetyDecision` confirmation
+(xref:../02-architecture/security.adoc[safety policies]) already gate a run against an environment's
+declared rate limit; `EnvironmentCapabilities.distributedExecutionAllowed` already exists in
+configuration as a per-environment flag (xref:../04-reference/configuration.adoc[configuration
+reference]) even though nothing reads it yet. Remote execution is the reason it will: a shared
+performance environment opts in explicitly, the same typed-confirmation discipline applies to a
+Coordinator-submitted run as to a local one, and the invariant that a run never starts against a
+non-local target without an explicit confirmation does not get a quieter remote exception.
 
-=== This stays isolated, and stays honest about it
+=== What remote execution does not make Vortex
 
-A dependency simulated from real production statistics is still a dependency that is not the real one.
-xref:../03-performance-model/experiments.adoc[Isolated versus integrated tests] already draws this
-line conservatively: a run is integrated only when dependencies are real and the infrastructure is
-production-like, and everything else is isolated, however remote the machine — that rule does not bend
-for a well-informed simulation. What changes is not the classification but its honesty: a simulated
-run could be labelled `LOCAL / PRODUCTION-INFORMED` rather than plain `LOCAL`, saying its dependency
-behaviour is grounded in observation rather than invented, without claiming the one thing only an
-integrated test can support.
+Kubernetes does scheduling, pod placement, worker lifecycle and resource allocation. Vortex does
+workload semantics, objectives, evidence and verdicts. Vortex will not build its own scheduler,
+cluster manager, service mesh or distributed-compute platform to get there — see
+xref:../02-architecture/architecture.adoc#remote-execution[guardrails] for the full list of what
+stays deliberately unbuilt, including persistent runner fleets, worker discovery protocols,
+heartbeat/lease systems, adaptive sharding, autoscaling, and multi-region or multi-cloud execution.
+None of it earns its place until *does this materially improve the confidence, repeatability,
+scalability or usability of a performance experiment?* answers yes.
 
-Vortex must never describe this capability as making local testing equivalent to production —
-Kubernetes scheduling, cloud network topology, service meshes, TLS termination paths, noisy neighbours,
-shared infrastructure contention, database topology, production resource contention and cross-service
-GC/runtime behaviour are not reproduced by simulating one dependency's latency distribution, and no
-amount of profile fidelity closes all of them. Say _production-informed local performance testing_.
-Never _production-equivalent_, _production-identical_ or _production replica_ — the purpose is
-increased fidelity, not the pretence that local infrastructure has become production.
+=== Relationship to Phase 5 and Phase 7
 
-=== What this phase does not make Vortex
+Remote execution should not assume `Runner == HTTP/k6` forever — Phase 7's event-driven transports
+are a reason to keep the Runner's execution runtime and its transport separate, not a reason to build
+transport plugins now; neither phase needs the other to start. And remote execution may eventually be
+a more realistic place to run a dependency-simulated topology than a laptop — but
+Phase 5 changes what a dependency does, this phase changes where the generator runs, and neither
+implies the other. They stay architecturally separate, the same discipline that already keeps
+dependency simulation out of local lab
+(xref:../02-architecture/architecture.adoc#local-lab-vs-dependency-simulation[local lab and
+dependency simulation are not the same concern]).
 
-Reproducing observed dependency latency and failure characteristics is fidelity in service of a
-capacity question, not fault injection for its own sake. Chaos Mesh and Litmus already do fault
-injection well (xref:overview.adoc[scope and non-goals]); this phase does not compete with them, and a
-dependency profile is not a chaos experiment — it replays what a dependency was actually observed
-doing, not an arbitrary failure somebody chose to see what breaks.
-
-=== Strategic relationship to the rest of the roadmap
-
-Vortex's direction is progressively: observe production, derive realistic objectives from it,
-reproduce a meaningful workload, measure system behaviour, and produce evidence. This phase extends
-that pipeline rather than replacing it — production observation now informs both sides of the
-experiment, not only the traffic arriving at it:
+=== Sequencing, and why
 
 ----
-Observe production
-        │
-        ├── workload characteristics    (Phase 3)
-        │
-        └── dependency characteristics  (this phase)
-                    │
-                    ▼
-        Construct performance experiment
-                    │
-                    ▼
-              Execute locally
-                    │
-                    ▼
-                 Measure
-                    │
-                    ▼
-        Compare against objectives
-                    │
-                    ▼
-             Produce evidence
-----
-
-The long-term idea is not "Vortex generates load against a target." It is closer to: Vortex
-reconstructs enough of a service's observed production behaviour — both what arrives and what it waits
-on — to make a local performance experiment mean something.
-
-=== Where this sits, and what has to be true first
-
-This is not the next priority. Vortex's current work is Phase 4 — making HTTP measurement, resource
-observation and experiment validity trustworthy. Manipulating dependency behaviour before that
-foundation is solid would produce a more elaborate version of the same problem Phase 4 exists to fix: a
-confident number resting on evidence nobody can yet grade.
-
-----
-HTTP performance foundation (Phase 4)
+Trustworthy local execution        (Phase 3 · Phase 4)
         │
         ▼
-Resource observability — DEPENDENCY-scoped signals (ADR-037, part of Phase 4)
+Single remote worker                (Stage 2)
         │
         ▼
-Production baseline / Dynatrace integration (Phase 3 — already done)
+Trustworthy remote evidence         (RunQuality extended per worker)
         │
         ▼
-Dependency modelling — declared dependencies and profiles, this phase's own first slice
+Distributed execution                (Stage 3)
         │
         ▼
-Production-informed dependency simulation
+Advanced placement / capacity       (Stage 4 — only if needed)
 ----
 
-See <<deferred-behind-the-gate>>, above, for exactly what this phase needs from Phase 4 before it can
-start.
+Phase 4 sits above this phase for a reason stronger than sequencing convenience: distributed
+execution multiplies execution capacity, and it multiplies bad evidence exactly as fast if the
+evidence semantics underneath it are still wrong. See <<deferred-behind-the-gate,deferred behind the
+gate>>, above.
 
 == Ongoing
 

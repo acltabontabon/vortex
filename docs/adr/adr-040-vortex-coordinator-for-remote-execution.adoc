@@ -15,7 +15,7 @@ nothing here reopens that question.
 What has changed is the shape of the problem. The product direction is no longer only "more load
 generators" — it now includes a controlled, disposable execution environment for a *single* remote
 run, before distribution ever enters the picture (see xref:../01-product/roadmap.adoc[roadmap],
-Phase 5). A `TestRun` is built for exactly one thing: a distributed k6 run the Operator shards and
+Phase 8). A `TestRun` is built for exactly one thing: a distributed k6 run the Operator shards and
 schedules. It has no smaller shape for "run this once, remotely, and hand the evidence back through
 Vortex's own model" — reaching for it for a single worker means adopting the Operator's distribution
 machinery to get an environment, not a shard count. And whatever `TestRun` produces still has to be
@@ -39,7 +39,7 @@ watches, instead of a CRD instance an external operator interprets. The Coordina
 plane *only* for remote execution. It is never inserted into local execution, which continues to be
 the Workbench driving k6 directly — see
 xref:../02-architecture/architecture.adoc#remote-execution[remote and distributed execution] for the
-full architectural shape, and xref:../01-product/roadmap.adoc[roadmap] Phase 5 for how it ships: one
+full architectural shape, and xref:../01-product/roadmap.adoc[roadmap] Phase 8 for how it ships: one
 remote worker before several, deliberately boring before distributed.
 
 == Consequences
