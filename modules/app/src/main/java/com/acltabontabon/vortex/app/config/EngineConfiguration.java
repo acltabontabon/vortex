@@ -14,6 +14,7 @@ import com.acltabontabon.vortex.core.application.PreflightService;
 import com.acltabontabon.vortex.core.environment.EnvironmentType;
 import com.acltabontabon.vortex.core.port.LocalLab;
 import com.acltabontabon.vortex.app.adapter.observation.DynatraceObservationSource;
+import com.acltabontabon.vortex.app.adapter.observation.PrometheusDefaultsConnectionTest;
 import com.acltabontabon.vortex.app.adapter.observation.PrometheusObservationSource;
 import com.acltabontabon.vortex.core.port.ArtifactStore;
 import com.acltabontabon.vortex.core.port.ObservabilityProvider;
@@ -156,6 +157,13 @@ public class EngineConfiguration {
     @Bean
     ProductionObservationSource prometheusObservationSource(RestClient.Builder builder) {
         return new PrometheusObservationSource(builder);
+    }
+
+    /** The Settings → Prometheus defaults "Test connection" button — a connectivity/auth check with
+     *  no service to ask about, distinct from the port above. */
+    @Bean
+    PrometheusDefaultsConnectionTest prometheusDefaultsConnectionTest(RestClient.Builder builder) {
+        return new PrometheusDefaultsConnectionTest(builder);
     }
 
     @Bean

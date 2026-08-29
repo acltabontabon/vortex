@@ -13,7 +13,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.sun.net.httpserver.HttpServer;
+import com.acltabontabon.vortex.app.discovery.DiscoveryConfigurationAssembler;
+import com.acltabontabon.vortex.app.discovery.ProjectSnapshotBuilder;
 import com.acltabontabon.vortex.core.application.CatalogImportService;
+import com.acltabontabon.vortex.core.application.ProjectDiscoveryService;
 import com.acltabontabon.vortex.core.application.ProjectService;
 import com.acltabontabon.vortex.core.fixtures.Fixtures;
 import com.acltabontabon.vortex.core.port.ServiceCatalogImporter;
@@ -52,6 +55,15 @@ class ServicesApiControllerTest {
 
     @MockitoBean
     private CatalogImportService catalogs;
+
+    @MockitoBean
+    private ProjectDiscoveryService discovery;
+
+    @MockitoBean
+    private ProjectSnapshotBuilder snapshotBuilder;
+
+    @MockitoBean
+    private DiscoveryConfigurationAssembler discoveryAssembler;
 
     @Test
     void listsEveryServiceWithItsDescriptionAndRelease() throws Exception {
@@ -121,6 +133,79 @@ class ServicesApiControllerTest {
                 .andExpect(jsonPath("$.importOutcome.error").value(
                         "The service was created, but Vortex could not read that API description: "
                                 + "Vortex only fetches API descriptions over http or https."));
+    }
+
+    @Test
+    void creatingAServiceWithAnApprovedLocalLabSelectionSavesIt() throws Exception {
+        when(projects.create(eq("checkout-service"), any(), any())).thenReturn(Fixtures.project());
+        when(projects.configuration(Fixtures.project().id())).thenReturn(
+                com.acltabontabon.vortex.core.project.ProjectConfiguration.empty());
+        when(discoveryAssembler.withLocalLab(any(), any())).thenReturn(
+                com.acltabontabon.vortex.core.project.ProjectConfiguration.empty()
+                        .withLocalLab(new com.acltabontabon.vortex.core.lab.LocalLabSettings("compose.yaml")));
+
+        mockMvc.perform(post("/api/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"checkout-service","applyLocalLabComposeFile":"compose.yaml"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.setupWarning").doesNotExist());
+
+        verify(discoveryAssembler).withLocalLab(any(),
+                eq(new com.acltabontabon.vortex.core.lab.LocalLabSettings("compose.yaml")));
+        verify(projects).saveConfiguration(eq(Fixtures.project().id()), any());
+    }
+
+    @Test
+    void aFailedDiscoveredSetupIsReportedAsAWarningNotAFailure() throws Exception {
+        when(projects.create(eq("checkout-service"), any(), any())).thenReturn(Fixtures.project());
+        when(projects.configuration(Fixtures.project().id())).thenReturn(
+                com.acltabontabon.vortex.core.project.ProjectConfiguration.empty());
+        when(discoveryAssembler.withLocalLab(any(), any()))
+                .thenThrow(new IllegalArgumentException("'../compose.yaml' points outside the repository"));
+
+        mockMvc.perform(post("/api/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"checkout-service","applyLocalLabComposeFile":"../compose.yaml"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.service.id").value(Fixtures.project().id().value()))
+                .andExpect(jsonPath("$.setupWarning").value(org.hamcrest.Matchers.containsString(
+                        "could not apply the discovered setup")));
+    }
+
+    @Test
+    void scansACandidateDirectoryBeforeAnyServiceExists() throws Exception {
+        ProjectSnapshotBuilder.Result snapshotResult = new ProjectSnapshotBuilder.Result(
+                new com.acltabontabon.vortex.core.discovery.ProjectSnapshot("checkout", List.of()),
+                List.of());
+        when(snapshotBuilder.build("/tmp/checkout")).thenReturn(snapshotResult);
+        when(discovery.discover(snapshotResult.snapshot(),
+                com.acltabontabon.vortex.core.project.ProjectConfiguration.empty()))
+                .thenReturn(new com.acltabontabon.vortex.core.discovery.DiscoveryProposal(
+                        "checkout-service", "", null, null, null, List.of(), List.of(), List.of()));
+
+        mockMvc.perform(post("/api/services/discovery-scan")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"path":"/tmp/checkout"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.proposedServiceName").value("checkout-service"));
+    }
+
+    @Test
+    void scanningWithNoPathAsksForOneRatherThanFailing() throws Exception {
+        mockMvc.perform(post("/api/services/discovery-scan")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"path":""}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(false));
     }
 
     @Test

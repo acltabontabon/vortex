@@ -20,6 +20,7 @@ import com.acltabontabon.vortex.core.shared.ProjectId;
 import com.acltabontabon.vortex.core.shared.WorkloadId;
 import com.acltabontabon.vortex.core.threshold.Durations;
 import com.acltabontabon.vortex.core.threshold.ThresholdSet;
+import com.acltabontabon.vortex.core.threshold.recommend.ThresholdSetProvenance;
 import com.acltabontabon.vortex.core.workload.LoadShape;
 import com.acltabontabon.vortex.core.workload.OperationMix;
 import com.acltabontabon.vortex.core.workload.TestType;
@@ -172,15 +173,16 @@ public class TestsApiController {
                     request.durationMinutes(), request.peakRate(), request.stages());
 
             String existingKey = originalName == null || originalName.isBlank() ? slug : originalName;
-            ThresholdSet existing = configuration.workloadByName(existingKey)
-                    .map(Workload::thresholds).orElseGet(ThresholdSet::empty);
-            WorkloadSource source = configuration.workloadByName(existingKey)
-                    .map(Workload::source).orElseGet(WorkloadSource::manual);
+            Workload previous = configuration.workloadByName(existingKey).orElse(null);
+            ThresholdSet existing = previous == null ? ThresholdSet.empty() : previous.thresholds();
+            WorkloadSource source = previous == null ? WorkloadSource.manual() : previous.source();
+            ThresholdSetProvenance existingProvenance = previous == null
+                    ? ThresholdSetProvenance.empty() : previous.thresholdProvenance();
 
             Workload workload = new Workload(WorkloadId.of(slug), slug,
                     request.description() == null ? "" : request.description(),
                     request.objective() == null ? "" : request.objective(),
-                    type, mix, shape, existing, source, Map.of());
+                    type, mix, shape, existing, source, Map.of(), existingProvenance);
 
             ProjectConfiguration updated = configuration;
             if (originalName != null && !originalName.isBlank()

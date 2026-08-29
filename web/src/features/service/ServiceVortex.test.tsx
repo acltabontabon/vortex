@@ -30,6 +30,17 @@ vi.mock('../../api/configuration', async (importOriginal) => {
   return { ...actual, useConfigurationQuery: () => configQueryResult };
 });
 
+vi.mock('../../api/thresholds', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/thresholds')>();
+  return {
+    ...actual,
+    useProjectThresholdsQuery: () => ({ data: { thresholds: [], provenance: {} }, isLoading: false }),
+    useSaveProjectThresholdsMutation: () => ({ mutate: vi.fn(), isPending: false }),
+    useThresholdRecommendationQuery: () => ({ data: undefined, isLoading: false, isError: false }),
+    useThresholdSanityCheckMutation: () => ({ mutate: vi.fn(), data: undefined }),
+  };
+});
+
 function aConfiguration(overrides: Partial<Configuration> = {}): Configuration {
   return {
     name: 'checkout',
@@ -289,7 +300,7 @@ describe('the "prepare your first experiment" pipeline', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /Set objectives/ }));
 
-    expect(await screen.findByLabelText(/p95 latency \(ms\)/)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/p95 latency/i)).toBeInTheDocument();
   });
 
   it('opens a scoped drawer to record production traffic rather than navigating away', async () => {

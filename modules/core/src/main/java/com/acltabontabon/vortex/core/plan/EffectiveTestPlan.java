@@ -16,6 +16,7 @@ import com.acltabontabon.vortex.core.shared.ProjectId;
 import com.acltabontabon.vortex.core.shared.RequestsPerSecond;
 import com.acltabontabon.vortex.core.shared.TestPlanId;
 import com.acltabontabon.vortex.core.threshold.ThresholdSet;
+import com.acltabontabon.vortex.core.threshold.recommend.ThresholdSetProvenance;
 import com.acltabontabon.vortex.core.workload.Stage;
 import com.acltabontabon.vortex.core.workload.WorkloadModel;
 import java.time.Duration;
@@ -84,7 +85,8 @@ public record EffectiveTestPlan(
         List<SafetyDecision> safetyDecisions,
         PlanFingerprint fingerprint,
         ValidityPolicy validityPolicy,
-        String workspacePath) {
+        String workspacePath,
+        ThresholdSetProvenance thresholdProvenance) {
 
     public EffectiveTestPlan {
         Objects.requireNonNull(id, "id");
@@ -124,6 +126,11 @@ public record EffectiveTestPlan(
         // time; a plan built before this field existed, or built without a project workspace on hand,
         // simply carries no workspace path.
         workspacePath = workspacePath == null ? "" : workspacePath;
+        // Snapshotted at save time, not re-derived at resolution — a report reads back the evidence
+        // that justified the number when the threshold was chosen, not whatever production looks
+        // like by the time someone opens the report. A plan built before threshold provenance existed
+        // simply carries none, which is honestly "not recorded" rather than a manufactured absence.
+        thresholdProvenance = thresholdProvenance == null ? ThresholdSetProvenance.empty() : thresholdProvenance;
 
         long distinctKeys = operations.stream().map(PlannedOperation::k6ScenarioKey).distinct().count();
         if (distinctKeys != operations.size()) {
@@ -132,6 +139,56 @@ public record EffectiveTestPlan(
                             + "measurements indistinguishable. Keys are assigned by OperationKeys, "
                             + "which guarantees uniqueness.");
         }
+    }
+
+    /**
+     * A plan built before threshold provenance was part of one.
+     *
+     * <p>Kept at the previous arity rather than folded into the canonical constructor, so that adding
+     * {@code thresholdProvenance} did not require editing every construction site — the same
+     * discipline {@link #EffectiveTestPlan(TestPlanId, ProjectId, String, String, TestIntent, String,
+     * String, TestType, WorkloadModel, LoadLevel, List, List, List, WorkloadSource, ThresholdSet,
+     * String, EnvironmentType, TargetUrl, TargetUrl, String, DependencyMode, TestClassification, Map,
+     * Map, RunnerKind, ScriptSource, List, PlanFingerprint)} already follows for validity policy.
+     */
+    public EffectiveTestPlan(
+            TestPlanId id,
+            ProjectId projectId,
+            String projectName,
+            String serviceVersion,
+            TestIntent intent,
+            String workloadName,
+            String workloadDescription,
+            TestType testType,
+            WorkloadModel workloadModel,
+            LoadLevel peakLevel,
+            List<Stage> stages,
+            List<PlannedOperation> operations,
+            List<PlannedDataset> datasets,
+            WorkloadSource workloadSource,
+            ThresholdSet thresholds,
+            String environmentName,
+            EnvironmentType environmentType,
+            ExecutionTarget executionTarget,
+            TargetUrl configuredTarget,
+            TargetUrl effectiveTarget,
+            String targetRewriteReason,
+            DependencyMode dependencyMode,
+            TestClassification classification,
+            Map<String, String> headers,
+            Map<String, String> k6Options,
+            RunnerKind runner,
+            ScriptSource scriptSource,
+            List<SafetyDecision> safetyDecisions,
+            PlanFingerprint fingerprint,
+            ValidityPolicy validityPolicy,
+            String workspacePath) {
+        this(id, projectId, projectName, serviceVersion, intent, workloadName, workloadDescription,
+                testType, workloadModel, peakLevel, stages, operations, datasets, workloadSource,
+                thresholds, environmentName, environmentType, executionTarget, configuredTarget,
+                effectiveTarget, targetRewriteReason, dependencyMode, classification, headers,
+                k6Options, runner, scriptSource, safetyDecisions, fingerprint, validityPolicy,
+                workspacePath, ThresholdSetProvenance.empty());
     }
 
     /**
@@ -228,7 +285,17 @@ public record EffectiveTestPlan(
                 newDatasets, workloadSource, thresholds, environmentName, environmentType,
                 executionTarget, configuredTarget, effectiveTarget, targetRewriteReason,
                 dependencyMode, classification, headers, k6Options, runner, scriptSource,
-                safetyDecisions, fingerprint, validityPolicy, workspacePath);
+                safetyDecisions, fingerprint, validityPolicy, workspacePath, thresholdProvenance);
+    }
+
+    /** Returns a copy carrying the given threshold provenance — the evidence behind {@link #thresholds()}. */
+    public EffectiveTestPlan withThresholdProvenance(ThresholdSetProvenance newThresholdProvenance) {
+        return new EffectiveTestPlan(id, projectId, projectName, serviceVersion, intent, workloadName,
+                workloadDescription, testType, workloadModel, peakLevel, stages, operations,
+                datasets, workloadSource, thresholds, environmentName, environmentType,
+                executionTarget, configuredTarget, effectiveTarget, targetRewriteReason,
+                dependencyMode, classification, headers, k6Options, runner, scriptSource,
+                safetyDecisions, fingerprint, validityPolicy, workspacePath, newThresholdProvenance);
     }
 
     /** The dataset a request value names, or empty when the plan does not carry it. */

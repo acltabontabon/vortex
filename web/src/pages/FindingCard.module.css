@@ -1,0 +1,46 @@
+/* One evidence card per finding — a plain bordered row that opens to show what was actually read,
+ * never a whole file. Mirrors the disclosure toggle already established in NewServicePage.module.css
+ * (chevron rotates open, no colour change beyond that) so a discovery finding reads as the same kind
+ * of "here's the proof" affordance as the rest of onboarding. */
+.card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--mantine-radius-sm);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+}
+
+.chevron {
+  transition: transform 150ms ease-out;
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px 10px 31px;
+  font-family: var(--mantine-font-family-monospace);
+}
+
+.evidenceLine {
+  font-family: var(--mantine-font-family-monospace);
+}

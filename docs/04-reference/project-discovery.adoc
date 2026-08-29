@@ -1,0 +1,158 @@
+= Project Discovery
+:toc:
+:toclevels: 3
+
+How Vortex inspects a project directory you point it at, what it can propose from what it finds, and
+the guarantees that make that safe: nothing is ever applied without review, and no project file is
+ever modified. See xref:../adr/adr-063-project-discovery-is-synchronous-and-stateless.adoc[ADR-063]
+for the architectural decisions behind this design.
+
+'''
+
+== The rule
+
+Detect. Understand. Propose. Let the developer decide. A scan produces a proposal — a `DiscoveryProposal`
+of findings, confidence and evidence — and nothing about a project's configuration changes until that
+proposal is explicitly reviewed and applied. Vortex never modifies a project's own files, never reads
+a real `.env`, and never silently overwrites a service's already-saved configuration.
+
+== Entry points
+
+* *Adding a service*: on the "Add service" page, once a repository path resolves to a writable
+  directory with no existing `vortex.yaml`, an *Inspect project* action appears. Approving a
+  proposal there does not call an API on its own — it is folded into the same "create service" submit
+  that already handles a typed OpenAPI URL, so creating a service is still one act.
+* *An existing service*: "Discover from project" in the service's setup pipeline re-scans that
+  service's own project directory and lets you selectively apply anything new or changed. This is
+  also how re-discovery works — scanning again is the entire mechanism; nothing about a previous scan
+  is cached to diff against.
+
+== What gets inspected
+
+Project Discovery probes a fixed, small set of well-known file names and locations — never a
+recursive walk of the whole repository:
+
+[cols="1,2", options="header"]
+|===
+| Category | Locations probed
+
+| Build tool
+| `pom.xml` (repository root only)
+
+| Spring Boot configuration
+| `src/main/resources/application.{yml,yaml,properties}` and its `-local`/`-dev`/`-test`/`-prod`/
+  `-production` profile variants, in the same directory
+
+| Docker Compose
+| `compose.yaml`, `compose.yml`, `docker-compose.yml`, `docker-compose.yaml`, under the repository
+  root, `infra/`, or `deploy/`
+
+| Dockerfile
+| `Dockerfile` under the repository root, `docker/`, or `deploy/`
+
+| OpenAPI description
+| `{openapi,swagger,api-docs}.{yaml,yml,json}` under the repository root, `src/main/resources/`,
+  `src/main/resources/openapi/`, or `docs/`
+
+| Environment template
+| `.env.example`, `.env.template`, `.env.sample` (repository root only) — never `.env` itself
+|===
+
+Every candidate is confined to the selected project root (a symlink resolving outside it is refused,
+not followed), capped at 2 MiB, and decoded with a strict UTF-8 decoder that rejects a binary file
+rather than reading it as mangled text. A file that fails any of these checks is skipped and reported
+as a plain-language warning — one bad or oversized file never stops the rest of the scan from
+completing.
+
+=== Explicitly out of scope
+
+Gradle build files, Helm charts and Kubernetes manifests, and README-derived signals are not
+inspected in this version — a documented gap, not a silent one. There is also no AI involvement of
+any kind in detection: every finding above is the product of deterministic parsing (the JDK's own XML
+parser for Maven, Jackson's YAML support for Compose and Spring configuration, the existing OpenAPI
+importer for API descriptions), the same rule the rest of Vortex holds itself to — never ask a model
+to determine something structured parsing already can.
+
+== Confidence
+
+Every finding carries one of three levels, deliberately not a numeric percentage — there is no
+statistical model behind detection to give a number like `93.72%` real meaning.
+
+[cols="1,3", options="header"]
+|===
+| Level | What it means
+
+| High
+| An explicit, structural, unambiguous declaration — a dependency `<artifactId>` in `pom.xml`, an
+  `image:` tag inside a Compose `services:` block, a document Vortex could actually parse as OpenAPI.
+
+| Medium
+| A plausible but indirect signal, or one of several similarly likely candidates — a
+  `jdbc:postgresql:` URL with no matching Compose service, a `Dockerfile` with no `EXPOSE`.
+
+| Low
+| A naming or heuristic guess, or a candidate Vortex could only partially confirm — an OpenAPI
+  candidate file that failed to parse, for instance.
+|===
+
+A low-confidence finding is never turned into a proposed, checked-by-default selection.
+
+== What becomes a proposal, and what stays informational
+
+Not every finding becomes something you can apply. Discovery asks, for each one: is this useful for
+preparing or interpreting a performance experiment, or just noise? Concretely:
+
+* *An execution target* is proposed only when exactly one Compose service looks like the application
+  itself (it has a `build:` key) *and* its container port could be resolved — from that service's own
+  `ports:` entry first, its own `Dockerfile`'s `EXPOSE` as a fallback. Two ambiguous candidates, or
+  none, means no target is proposed — just an explanatory finding.
+* *A Local Lab file* — the project's own Compose file, linked so `Local dependencies` can start it —
+  is proposed only when every detected dependency (Postgres, Redis, Kafka, WireMock) traces back to
+  the same single Compose file. Dependencies split across more than one file are still reported as
+  findings, individually, but Discovery does not guess which file to link.
+* *An OpenAPI description* is proposed only for a candidate file that Vortex's existing importer could
+  actually parse — reusing the same parser `import` and `preview` already use, never a second parser.
+  A parse failure downgrades that candidate to a low-confidence finding rather than a proposal.
+* *Dependencies* (Postgres, Redis, Kafka, WireMock) are always informational findings with evidence,
+  never a field you individually toggle. Vortex's Local Lab setting already models exactly one thing —
+  a reference to the project's own Compose file — by design (see
+  xref:../02-architecture/architecture.adoc[Architecture], Local dependency execution); Discovery
+  respects that rather than inventing a new per-dependency concept.
+* *Observability* (Actuator, Prometheus) is always informational. A monitoring system's address is
+  infrastructure knowledge no git repository states, so Discovery never proposes an observation
+  source — only that the service looks instrumented. Configuring where that data actually comes from
+  stays a Settings/Configuration act, unchanged by this feature.
+
+== Conflicts
+
+When a discovered value disagrees with what a service already has saved — a different OpenAPI file,
+a different execution target, a different Local Lab file — Discovery surfaces the disagreement rather
+than picking a side. The reviewer sees both the existing and discovered description, and the checkbox
+for that field starts **unchecked**: keeping what is already saved is always the safer default, never
+"discovered wins."
+
+== Secret handling
+
+* A real `.env` file is never a candidate this feature reads, under any circumstance — only
+  `.env.example`/`.env.template`/`.env.sample` are probed.
+* Even inside a template file, only variable *names* are ever read. A value on the right-hand side of
+  `KEY=value` is discarded unconditionally, whether or not it looks like a placeholder — Discovery
+  does not attempt to distinguish `KEY=changeme` from `KEY=sk-liveKeyPastedByMistake`, because a
+  developer's template can carry a real secret by accident and the only safe rule is to never look.
+* Every detector is enforced, by an ArchUnit rule, to depend on neither `ConfigurationStore` nor the
+  project repositories — a detector has no code path that could persist anything on its own, whatever
+  it reads.
+
+== Applying a proposal
+
+Applying reuses the same write paths a manual edit through Configuration already takes — importing an
+OpenAPI description calls the same importer `POST .../import` does; adding an execution target or a
+Local Lab file builds the same `Environment`/`LocalLabSettings` objects `ConfigurationApiController`
+already constructs. There is no separate, parallel persistence path for a discovered value once it is
+approved.
+
+Nothing is cached between scan and apply. The scan endpoint (`POST /api/services/discovery-scan` for
+onboarding, `POST /api/services/{id}/discovery/scan` for an existing service) is a pure read; applying
+(`POST /api/services/{id}/discovery/apply`, or the extra fields on `POST /api/services` at creation
+time) re-sends exactly the values the scan returned. Re-scanning is calling the scan endpoint again —
+there is no session id, no server-side proposal to expire or reconcile.

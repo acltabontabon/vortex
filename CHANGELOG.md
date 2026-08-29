@@ -8,42 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Hardened Prometheus Production Reality support, proven end to end against a real Prometheus, not
-  only fixtures: peak and p95 throughput now come from `query_range` sample sets instead of a
-  Prometheus-only subquery, so a bad sample (NaN/±Inf) can never silently become a zero and the
-  approach stays portable to other Prometheus-compatible backends. A connection test now reports a
-  classified state — connected, connected with no data, authentication failed, unreachable, or
-  invalid response — instead of a bare pass/fail, both in the API and in the settings UI. Prometheus
-  label names (service/route/method) are now overridable from the settings UI's Advanced section for
-  services that don't publish Micrometer's default label names. *Test connection* additionally
-  reports a real p95 latency figure via `histogram_quantile` when the service publishes histogram
-  buckets — diagnostic only, never persisted, never used for calibration (see ADR-061). A new
-  `examples/demo-service/docker-compose.yml` stack (`make demo-stack-up`) pairs the demo service,
-  now instrumented with `micrometer-registry-prometheus`, with a real pinned Prometheus container and
-  a traffic-generation script, so the whole pipeline is runnable locally with one command. See
-  `docs/04-reference/prometheus-production-reality.adoc` and ADR-061.
+- Setting objectives (Configuration → Expectations) is no longer guesswork: type a p95/p99 latency or
+  error-rate value and instantly see how it compares to your service's tested baseline ("52% stricter
+  than your baseline"), plus a warning if it's unrealistically strict or too loose to catch a real
+  regression. Click the small info icon next to a field for a couple of suggested starting points,
+  each showing exactly which run it came from. Typing a value by hand still works exactly as before —
+  this only adds context, it never picks a number for you.
+- Project Discovery: point Vortex at a project directory (*Inspect project* when adding a service, or
+  *Discover from project* on an existing one) and it proposes operations, environments and objectives
+  by reading your `pom.xml`, Spring config, Compose file, OpenAPI description and Dockerfile — with
+  evidence for every suggestion, and nothing applied until you review and approve it.
+- A new "Prometheus defaults" card in Settings: set an endpoint, window and headers once, and every
+  new service's Prometheus source prefills from it instead of retyping the same values each time. It
+  never overrides a service that's already configured its own source.
+- Production traffic fetched from Prometheus is now more reliable — peak and p95 figures can no
+  longer silently read as zero on a bad sample, and testing a connection reports exactly what went
+  wrong (unreachable, no data, bad credentials, bad response) instead of a bare pass/fail. Prometheus
+  label names are also overridable in Settings for services that don't use the defaults.
 
 ### Changed
 
-- The guided setup pipeline's "Import OpenAPI", "Add a target", "Set objectives" and "Record
-  production traffic" steps now each open a scoped drawer — just the form each one needs — instead
-  of navigating to the full Configuration page. "Describe a workload" still goes to its own page;
-  its composer is a page-sized form, not a quick-add one. The paste tab's textarea (both in the new
-  Import drawer and on the Configuration page's own Operations section) is now much larger and
-  monospace, so pasting a full OpenAPI document is actually usable.
-- Production traffic recorded is no longer optional — a service cannot be presented as ready for an
-  experiment without a recorded figure, manual or observed. It still never blocks a test from
-  running, and a rough ballpark estimate satisfies it exactly as well as a live observation source,
-  including for a service that isn't in production yet. See ADR-060.
-
-### Fixed
-
-- `./mvnw ... package`/`spring-boot:run` no longer prints `EBADENGINE` warnings during the frontend
-  build — the Node version the build downloads for itself (independent of whatever Node is on the
-  host) is bumped to the latest 22.x LTS release, which is what `jsdom`/`undici` now require.
-- The Vite production bundle no longer warns about chunk size on every build — the SPA is
-  intentionally one file (see `vite.config.ts`), so the warning threshold now reflects that instead
-  of nagging about a tradeoff already made on purpose.
+- Import OpenAPI, Add a target, Set objectives and Record production traffic now open as a quick side
+  panel instead of taking you to the full Configuration page. Pasting an OpenAPI document is also
+  easier — the paste box is bigger and easier to read.
+- A service now needs a recorded production traffic figure — a real observation or just a rough
+  manual estimate — before it's considered ready to test. This still never blocks you from actually
+  running a test.
 
 ## [0.1.0-alpha.21] - 2026-08-28
 

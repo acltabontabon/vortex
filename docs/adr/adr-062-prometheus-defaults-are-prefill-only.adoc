@@ -1,0 +1,64 @@
+= ADR-062: Prometheus defaults are prefill-only, not a shared connection
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+Dynatrace has a global Settings-page card — endpoint, default window, organization — that every
+service whose `observation.transport` is `mcp` shares. Once Prometheus's per-service Production
+Reality support was hardened (ADR-061), the natural next question was whether it should get the same
+treatment.
+
+It doesn't hold up structurally. Dynatrace's global card exists because its MCP transport needs one
+shared local bridge process and one shared cached OAuth session per machine — a hard technical
+constraint (ADR-049 through ADR-052, ADR-054). An MCP-transport `ObservationSource` carries no
+endpoint or headers of its own at all; `ObservationSource`'s own compact constructor forbids it,
+because "an MCP-transport Dynatrace source takes no endpoint of its own — configure the shared
+connection under Settings instead." Plain REST-mode Dynatrace has no Settings presence whatsoever,
+and is configured entirely per-service — identically to how Prometheus already works. There is no
+transport-level reason forcing a shared Prometheus connection into existence.
+
+What is real: several services in one installation often share one Prometheus. Typing the same
+endpoint, auth header and label overrides into every service's Configuration page separately is
+genuine, avoidable repetition — a UX problem, not an architectural one.
+
+== Decision
+
+Settings gets a "Prometheus defaults" card, but it is not a connection: `VortexProperties
+.PrometheusDefaults` / `PrometheusDefaultsSettings` is a plain configuration record with no runtime
+role. `PrometheusObservationSource.retrieve`/`verify` never read it, and no `ObservationSource` ever
+implicitly resolves through it. It is read exactly once — when a brand-new (never-saved) service's
+Prometheus observation-source form mounts — to seed that form's initial endpoint, window, headers and
+label overrides. A service that already has a source configured is never touched by it, and the
+prefilled values are saved into that service's own `vortex.yaml` exactly as if they had been typed by
+hand; nothing about the file format or persistence model changes.
+
+A default header value must be blank or a pure `${NAME}` reference, never a literal or a value mixed
+with other text — enforced on save. This isn't the general secret-hygiene rule tightened for its own
+sake: `SettingsApiController` masks defaults headers for display exactly like every other secret in
+Vortex, and the frontend prefills a brand-new service's header rows directly from that masked map. A
+literal or mixed value would be masked, and an untouched prefilled row would then silently save the
+mask string itself as that service's real header value. Requiring purity makes the mask a guaranteed
+no-op on every defaults header, so prefill is unconditionally safe.
+
+Settings-level *Test connection* for Prometheus defaults is not the same check
+`PrometheusObservationSource.verify` performs — it names no service (a default doesn't have one), so
+it can only prove reachability and credentials, via one instant `vector(1)` query. It is deliberately
+a single-stage check, not Dynatrace MCP's three-stage report: a Prometheus HTTP endpoint has exactly
+one thing that can be wrong at this level, where Dynatrace MCP genuinely has three (a local bridge
+process, tool discovery, organization resolution).
+
+== Consequences
+
+Several services pointed at one Prometheus need the endpoint, auth header and label overrides typed
+once, not per service — without inventing a new kind of connection or a new failure mode a service's
+`vortex.yaml` has to account for. The "Enabled" concept Dynatrace MCP's card has is dropped entirely:
+there is nothing to enable or disable, only something to have typed in or not, so `configured` is a
+derived `!endpoint.isBlank()`, not a stored flag.
+
+The cost is a small, known gap: the Settings query is fetched when the Configure-source panel mounts,
+not from page load, so a user who opens a brand-new service's form before that fetch resolves gets no
+prefill for that one open — fields simply start blank, exactly like the existing Dynatrace-MCP
+`enabled` flag already tolerates today. Not worth engineering around for a convenience feature.

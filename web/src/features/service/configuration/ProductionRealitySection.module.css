@@ -18,9 +18,9 @@
   color: var(--mantine-color-dimmed);
 }
 
-/* The two secondary, occasional actions (record a number by hand, change where traffic comes
-   from) read as administrative next to "Fetch"/"Create proposed tests" — small and dimmed until
-   touched, so the eye lands on the primary actions first. */
+/* Secondary, occasional actions (change where traffic comes from, show the label-name overrides)
+   read as administrative next to "Fetch"/"Create proposed tests" — small and dimmed until touched,
+   so the eye lands on the primary actions first. */
 .manageAction {
   color: var(--mantine-color-dimmed);
 }
@@ -28,14 +28,4 @@
 .manageAction:hover,
 .manageAction:focus-visible {
   color: var(--mantine-color-text);
-}
-
-/* Ties an expanded manage panel visually to the row of toggles that opened it, instead of the
-   panel's fields just continuing the page's normal flow with nothing marking where they came from. */
-.managePanel {
-  margin-top: var(--mantine-spacing-xs);
-  padding: var(--mantine-spacing-md);
-  border: 1px solid var(--mantine-color-default-border);
-  border-radius: var(--mantine-radius-md);
-  background: var(--mantine-color-default-hover);
 }

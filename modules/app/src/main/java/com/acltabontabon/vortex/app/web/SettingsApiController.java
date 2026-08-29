@@ -3,14 +3,19 @@ package com.acltabontabon.vortex.app.web;
 import com.acltabontabon.vortex.ai.AiSettings;
 import com.acltabontabon.vortex.ai.OllamaAvailability;
 import com.acltabontabon.vortex.app.VortexProperties;
+import com.acltabontabon.vortex.app.adapter.observation.PrometheusDefaultsConnectionTest;
 import com.acltabontabon.vortex.app.config.AiModelPreferenceStore;
 import com.acltabontabon.vortex.app.config.DynatraceMcpPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetSettings;
+import com.acltabontabon.vortex.app.config.PrometheusDefaultsPreferenceStore;
+import com.acltabontabon.vortex.app.config.PrometheusDefaultsSettings;
 import com.acltabontabon.vortex.app.service.LocalLabRunner;
+import com.acltabontabon.vortex.core.environment.SecretReferences;
 import com.acltabontabon.vortex.core.evidence.HostShape;
 import com.acltabontabon.vortex.core.port.PerformanceAssistant;
 import com.acltabontabon.vortex.core.port.PerformanceEngine;
+import com.acltabontabon.vortex.core.port.ProductionObservationSource.NotRetrieved;
 import com.acltabontabon.vortex.core.resource.LoadGeneratorResourceBudget;
 import com.acltabontabon.vortex.core.resource.LoadGeneratorResourceBudgetResolver;
 import com.acltabontabon.vortex.core.resource.ResolvedLoadGeneratorBudget;
@@ -24,8 +29,10 @@ import com.acltabontabon.vortex.dynatrace.DynatraceMcpConnectionTest;
 import com.acltabontabon.vortex.dynatrace.DynatraceMcpSettings;
 import com.acltabontabon.vortex.persistence.VortexWorkspace;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -63,6 +70,9 @@ public class SettingsApiController {
     private final DynatraceMcpAvailability dynatraceMcpAvailability;
     private final DynatraceMcpClientFactory dynatraceMcpClients;
     private final DynatraceMcpConnectionTest dynatraceMcpConnectionTest;
+    private final PrometheusDefaultsSettings prometheusDefaultsSettings;
+    private final PrometheusDefaultsPreferenceStore prometheusDefaultsPreferences;
+    private final PrometheusDefaultsConnectionTest prometheusDefaultsConnectionTest;
 
     public SettingsApiController(VortexProperties properties, PerformanceEngine engine,
             PerformanceAssistant assistant, OllamaAvailability ollama, AiSettings aiSettings,
@@ -72,7 +82,10 @@ public class SettingsApiController {
             LoadGeneratorResourceBudgetResolver loadGeneratorResourceBudgetResolver,
             DynatraceMcpSettings dynatraceMcpSettings, DynatraceMcpPreferenceStore dynatraceMcpPreferences,
             DynatraceMcpAvailability dynatraceMcpAvailability, DynatraceMcpClientFactory dynatraceMcpClients,
-            DynatraceMcpConnectionTest dynatraceMcpConnectionTest) {
+            DynatraceMcpConnectionTest dynatraceMcpConnectionTest,
+            PrometheusDefaultsSettings prometheusDefaultsSettings,
+            PrometheusDefaultsPreferenceStore prometheusDefaultsPreferences,
+            PrometheusDefaultsConnectionTest prometheusDefaultsConnectionTest) {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.engine = Objects.requireNonNull(engine, "engine");
         this.assistant = Objects.requireNonNull(assistant, "assistant");
@@ -95,6 +108,12 @@ public class SettingsApiController {
         this.dynatraceMcpClients = Objects.requireNonNull(dynatraceMcpClients, "dynatraceMcpClients");
         this.dynatraceMcpConnectionTest =
                 Objects.requireNonNull(dynatraceMcpConnectionTest, "dynatraceMcpConnectionTest");
+        this.prometheusDefaultsSettings =
+                Objects.requireNonNull(prometheusDefaultsSettings, "prometheusDefaultsSettings");
+        this.prometheusDefaultsPreferences =
+                Objects.requireNonNull(prometheusDefaultsPreferences, "prometheusDefaultsPreferences");
+        this.prometheusDefaultsConnectionTest =
+                Objects.requireNonNull(prometheusDefaultsConnectionTest, "prometheusDefaultsConnectionTest");
     }
 
     public record EngineSettingsDto(boolean usesDocker, String runner, String executable,
@@ -115,12 +134,18 @@ public class SettingsApiController {
             EngineAvailabilityDto engineAvailability, AiSettingsDto aiSettings,
             AiAvailabilityDto aiAvailability, List<String> installedModels, LabStatusDto labStatus,
             String workspacePath, LoadGeneratorSettingsDto loadGenerator,
-            DynatraceMcpSettingsDto dynatraceMcp, DynatraceMcpAvailabilityDto dynatraceMcpAvailability) {}
+            DynatraceMcpSettingsDto dynatraceMcp, DynatraceMcpAvailabilityDto dynatraceMcpAvailability,
+            PrometheusDefaultsDto prometheusDefaults) {}
 
     public record DynatraceMcpSettingsDto(boolean enabled, String endpoint, String defaultWindowDisplay,
             String organization) {}
 
     public record DynatraceMcpAvailabilityDto(boolean available, String problem, String remedy) {}
+
+    /** {@code configured} is derived ({@code !endpoint.isBlank()}) — there is nothing to enable or
+     *  disable here, only something to have typed in or not. */
+    public record PrometheusDefaultsDto(String endpoint, String windowDisplay, Map<String, String> headers,
+            String serviceLabel, String routeLabel, String methodLabel, boolean configured) {}
 
     /** As saved — {@code cpuMillicores}/{@code memoryMebibytes} are only meaningful when
      *  {@code mode} is {@code "custom"}. */
@@ -160,7 +185,8 @@ public class SettingsApiController {
                 workspace.root().toString(),
                 loadGeneratorSettings(),
                 toDto(dynatraceMcpSettings),
-                toDto(dynatraceMcpAvailability.check()));
+                toDto(dynatraceMcpAvailability.check()),
+                toDto(prometheusDefaultsSettings));
     }
 
     private DynatraceMcpSettingsDto toDto(DynatraceMcpSettings settings) {
@@ -171,6 +197,14 @@ public class SettingsApiController {
     private DynatraceMcpAvailabilityDto toDto(DynatraceMcpAvailability.Availability availability) {
         return new DynatraceMcpAvailabilityDto(availability.available(), availability.problem(),
                 availability.remedy());
+    }
+
+    private PrometheusDefaultsDto toDto(PrometheusDefaultsSettings settings) {
+        var d = settings.current();
+        Map<String, String> masked = new LinkedHashMap<>();
+        d.headers().forEach((k, v) -> masked.put(k, SecretReferences.mask(v)));
+        return new PrometheusDefaultsDto(d.endpoint(), Durations.display(d.window()), masked,
+                d.serviceLabel(), d.routeLabel(), d.methodLabel(), d.configured());
     }
 
     public record RetryAiResponse(AiAvailabilityDto availability, String message,
@@ -402,6 +436,124 @@ public class SettingsApiController {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "'" + display + "' is not a period Vortex understands, e.g. 30d.", e);
+        }
+    }
+
+    // ==================================================================== Prometheus defaults
+
+    public record SavePrometheusDefaultsRequest(String endpoint, String window, List<String> headerName,
+            List<String> headerValue, String serviceLabel, String routeLabel, String methodLabel) {}
+
+    public record SavePrometheusDefaultsResponse(String message) {}
+
+    /**
+     * Saves what prefills a brand-new service's Prometheus observation source, effective
+     * immediately, and writes it to {@code ~/.vortex/config.yaml} so it survives a restart — the same
+     * pattern as {@link #saveDynatraceMcp}. Unlike a per-service source, a blank endpoint is a valid
+     * save: it simply means no default is set.
+     */
+    @PostMapping("/prometheus-defaults")
+    public SavePrometheusDefaultsResponse savePrometheusDefaults(
+            @RequestBody SavePrometheusDefaultsRequest request) {
+        try {
+            String endpoint = request.endpoint() == null ? "" : request.endpoint().trim();
+            if (!endpoint.isBlank() && !endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                throw new IllegalArgumentException(
+                        "the Prometheus defaults endpoint must be an absolute http or https URL, or blank");
+            }
+            Duration window = parseWindow(request.window());
+            Map<String, String> headers = headersFrom(request.headerName(), request.headerValue());
+            rejectLiteralSecrets(headers);
+
+            var defaults = new VortexProperties.PrometheusDefaults(endpoint, window, headers,
+                    request.serviceLabel(), request.routeLabel(), request.methodLabel());
+            prometheusDefaultsSettings.reconfigure(defaults);
+            prometheusDefaultsPreferences.save(defaults.endpoint(), Durations.display(window), headers,
+                    defaults.serviceLabel(), defaults.routeLabel(), defaults.methodLabel());
+            return new SavePrometheusDefaultsResponse(defaults.configured()
+                    ? "Saved. A brand-new Prometheus observation source will prefill from this — it "
+                            + "never overrides a service that already has one configured."
+                    : "Saved. No default endpoint is set, so new Prometheus sources start blank.");
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    public record TestPrometheusDefaultsResponse(boolean succeeded, String state, String message) {}
+
+    /**
+     * Tests what is in the form, not what has been saved — the same contract every other Test
+     * connection button in Vortex already has. Asks nothing about any one service: a Prometheus
+     * default names no service, so this only proves the endpoint is reachable and authenticates.
+     */
+    @PostMapping("/prometheus-defaults/test")
+    public TestPrometheusDefaultsResponse testPrometheusDefaults(
+            @RequestBody SavePrometheusDefaultsRequest request) {
+        String endpoint = request.endpoint() == null ? "" : request.endpoint().trim();
+        if (endpoint.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Enter the Prometheus endpoint before testing the connection.");
+        }
+        Map<String, String> headers = headersFrom(request.headerName(), request.headerValue());
+        var result = prometheusDefaultsConnectionTest.test(endpoint, headers);
+        return switch (result) {
+            case PrometheusDefaultsConnectionTest.Connected ignored ->
+                    new TestPrometheusDefaultsResponse(true, "CONNECTED", "Connected to " + endpoint + ".");
+            case PrometheusDefaultsConnectionTest.Failed failed ->
+                    new TestPrometheusDefaultsResponse(false, connectionState(failed.kind()), failed.message());
+        };
+    }
+
+    /** Same wire vocabulary {@code ConfigurationApiController.connectionState} already established.
+     *  {@code CONNECTED_NO_DATA} never applies here — there is no per-service data question at this
+     *  level, only reachability and credentials. */
+    private String connectionState(NotRetrieved.Kind kind) {
+        if (kind == null) {
+            return null;
+        }
+        return switch (kind) {
+            case UNREACHABLE -> "UNREACHABLE";
+            case AUTHENTICATION_FAILED -> "AUTHENTICATION_FAILED";
+            case INVALID_RESPONSE, NO_DATA -> "INVALID_RESPONSE";
+        };
+    }
+
+    private Map<String, String> headersFrom(List<String> names, List<String> values) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (names == null) {
+            return headers;
+        }
+        for (int i = 0; i < names.size(); i++) {
+            String name = names.get(i);
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            String value = values != null && i < values.size() ? values.get(i) : "";
+            headers.put(name, value == null ? "" : value);
+        }
+        return headers;
+    }
+
+    /**
+     * A default header value must be blank or a pure {@code ${NAME}} reference, never a literal — a
+     * value that round-trips unchanged through {@link SecretReferences#mask} is one of those two;
+     * anything else was a literal. This matters specifically because the Settings response masks
+     * these same headers for display, and the frontend prefills a brand-new service's header rows
+     * directly from that masked map — a literal here would otherwise let an untouched prefilled row
+     * silently save the mask string itself as that new service's real header value.
+     */
+    private void rejectLiteralSecrets(Map<String, String> headers) {
+        for (var entry : headers.entrySet()) {
+            String value = entry.getValue();
+            if (value != null && !value.isBlank() && !SecretReferences.mask(value).equals(value)) {
+                throw new IllegalArgumentException("the value for header '" + entry.getKey()
+                        + "' must be blank or entirely a single ${NAME} reference, e.g. '${PROM_TOKEN}' "
+                        + "— not mixed with other text such as a 'Bearer ' prefix, and never a literal "
+                        + "secret. Put the whole header value, prefix included, in the environment "
+                        + "variable itself. Prometheus defaults are prefilled into every new service's "
+                        + "form as-is, so anything less than a pure reference here cannot be shown back "
+                        + "safely and would risk being saved as a literal.");
+            }
         }
     }
 }

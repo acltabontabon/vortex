@@ -96,6 +96,21 @@ export interface DynatraceMcpAvailability {
   remedy: string;
 }
 
+/**
+ * What prefills a brand-new service's Prometheus observation source — never a connection Vortex
+ * itself queries, and never overrides a service that already has a source configured. `configured`
+ * is derived (`!endpoint === ''`) — there is nothing to enable or disable here.
+ */
+export interface PrometheusDefaults {
+  endpoint: string;
+  windowDisplay: string;
+  headers: Record<string, string>;
+  serviceLabel: string;
+  routeLabel: string;
+  methodLabel: string;
+  configured: boolean;
+}
+
 export interface Settings {
   vortexVersion: string;
   engine: EngineSettings;
@@ -108,6 +123,7 @@ export interface Settings {
   loadGenerator: LoadGeneratorSettings;
   dynatraceMcp: DynatraceMcpSettings;
   dynatraceMcpAvailability: DynatraceMcpAvailability;
+  prometheusDefaults: PrometheusDefaults;
 }
 
 export function useSettingsQuery() {
@@ -201,6 +217,45 @@ export function useTestDynatraceMcpMutation() {
   return useMutation({
     mutationFn: (request: SaveDynatraceMcpRequest) =>
       apiClient.post<TestDynatraceMcpResponse>('/api/settings/dynatrace-mcp/test', request),
+  });
+}
+
+export interface SavePrometheusDefaultsRequest {
+  endpoint: string;
+  window: string;
+  headerName?: string[];
+  headerValue?: string[];
+  serviceLabel?: string;
+  routeLabel?: string;
+  methodLabel?: string;
+}
+
+export interface SavePrometheusDefaultsResponse {
+  message: string;
+}
+
+export function useSavePrometheusDefaultsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: SavePrometheusDefaultsRequest) =>
+      apiClient.post<SavePrometheusDefaultsResponse>('/api/settings/prometheus-defaults', request),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+  });
+}
+
+/** `state` is one of `CONNECTED`, `AUTHENTICATION_FAILED`, `UNREACHABLE`, `INVALID_RESPONSE`, or
+ *  `null` for a pre-flight refusal that never reached a connection at all. */
+export interface TestPrometheusDefaultsResponse {
+  succeeded: boolean;
+  state: string | null;
+  message: string;
+}
+
+/** Tests what is in the form, not what has been saved — never invalidates the settings query. */
+export function useTestPrometheusDefaultsMutation() {
+  return useMutation({
+    mutationFn: (request: SavePrometheusDefaultsRequest) =>
+      apiClient.post<TestPrometheusDefaultsResponse>('/api/settings/prometheus-defaults/test', request),
   });
 }
 

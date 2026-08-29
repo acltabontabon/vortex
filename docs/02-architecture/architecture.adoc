@@ -641,6 +641,12 @@ committed and read on other people's machines. It is configured in the service's
 *Understand → Reality → Environments*, on the *Local lab* card — which is also where *Start
 dependencies* and *Stop dependencies* live.
 
+xref:../04-reference/project-discovery.adoc[Project Discovery] can find this path for you: when it
+detects known dependency images (PostgreSQL, Redis, Kafka, WireMock) that all trace back to one
+Compose file, it proposes linking that file here — the same setting, filled in from evidence rather
+than typed by hand. It never proposes a per-dependency toggle, only this one path, for the same
+reason stated above: there is exactly one thing to record.
+
 Beside the environment, deliberately. Whether this service's dependencies are up is part of
 whether it can be tested at all, and a user should not have to visit a settings page to find that
 out (xref:../adr/adr-034-the-service-workspace-is-the-product.adoc[ADR-034]).

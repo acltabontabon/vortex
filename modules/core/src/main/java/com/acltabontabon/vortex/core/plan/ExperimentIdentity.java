@@ -129,7 +129,7 @@ public final class ExperimentIdentity {
 
             new Dimension("thresholds",
                     ExperimentIdentity::canonicalThresholds,
-                    (a, b) -> "the objectives being measured against changed"),
+                    ExperimentIdentity::describeThresholdChange),
 
             new Dimension("environment",
                     plan -> plan.environmentName().toLowerCase(java.util.Locale.ROOT),
@@ -414,5 +414,39 @@ public final class ExperimentIdentity {
                         "describe", threshold.describe()))
                 .sorted(Comparator.comparing(Object::toString))
                 .toList();
+    }
+
+    /**
+     * Names which objective changed and how, rather than only that "the objectives changed" — the
+     * same discipline every other dimension here follows. A pass/fail comparison across two runs is
+     * easy to misread when the goalposts moved, so this is deliberately as specific as
+     * {@link #describeStages} or {@link #describeOperations} are about their own dimensions.
+     */
+    private static String describeThresholdChange(EffectiveTestPlan a, EffectiveTestPlan b) {
+        var before = a.thresholds();
+        var after = b.thresholds();
+
+        List<String> changed = new ArrayList<>();
+        for (var threshold : before.thresholds()) {
+            var match = after.byId(threshold.id());
+            if (match.isEmpty()) {
+                changed.add(threshold.describe() + " was removed");
+            } else if (!match.get().describe().equals(threshold.describe())) {
+                changed.add(threshold.describe() + " → " + match.get().describe());
+            }
+        }
+        for (var threshold : after.thresholds()) {
+            if (before.byId(threshold.id()).isEmpty()) {
+                changed.add(threshold.describe() + " was added");
+            }
+        }
+
+        if (changed.isEmpty()) {
+            // The two sets differ in composition equal to canonicalThresholds's own equality check
+            // (e.g. only ordering or an equal-by-content id collision) without a single-threshold
+            // change to name — falls back to the general statement rather than claim nothing changed.
+            return "the objectives being measured against changed";
+        }
+        return "the objectives changed: " + String.join("; ", changed);
     }
 }

@@ -1,0 +1,38 @@
+.scale {
+  display: block;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.track {
+  stroke: var(--mantine-color-default-border);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.label {
+  font-size: 9px;
+  fill: var(--mantine-color-dimmed);
+}
+
+.baseline {
+  fill: var(--mantine-color-neutral-6);
+  stroke: var(--mantine-color-neutral-6);
+}
+
+.production {
+  fill: var(--mantine-color-live-6);
+  stroke: var(--mantine-color-live-6);
+}
+
+.objective {
+  fill: var(--mantine-color-brand-6);
+  stroke: var(--mantine-color-brand-6);
+}
+
+text.objective,
+text.production,
+text.baseline {
+  fill: var(--mantine-color-dimmed);
+  font-weight: 600;
+}

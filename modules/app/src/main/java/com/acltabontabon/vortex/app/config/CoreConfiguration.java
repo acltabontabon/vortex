@@ -18,8 +18,13 @@ import com.acltabontabon.vortex.core.application.EvidenceReferenceValidator;
 import com.acltabontabon.vortex.core.application.ExecutionService;
 import com.acltabontabon.vortex.core.application.PlanResolver;
 import com.acltabontabon.vortex.core.application.PreflightService;
+import com.acltabontabon.vortex.core.application.ProjectDiscoveryService;
 import com.acltabontabon.vortex.core.application.ProjectService;
 import com.acltabontabon.vortex.core.application.RequestDataResolver;
+import com.acltabontabon.vortex.core.discovery.detectors.DockerfileDetector;
+import com.acltabontabon.vortex.core.discovery.detectors.EnvTemplateDetector;
+import com.acltabontabon.vortex.core.discovery.detectors.MavenPomDetector;
+import com.acltabontabon.vortex.core.port.ProjectDetector;
 import com.acltabontabon.vortex.core.application.CalibrationService;
 import com.acltabontabon.vortex.core.calibration.CalibrationPolicy;
 import com.acltabontabon.vortex.core.recommendation.WorkloadRecommender;
@@ -41,6 +46,11 @@ import com.acltabontabon.vortex.core.port.TelemetryCollector;
 import com.acltabontabon.vortex.core.safety.ExecutionPolicy;
 import com.acltabontabon.vortex.core.target.ExternalEndpointTargetExecutor;
 import com.acltabontabon.vortex.core.threshold.ThresholdEvaluator;
+import com.acltabontabon.vortex.core.application.ThresholdHistoryService;
+import com.acltabontabon.vortex.core.application.ThresholdRecommendationService;
+import com.acltabontabon.vortex.core.threshold.recommend.ThresholdRecommendationPolicy;
+import com.acltabontabon.vortex.core.threshold.recommend.ThresholdRecommender;
+import com.acltabontabon.vortex.core.threshold.recommend.ThresholdSanityChecker;
 import com.acltabontabon.vortex.core.workload.RateAllocator;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
@@ -295,5 +305,63 @@ public class CoreConfiguration {
     CapacityService capacityService(Repositories.CapacityObservationRepository observations,
             HeadroomCalculator headroomCalculator, Clock clock) {
         return new CapacityService(observations, headroomCalculator, clock);
+    }
+
+    /**
+     * The Project Discovery detectors that need nothing beyond the JDK — {@code pom.xml} (plain DOM),
+     * a {@code Dockerfile} and an env template (plain text) all qualify. Detectors that need Jackson's
+     * YAML support (Compose, Spring config) are adapters and are wired in {@code DiscoveryConfiguration}
+     * instead, alongside the full {@code List<ProjectDetector>} this bean is assembled from.
+     */
+    @Bean
+    MavenPomDetector mavenPomDetector() {
+        return new MavenPomDetector();
+    }
+
+    @Bean
+    DockerfileDetector dockerfileDetector() {
+        return new DockerfileDetector();
+    }
+
+    @Bean
+    EnvTemplateDetector envTemplateDetector() {
+        return new EnvTemplateDetector();
+    }
+
+    @Bean
+    ProjectDiscoveryService projectDiscoveryService(List<ProjectDetector> detectors,
+            CatalogImportService catalogs) {
+        return new ProjectDiscoveryService(detectors, catalogs);
+    }
+
+    @Bean
+    ThresholdRecommendationPolicy thresholdRecommendationPolicy() {
+        return new ThresholdRecommendationPolicy();
+    }
+
+    @Bean
+    ThresholdRecommender thresholdRecommender(ThresholdRecommendationPolicy policy) {
+        return new ThresholdRecommender(policy);
+    }
+
+    @Bean
+    ThresholdSanityChecker thresholdSanityChecker() {
+        return new ThresholdSanityChecker();
+    }
+
+    /**
+     * Assembles the production and baseline evidence a threshold recommendation reasons over. Reads
+     * the project's already-saved production observation rather than fetching live — see the class
+     * Javadoc for why.
+     */
+    @Bean
+    ThresholdRecommendationService thresholdRecommendationService(
+            Repositories.ExecutionRepository executions, Clock clock) {
+        return new ThresholdRecommendationService(executions, clock);
+    }
+
+    @Bean
+    ThresholdHistoryService thresholdHistoryService(Repositories.ExecutionRepository executions) {
+        return new ThresholdHistoryService(executions);
     }
 }

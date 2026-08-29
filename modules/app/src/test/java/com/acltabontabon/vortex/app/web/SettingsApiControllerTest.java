@@ -13,14 +13,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.acltabontabon.vortex.ai.AiSettings;
 import com.acltabontabon.vortex.ai.OllamaAvailability;
 import com.acltabontabon.vortex.app.VortexProperties;
+import com.acltabontabon.vortex.app.adapter.observation.PrometheusDefaultsConnectionTest;
 import com.acltabontabon.vortex.app.config.AiModelPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetPreferenceStore;
 import com.acltabontabon.vortex.app.config.LoadGeneratorBudgetSettings;
+import com.acltabontabon.vortex.app.config.PrometheusDefaultsPreferenceStore;
+import com.acltabontabon.vortex.app.config.PrometheusDefaultsSettings;
 import com.acltabontabon.vortex.app.service.LocalLabRunner;
 import com.acltabontabon.vortex.core.evidence.HostShape;
 import com.acltabontabon.vortex.core.port.LocalLab;
 import com.acltabontabon.vortex.core.port.PerformanceAssistant;
 import com.acltabontabon.vortex.core.port.PerformanceEngine;
+import com.acltabontabon.vortex.core.port.ProductionObservationSource.NotRetrieved;
 import com.acltabontabon.vortex.core.resource.LoadGeneratorResourceBudget;
 import com.acltabontabon.vortex.core.resource.LoadGeneratorResourceBudgetResolver;
 import com.acltabontabon.vortex.core.resource.ResolvedLoadGeneratorBudget;
@@ -75,6 +79,12 @@ class SettingsApiControllerTest {
         DynatraceMcpSettings dynatraceMcpSettings() {
             return new DynatraceMcpSettings(false, "", null, null);
         }
+
+        @Bean
+        PrometheusDefaultsSettings prometheusDefaultsSettings() {
+            return PrometheusDefaultsSettings.seeded(
+                    new VortexProperties.PrometheusDefaults(null, null, null, null, null, null));
+        }
     }
 
     @Autowired
@@ -88,6 +98,9 @@ class SettingsApiControllerTest {
 
     @Autowired
     private DynatraceMcpSettings dynatraceMcpSettings;
+
+    @Autowired
+    private PrometheusDefaultsSettings prometheusDefaultsSettings;
 
     @MockitoBean
     private VortexProperties properties;
@@ -128,6 +141,12 @@ class SettingsApiControllerTest {
     @MockitoBean
     private DynatraceMcpConnectionTest dynatraceMcpConnectionTest;
 
+    @MockitoBean
+    private PrometheusDefaultsPreferenceStore prometheusDefaultsPreferences;
+
+    @MockitoBean
+    private PrometheusDefaultsConnectionTest prometheusDefaultsConnectionTest;
+
     private static ResolvedLoadGeneratorBudget resolvedAutomaticBudget() {
         return new ResolvedLoadGeneratorBudget(
                 LoadGeneratorResourceBudget.BudgetMode.AUTOMATIC,
@@ -144,6 +163,8 @@ class SettingsApiControllerTest {
     @BeforeEach
     void wiring() {
         dynatraceMcpSettings.reconfigure(false, "", null, "");
+        prometheusDefaultsSettings.reconfigure(
+                new VortexProperties.PrometheusDefaults(null, null, null, null, null, null));
         when(properties.version()).thenReturn("0.1.0-SNAPSHOT");
         when(properties.engine()).thenReturn(
                 new VortexProperties.Engine("local", "k6", "docker", "grafana/k6:1.3.0", true, null));
@@ -184,7 +205,9 @@ class SettingsApiControllerTest {
                 .andExpect(jsonPath("$.loadGenerator.automaticPreview.allocation.cpuMillicores")
                         .value(4000))
                 .andExpect(jsonPath("$.dynatraceMcp.enabled").value(false))
-                .andExpect(jsonPath("$.dynatraceMcpAvailability.available").value(false));
+                .andExpect(jsonPath("$.dynatraceMcpAvailability.available").value(false))
+                .andExpect(jsonPath("$.prometheusDefaults.configured").value(false))
+                .andExpect(jsonPath("$.prometheusDefaults.windowDisplay").value("30d"));
     }
 
     @Test
@@ -404,6 +427,111 @@ class SettingsApiControllerTest {
                                 {"enabled":true,"endpoint":"","defaultWindow":"30d"}
                                 """))
                 .andExpect(status().isBadRequest());
+    }
+
+    // ==================================================================== Prometheus defaults
+
+    @Test
+    void savingPrometheusDefaultsTakesEffectImmediatelyAndPersists() throws Exception {
+        mockMvc.perform(post("/api/settings/prometheus-defaults")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"endpoint":"http://prometheus.internal:9090","window":"14d",
+                                 "serviceLabel":"app"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(
+                        "A brand-new Prometheus observation source will prefill from this")));
+
+        assertThat(prometheusDefaultsSettings.current().endpoint())
+                .isEqualTo("http://prometheus.internal:9090");
+        assertThat(prometheusDefaultsSettings.current().serviceLabel()).isEqualTo("app");
+        verify(prometheusDefaultsPreferences).save("http://prometheus.internal:9090", "14d",
+                java.util.Map.of(), "app", "", "");
+    }
+
+    @Test
+    void savingABlankEndpointClearsTheDefault() throws Exception {
+        mockMvc.perform(post("/api/settings/prometheus-defaults")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"endpoint":"","window":"30d"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(
+                        "No default endpoint is set")));
+
+        assertThat(prometheusDefaultsSettings.current().configured()).isFalse();
+    }
+
+    @Test
+    void savingALiteralHeaderValueIsRejected() throws Exception {
+        mockMvc.perform(post("/api/settings/prometheus-defaults")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"endpoint":"http://prometheus.internal:9090","window":"30d",
+                                 "headerName":["Authorization"],"headerValue":["Bearer literal-secret"]}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("Authorization")));
+    }
+
+    @Test
+    void savingAPureReferenceHeaderValueIsAccepted() throws Exception {
+        mockMvc.perform(post("/api/settings/prometheus-defaults")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"endpoint":"http://prometheus.internal:9090","window":"30d",
+                                 "headerName":["Authorization"],"headerValue":["${PROM_AUTH_HEADER}"]}
+                                """))
+                .andExpect(status().isOk());
+
+        assertThat(prometheusDefaultsSettings.current().headers())
+                .containsEntry("Authorization", "${PROM_AUTH_HEADER}");
+    }
+
+    @Test
+    void testingWithABlankPrometheusDefaultsEndpointIsRejectedBeforeCallingTheConnectionTest() throws Exception {
+        mockMvc.perform(post("/api/settings/prometheus-defaults/test")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"endpoint":"","window":"30d"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        org.mockito.Mockito.verifyNoInteractions(prometheusDefaultsConnectionTest);
+    }
+
+    @Test
+    void testingAConnectedPrometheusDefaultsEndpointReportsConnected() throws Exception {
+        when(prometheusDefaultsConnectionTest.test(org.mockito.ArgumentMatchers.eq("http://prometheus.internal:9090"),
+                any())).thenReturn(new PrometheusDefaultsConnectionTest.Connected());
+
+        mockMvc.perform(post("/api/settings/prometheus-defaults/test")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"endpoint":"http://prometheus.internal:9090","window":"30d"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.succeeded").value(true))
+                .andExpect(jsonPath("$.state").value("CONNECTED"));
+    }
+
+    @Test
+    void testingAnUnreachablePrometheusDefaultsEndpointReportsItsState() throws Exception {
+        when(prometheusDefaultsConnectionTest.test(org.mockito.ArgumentMatchers.eq("http://prometheus.internal:9090"),
+                any())).thenReturn(new PrometheusDefaultsConnectionTest.Failed(
+                        NotRetrieved.Kind.UNREACHABLE, "could not be reached"));
+
+        mockMvc.perform(post("/api/settings/prometheus-defaults/test")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"endpoint":"http://prometheus.internal:9090","window":"30d"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.succeeded").value(false))
+                .andExpect(jsonPath("$.state").value("UNREACHABLE"))
+                .andExpect(jsonPath("$.message").value("could not be reached"));
     }
 
 }

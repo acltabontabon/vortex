@@ -96,7 +96,7 @@ export function PreflightSections({
         </div>
       )}
 
-      <Stack gap="md">
+      <Stack gap="md" className={classes.sectionsContainer}>
         {preflight.mutatingOperations.length > 0 && (
           <Alert color="warn" title="This run will mutate data">
             <Text size="sm" mb="xs">

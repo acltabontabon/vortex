@@ -5,6 +5,7 @@ import com.acltabontabon.vortex.core.shared.OperationId;
 import com.acltabontabon.vortex.core.shared.WorkloadId;
 import com.acltabontabon.vortex.core.threshold.Threshold;
 import com.acltabontabon.vortex.core.threshold.ThresholdSet;
+import com.acltabontabon.vortex.core.threshold.recommend.ThresholdSetProvenance;
 import com.acltabontabon.vortex.core.workload.OperationMix;
 import com.acltabontabon.vortex.core.workload.Stage;
 import com.acltabontabon.vortex.core.workload.LoadShape;
@@ -47,6 +48,8 @@ import java.util.Objects;
  * @param source      where the workload's numbers came from
  * @param k6Options   raw k6 scenario options merged verbatim into every k6 scenario this compiles
  *                    to, for the cases Vortex has no opinion about; normally empty
+ * @param thresholdProvenance where each of this workload's own {@code thresholds} came from, keyed
+ *                            by threshold id; a threshold with no entry is a plain manual objective
  */
 public record Workload(
         WorkloadId id,
@@ -58,7 +61,8 @@ public record Workload(
         LoadShape shape,
         ThresholdSet thresholds,
         WorkloadSource source,
-        Map<String, String> k6Options) {
+        Map<String, String> k6Options,
+        ThresholdSetProvenance thresholdProvenance) {
 
     public static final int MAX_OBJECTIVE_LENGTH = 500;
 
@@ -73,6 +77,7 @@ public record Workload(
         thresholds = thresholds == null ? ThresholdSet.empty() : thresholds;
         source = source == null ? WorkloadSource.manual() : source;
         k6Options = k6Options == null ? Map.of() : Map.copyOf(k6Options);
+        thresholdProvenance = thresholdProvenance == null ? ThresholdSetProvenance.empty() : thresholdProvenance;
 
         if (objective.length() > MAX_OBJECTIVE_LENGTH) {
             throw new IllegalArgumentException(
@@ -103,6 +108,20 @@ public record Workload(
                                 + "workload that does exercise it.");
             }
         }
+    }
+
+    /**
+     * A workload built before threshold provenance existed.
+     *
+     * <p>Kept at the previous arity so widening did not mean editing every construction site — every
+     * existing caller still builds a workload with no recorded evidence behind its thresholds, which
+     * is the honest default for a plain manual objective.
+     */
+    public Workload(WorkloadId id, String name, String description, String objective, TestType type,
+            OperationMix operations, LoadShape shape, ThresholdSet thresholds, WorkloadSource source,
+            Map<String, String> k6Options) {
+        this(id, name, description, objective, type, operations, shape, thresholds, source, k6Options,
+                ThresholdSetProvenance.empty());
     }
 
     /**
@@ -161,5 +180,11 @@ public record Workload(
     public ThresholdSet effectiveThresholds(ThresholdSet projectDefaults) {
         ThresholdSet base = projectDefaults == null ? ThresholdSet.empty() : projectDefaults;
         return base.mergedWith(thresholds);
+    }
+
+    /** Returns a copy with this workload's own thresholds and their provenance replaced. */
+    public Workload withThresholds(ThresholdSet newThresholds, ThresholdSetProvenance newProvenance) {
+        return new Workload(id, name, description, objective, type, operations, shape, newThresholds,
+                source, k6Options, newProvenance);
     }
 }

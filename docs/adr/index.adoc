@@ -192,6 +192,12 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-061-prometheus-query-range-and-connection-kind.adoc[061]
 | Prometheus reads via `query_range`, and a connection test gets its own `Kind` vocabulary
+
+| xref:adr-062-prometheus-defaults-are-prefill-only.adoc[062]
+| Prometheus defaults are prefill-only, not a shared connection
+
+| xref:adr-063-project-discovery-is-synchronous-and-stateless.adoc[063]
+| Project Discovery is synchronous, stateless, and proposes no new module or dependency concept
 |===
 
 == Format

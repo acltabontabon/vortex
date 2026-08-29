@@ -17,6 +17,7 @@ import com.acltabontabon.vortex.core.workload.ConstantConcurrencyShape;
 import com.acltabontabon.vortex.core.workload.RampingArrivalRateShape;
 import com.acltabontabon.vortex.core.workload.Stage;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -260,7 +261,35 @@ class ExperimentIdentityTest {
                     plan.configuredTarget(), plan.environmentType(), plan.dependencyMode(),
                     plan.classification(), plan.k6Options(), plan.stages());
 
-            assertIncompatible(plan, stricter, "objectives being measured against changed");
+            assertIncompatible(plan, stricter, "p95 latency below 500 ms → p95 latency below 200 ms");
+        }
+
+        @Test
+        @DisplayName("an added objective is named, not just flagged as a generic change")
+        void objectiveAdded() {
+            var plan = Fixtures.plan();
+            List<com.acltabontabon.vortex.core.threshold.Threshold> extended =
+                    new ArrayList<>(plan.thresholds().thresholds());
+            extended.add(LatencyThreshold.of(Percentile.P50, Duration.ofMillis(150)));
+            ThresholdSet widened = new ThresholdSet(extended);
+            var withExtra = rebuild(plan, plan.testType(), plan.workloadName(), plan.intent(),
+                    plan.serviceVersion(), plan.projectName(), widened, plan.configuredTarget(),
+                    plan.environmentType(), plan.dependencyMode(), plan.classification(),
+                    plan.k6Options(), plan.stages());
+
+            assertIncompatible(plan, withExtra, "was added");
+        }
+
+        @Test
+        @DisplayName("a removed objective is named, not just flagged as a generic change")
+        void objectiveRemoved() {
+            var plan = Fixtures.plan();
+            var narrowed = rebuild(plan, plan.testType(), plan.workloadName(), plan.intent(),
+                    plan.serviceVersion(), plan.projectName(), ThresholdSet.empty(),
+                    plan.configuredTarget(), plan.environmentType(), plan.dependencyMode(),
+                    plan.classification(), plan.k6Options(), plan.stages());
+
+            assertIncompatible(plan, narrowed, "was removed");
         }
 
         @Test

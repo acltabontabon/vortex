@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/accounts
+  data:
+    redis:
+      host: redis
+      port: 6379
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus

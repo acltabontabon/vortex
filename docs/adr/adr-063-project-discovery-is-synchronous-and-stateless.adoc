@@ -1,0 +1,89 @@
+= ADR-063: Project Discovery is synchronous, stateless, and proposes no new module or dependency concept
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+Project Discovery lets a user point Vortex at a project directory and get back a proposed
+configuration — build tool, Spring Boot config, Docker Compose, an OpenAPI description, a
+`Dockerfile`, an env template — with evidence and confidence, for review before anything is applied.
+Four scoping questions had to be settled before implementation, all bearing on how much machinery the
+feature actually needs:
+
+1. Does detection warrant a new module, the way `vortex-openapi` and `vortex-k6` quarantine a
+   substantial dependency?
+2. Is a scan slow enough to need a background job, a session, and a poll — the shape
+   `AnalysisRunner`/`AnalysisState` already use for AI interpretation?
+3. Should a detected Postgres/Redis/Kafka service become a new "local dependency" domain concept,
+   given the product brief describes per-dependency include/exclude toggles?
+4. Should Discovery ever propose an `ObservationSource` (a Prometheus/Dynatrace endpoint), the way it
+   proposes an execution target or a Local Lab file?
+
+== Decision
+
+*No new module.* ADR-014's rule is "a module exists to quarantine a substantial external
+dependency or enforce a real dependency direction," and ADR-013 requires `vortex-core` to carry no
+framework dependency at all. `pom.xml` parses with the JDK's own `javax.xml.parsers` DOM — zero
+dependency, satisfying ADR-013 without a new module — so `MavenPomDetector`, `DockerfileDetector` and
+`EnvTemplateDetector` live directly in `com.acltabontabon.vortex.core.discovery.detectors`, next to
+the domain types (`Finding`, `Confidence`, `ProjectSnapshot`) they produce. `application.yml` and
+`compose.yaml` need Jackson's YAML module, which `modules/app` already depends on (transitively via
+Spring Boot) — `SpringConfigYamlDetector` and `DockerComposeYamlDetector` are adapters in
+`com.acltabontabon.vortex.app.discovery`, the same "adapter package inside `vortex-app`, ArchUnit
+enforcing the boundary" shape ADR-014 chose for Docker detection and the Actuator client.
+
+*Synchronous, not a session.* Scanning a handful of small local text files — no subprocess, no
+network, no LLM — is sub-second. `ProjectDiscoveryService.discover(ProjectSnapshot, ProjectConfiguration)`
+takes a snapshot in and returns a `DiscoveryProposal` out, in one call. There is no
+`DiscoverySession`, no `CREATED/SCANNING/ANALYZING/READY_FOR_REVIEW` state machine, no polling
+endpoint, and nothing persisted server-side between scan and apply: `POST
+/api/services/{id}/discovery/scan` is a pure read, and `POST .../discovery/apply` takes exactly the
+values that scan just returned, re-sent by the client. Re-discovery is calling `scan` again — nothing
+to diff or reconcile on the server, since nothing was cached. This is a real simplification
+over the product brief's session lifecycle, justified because none of Discovery's v1 work is
+genuinely slow; `AnalysisRunner`'s background-thread-plus-poll shape stays reserved for the work that
+actually needs it (AI inference).
+
+*No new dependency-management concept.* `LocalLabSettings` already exists and stores exactly one
+thing — a relative path to the project's own Compose file — by deliberate design (its own doc
+comment: "generating a second [compose file] would ask a team to maintain the same thing twice, and
+the two would drift"). A detected Postgres/Redis/Kafka/WireMock service becomes an informational
+`Finding` with evidence (so a reviewer can see *why* Vortex proposes linking the Compose file), never
+a new persisted per-dependency entity. The only actionable, persisted proposal from a Compose file is
+"use this file as the Local Lab file" — included or excluded as a whole, never toggled dependency by
+dependency, because there is no field in `ProjectConfiguration` that per-dependency toggle could
+write to.
+
+*No `ObservationSource` proposal, ever.* A monitoring system's address is infrastructure knowledge no
+git repository states — detecting `micrometer-registry-prometheus` on the classpath says a service
+*can* be observed, not *where* to ask. Actuator/Prometheus configuration is surfaced as an
+informational finding only; ADR-062's prefill mechanism remains the only way that field gets filled
+in, and Discovery does not duplicate or bypass it.
+
+A related, smaller consequence of the "no session" decision: applying reuses the exact write paths a
+manual edit already takes — `CatalogImportService.importCatalog` for the OpenAPI source,
+`ProjectService.saveConfiguration` (via `DiscoveryConfigurationAssembler`, which builds the same
+`Environment`/`LocalLabSettings` construction `ConfigurationApiController` already uses) for the
+execution target and Local Lab file. There is exactly one new persisting endpoint
+(`DiscoveryApiController.apply`); everything else Discovery touches was already writable.
+
+== Consequences
+
+*Gained:* no new module POM, no new lifecycle enum, no new database table or migration, no polling
+UI. The whole feature is a request/response round trip plus one apply call, which is also why it
+needed no ArchUnit exemption beyond the one added rule (`discovery_detectors_never_persist_configuration`)
+confirming detectors stay read-only.
+
+*Cost:* if a future detector genuinely needs slow work — parsing a very large multi-module Gradle
+project, say, or calling out to a language model for README interpretation — this synchronous design
+does not extend to it for free; that detector would need its own async path, not a trivial addition
+to the existing one. This is the explicitly accepted trade for v1's scope (Maven, Spring Boot config,
+Compose, OpenAPI, Dockerfile, env templates — see `docs/04-reference/project-discovery.adoc` for the
+full boundary), not a decision that this shape suits every future detector.
+
+*Reversible:* promoting a detector to its own module, or wrapping `discover()` in a session, is
+mechanical the same way ADR-014 already describes for `vortex-lab` — nothing about the domain types
+(`Finding`, `DiscoveryProposal`) assumes synchronous execution; they would simply be produced later
+instead of immediately.

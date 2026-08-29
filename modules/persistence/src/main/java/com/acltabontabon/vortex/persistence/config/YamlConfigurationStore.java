@@ -46,6 +46,10 @@ import com.acltabontabon.vortex.core.threshold.LatencyThreshold;
 import com.acltabontabon.vortex.core.threshold.Threshold;
 import com.acltabontabon.vortex.core.threshold.ThresholdScope;
 import com.acltabontabon.vortex.core.threshold.ThresholdSet;
+import com.acltabontabon.vortex.core.threshold.recommend.EvidenceQuality;
+import com.acltabontabon.vortex.core.threshold.recommend.ThresholdProvenance;
+import com.acltabontabon.vortex.core.threshold.recommend.ThresholdSetProvenance;
+import com.acltabontabon.vortex.core.threshold.recommend.ThresholdSource;
 import com.acltabontabon.vortex.core.workload.ConstantArrivalRateShape;
 import com.acltabontabon.vortex.core.workload.ConstantConcurrencyShape;
 import com.acltabontabon.vortex.core.workload.Observation;
@@ -191,6 +195,8 @@ public final class YamlConfigurationStore implements ConfigurationStore {
                 collect(problems, () -> environments(root.path("environments")), List.of());
         ThresholdSet thresholds = collect(problems,
                 () -> thresholds(root.path("thresholds"), "thresholds"), ThresholdSet.empty());
+        ThresholdSetProvenance thresholdProvenance = collect(problems,
+                () -> thresholdProvenance(root.path("thresholds"), "thresholds"), ThresholdSetProvenance.empty());
         List<Workload> workloads =
                 collect(problems, () -> workloads(root.path("workloads")), List.of());
         ProductionObservation production =
@@ -213,7 +219,7 @@ public final class YamlConfigurationStore implements ConfigurationStore {
                     root.path("service").path("description").asText(""),
                     root.path("service").path("version").asText(""),
                     bindings, environments, workloads, thresholds, production, observationSource,
-                    localLab, openApiSource), sourceLabel);
+                    localLab, openApiSource, thresholdProvenance), sourceLabel);
         } catch (IllegalArgumentException e) {
             return LoadResult.invalid(List.of(e.getMessage()), sourceLabel);
         }
@@ -571,7 +577,8 @@ public final class YamlConfigurationStore implements ConfigurationStore {
                         shape,
                         thresholds(workloadNode.path("thresholds"), field + ".thresholds"),
                         source(workloadNode.path("source"), field + ".source"),
-                        stringMap(workloadNode.path("k6"))));
+                        stringMap(workloadNode.path("k6")),
+                        thresholdProvenance(workloadNode.path("thresholds"), field + ".thresholds")));
             } catch (IllegalArgumentException e) {
                 throw new ConfigText.ConfigProblem(field, e.getMessage(), "");
             }
@@ -797,6 +804,51 @@ public final class YamlConfigurationStore implements ConfigurationStore {
         return thresholds;
     }
 
+    /**
+     * The evidence behind a threshold set, when any was recorded. A threshold with no entry here is
+     * a plain manual objective — the block is omitted entirely for a set nobody has ever run "Help me
+     * choose" on, which is deliberate: manual is not an error, and the common case's diff stays clean.
+     */
+    private ThresholdSetProvenance thresholdProvenance(JsonNode node, String field) {
+        JsonNode evidenceNode = node.path("evidence");
+        if (!evidenceNode.isObject()) {
+            return ThresholdSetProvenance.empty();
+        }
+        Map<String, ThresholdProvenance> byId = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonNode> entry : evidenceNode.properties()) {
+            String thresholdId = entry.getKey();
+            JsonNode evidence = entry.getValue();
+            String entryField = field + ".evidence." + thresholdId;
+
+            ThresholdSource source = enumValue(ThresholdSource.class,
+                    evidence.path("source").asText(""), entryField + ".source");
+            String detail = evidence.path("detail").asText("");
+            Instant derivedAt = instant(evidence, "derivedAt", entryField);
+            Instant anchor = derivedAt == null ? Instant.EPOCH : derivedAt;
+
+            try {
+                if (source == ThresholdSource.MANUAL_OBJECTIVE) {
+                    byId.put(thresholdId, ThresholdProvenance.manual(anchor));
+                    continue;
+                }
+                if (source == ThresholdSource.SLO || source == ThresholdSource.EXTERNAL_REQUIREMENT) {
+                    byId.put(thresholdId, ThresholdProvenance.attributed(source, detail, anchor));
+                    continue;
+                }
+                Observation observedAt = observation(evidence.path("observed"), entryField + ".observed");
+                String derivation = evidence.path("derivation").asText("");
+                EvidenceQuality quality = enumValue(EvidenceQuality.class,
+                        evidence.path("quality").asText(EvidenceQuality.LIMITED.name()), entryField + ".quality");
+                String baselineExecutionId = evidence.path("baselineExecutionId").asText("");
+                byId.put(thresholdId, ThresholdProvenance.derived(source, detail, observedAt, derivation,
+                        quality, baselineExecutionId, anchor));
+            } catch (IllegalArgumentException e) {
+                throw new ConfigText.ConfigProblem(entryField, e.getMessage(), "");
+            }
+        }
+        return new ThresholdSetProvenance(byId);
+    }
+
     private ProductionObservation production(JsonNode node) {
         if (node.isMissingNode() || node.isNull()) {
             return null;
@@ -1016,7 +1068,7 @@ public final class YamlConfigurationStore implements ConfigurationStore {
         renderService(configuration, out);
         renderOperations(configuration, out);
         renderEnvironments(configuration, out);
-        renderThresholds(configuration.thresholds(), "", out, """
+        renderThresholds(configuration.thresholds(), configuration.thresholdProvenance(), "", out, """
                 # The objectives every run is judged against unless a workload overrides them.
                 # Without these a test produces measurements but no verdict, and a run with no
                 # verdict is a demonstration rather than evidence.
@@ -1284,7 +1336,7 @@ public final class YamlConfigurationStore implements ConfigurationStore {
                             .append(quote(workload.source().derivation())).append('\n');
                 }
             }
-            renderThresholds(workload.thresholds(), "    ", out, "");
+            renderThresholds(workload.thresholds(), workload.thresholdProvenance(), "    ", out, "");
             if (!workload.k6Options().isEmpty()) {
                 out.append("    # Merged into the generated k6 scenarios verbatim. Vortex does not\n");
                 out.append("    # validate these; k6 does, and preflight reports what it says.\n");
@@ -1333,8 +1385,8 @@ public final class YamlConfigurationStore implements ConfigurationStore {
         }
     }
 
-    private void renderThresholds(ThresholdSet thresholds, String indent, StringBuilder out,
-            String comment) {
+    private void renderThresholds(ThresholdSet thresholds, ThresholdSetProvenance provenance,
+            String indent, StringBuilder out, String comment) {
         if (thresholds.isEmpty()) {
             return;
         }
@@ -1350,8 +1402,49 @@ public final class YamlConfigurationStore implements ConfigurationStore {
             out.append(indent).append("    ").append(operation.value()).append(":\n");
             renderScopedThresholds(thresholds.forOperation(operation), indent + "      ", out);
         }
+        renderThresholdEvidence(thresholds, provenance, indent + "  ", out);
         if (indent.isEmpty()) {
             out.append('\n');
+        }
+    }
+
+    /**
+     * The evidence behind whichever thresholds actually have some, keyed by threshold id. Omitted
+     * entirely when nothing carries evidence — a plain manual threshold set writes exactly the file
+     * it wrote before this existed. A threshold no longer present in the set is silently dropped
+     * rather than left behind as an entry nothing points to.
+     */
+    private void renderThresholdEvidence(ThresholdSet thresholds, ThresholdSetProvenance provenance,
+            String indent, StringBuilder out) {
+        if (provenance == null || provenance.isEmpty()) {
+            return;
+        }
+        List<Threshold> withEvidence = thresholds.thresholds().stream()
+                .filter(threshold -> provenance.forThreshold(threshold.id()).isPresent())
+                .toList();
+        if (withEvidence.isEmpty()) {
+            return;
+        }
+
+        String keyIndent = indent + "  ";
+        String fieldIndent = indent + "    ";
+        out.append(indent).append("evidence:\n");
+        for (Threshold threshold : withEvidence) {
+            ThresholdProvenance p = provenance.forThreshold(threshold.id()).orElseThrow();
+            out.append(keyIndent).append(threshold.id()).append(":\n");
+            out.append(fieldIndent).append("source: ").append(p.source().name()).append('\n');
+            if (!p.detail().isBlank()) {
+                out.append(fieldIndent).append("detail: ").append(quote(p.detail())).append('\n');
+            }
+            if (p.source().isDerived()) {
+                renderObservation(p.observedAt(), fieldIndent, out);
+                p.derivationIfPresent().ifPresent(derivation ->
+                        out.append(fieldIndent).append("derivation: ").append(quote(derivation)).append('\n'));
+                out.append(fieldIndent).append("quality: ").append(p.quality().name()).append('\n');
+                p.baselineExecutionIdIfPresent().ifPresent(id -> out.append(fieldIndent)
+                        .append("baselineExecutionId: ").append(quote(id)).append('\n'));
+            }
+            out.append(fieldIndent).append("derivedAt: ").append(p.derivedAt()).append('\n');
         }
     }
 

@@ -1,8 +1,9 @@
 import { useId, useMemo, useState } from 'react';
 import { Button, Text, Title, Tooltip, UnstyledButton } from '@mantine/core';
 import { motion, useReducedMotion } from 'motion/react';
-import { IconArrowRight, IconCheck, IconGitBranch } from '@tabler/icons-react';
+import { IconArrowRight, IconCheck, IconGitBranch, IconSearch } from '@tabler/icons-react';
 import { useConfigurationQuery } from '../../api/configuration';
+import { DiscoveryReviewDrawer } from './DiscoveryReviewDrawer';
 import { EnvironmentDrawer, type EnvironmentDrawerState } from './configuration/EnvironmentDrawer';
 import type { ServiceHeader as Header, ReadinessItem } from '../../api/workspace';
 import { ImportOpenApiDrawer } from './ImportOpenApiDrawer';
@@ -66,6 +67,7 @@ export function ServiceVortex({
   const [environmentDrawerState, setEnvironmentDrawerState] = useState<EnvironmentDrawerState | null>(null);
   const [objectivesDrawerOpen, setObjectivesDrawerOpen] = useState(false);
   const [productionDrawerOpen, setProductionDrawerOpen] = useState(false);
+  const [discoveryDrawerOpen, setDiscoveryDrawerOpen] = useState(false);
   // Only the drawers above need Configuration's data (environment options, current thresholds, the
   // catalog for production's per-operation weights) — fetched once here rather than threading it
   // down from a page that isn't mounted while this one is.
@@ -114,6 +116,15 @@ export function ServiceVortex({
           Give Vortex the API, somewhere to run against, and what "good" looks like. We'll handle
           the experiment from there.
         </Text>
+        <Button
+          variant="subtle"
+          size="xs"
+          px={0}
+          leftSection={<IconSearch size={14} />}
+          onClick={() => setDiscoveryDrawerOpen(true)}
+        >
+          Discover from project
+        </Button>
       </div>
 
       <div className={classes.layout}>
@@ -164,7 +175,6 @@ export function ServiceVortex({
       />
       <ObjectivesDrawer
         serviceId={serviceId}
-        thresholds={configQuery.data?.thresholds}
         opened={objectivesDrawerOpen}
         onClose={() => setObjectivesDrawerOpen(false)}
       />
@@ -173,6 +183,11 @@ export function ServiceVortex({
         catalog={configQuery.data?.catalog}
         opened={productionDrawerOpen}
         onClose={() => setProductionDrawerOpen(false)}
+      />
+      <DiscoveryReviewDrawer
+        serviceId={serviceId}
+        opened={discoveryDrawerOpen}
+        onClose={() => setDiscoveryDrawerOpen(false)}
       />
     </section>
   );

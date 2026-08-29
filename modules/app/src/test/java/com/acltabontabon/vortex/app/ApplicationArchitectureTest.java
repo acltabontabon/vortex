@@ -89,6 +89,54 @@ class ApplicationArchitectureTest {
      * plan. Evidence is sanitised on the way out of assembly, so a writer that reached past it would
      * be reaching around the only gate between a plan and a written document.
      */
+    /**
+     * A detector reads a {@code ProjectSnapshot} and reports {@code Finding} objects; it never
+     * touches the store or the database directly. Applying a discovery proposal is a separate,
+     * explicit step in {@code DiscoveryApiController}/{@code ServicesApiController} — a detector
+     * itself has no way to persist anything, enforced here rather than by convention.
+     */
+    @ArchTest
+    static final ArchRule discovery_detectors_never_persist_configuration =
+            noClasses().that().resideInAnyPackage(
+                            "com.acltabontabon.vortex.core.discovery..",
+                            "com.acltabontabon.vortex.app.discovery..")
+                    .should().dependOnClassesThat().belongToAnyOf(
+                            com.acltabontabon.vortex.core.port.ConfigurationStore.class,
+                            com.acltabontabon.vortex.core.port.Repositories.ProjectRepository.class,
+                            com.acltabontabon.vortex.core.port.Repositories.ProjectConfigurationRepository.class)
+                    .because("""
+                            Detection is read-only by contract. A detector or discovery adapter that \
+                            could reach ConfigurationStore or the project repositories directly could \
+                            persist a project's configuration without going through the explicit \
+                            apply step a person approved.""");
+
+    /**
+     * The Threshold Assistant proposes candidate values; it never decides a run's pass/fail verdict.
+     * Keeping the two mutually unreachable at the class level makes the spec's own "the recommender
+     * must never influence runtime evaluation" a compiled rule rather than a convention that could
+     * drift the first time someone reaches for a shortcut between the two.
+     */
+    @ArchTest
+    static final ArchRule threshold_recommender_never_influences_runtime_evaluation =
+            noClasses().that().resideInAPackage("com.acltabontabon.vortex.core.threshold.recommend..")
+                    .should().dependOnClassesThat()
+                    .haveFullyQualifiedName("com.acltabontabon.vortex.core.threshold.ThresholdEvaluator")
+                    .because("""
+                            ThresholdEvaluator decides pass/fail deterministically from measured \
+                            results. A recommender that could read it might one day be tempted to \
+                            adjust a suggestion based on how a threshold would evaluate — exactly the \
+                            coupling that would make a recommendation quietly start deciding truth.""");
+
+    @ArchTest
+    static final ArchRule runtime_evaluation_never_reaches_into_the_recommender =
+            noClasses().that()
+                    .haveFullyQualifiedName("com.acltabontabon.vortex.core.threshold.ThresholdEvaluator")
+                    .should().dependOnClassesThat()
+                    .resideInAPackage("com.acltabontabon.vortex.core.threshold.recommend..")
+                    .because("""
+                            The same boundary, enforced in both directions: a threshold's evaluated \
+                            verdict must never depend on how it was recommended.""");
+
     @ArchTest
     static final ArchRule evidence_writers_do_not_reach_past_the_evidence_model =
             noClasses().that().resideInAPackage("com.acltabontabon.vortex.app.evidence..")

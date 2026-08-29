@@ -168,6 +168,12 @@ These are tested; if a change makes one of these tests fail, the test is probabl
 - **Report section**: belongs in `core.evidence` plus a fragment in `templates/evidence.html` — the
   result page, printable report, and both evidence writers read the same model, so it stays
   consistent everywhere.
+- **Project detector**: implement `ProjectDetector`, returning `Finding`s with evidence and a
+  `Confidence` — never persist anything (ArchUnit-enforced) and never throw for "not found," only for
+  "could not finish," which `ProjectDiscoveryService` turns into a partial-failure message rather than
+  failing the whole scan. A detector needing only the JDK belongs in
+  `core.discovery.detectors`; one needing a library (YAML, for instance) is an adapter in
+  `app.discovery` instead — see [ADR-063](docs/adr/adr-063-project-discovery-is-synchronous-and-stateless.adoc).
 
 ## Testing notes
 

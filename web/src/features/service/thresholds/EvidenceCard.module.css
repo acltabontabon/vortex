@@ -1,0 +1,28 @@
+.card {
+  border-top: 1px solid var(--mantine-color-default-border);
+  padding-top: 4px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: var(--mantine-spacing-xs);
+}
+
+.chevron {
+  transition: transform 150ms ease;
+  color: var(--mantine-color-dimmed);
+}
+
+.open {
+  transform: rotate(90deg);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0 2px 18px;
+}

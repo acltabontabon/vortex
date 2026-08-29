@@ -1,9 +1,13 @@
 package com.acltabontabon.vortex.app.web;
 
+import com.acltabontabon.vortex.app.discovery.DiscoveryConfigurationAssembler;
+import com.acltabontabon.vortex.app.discovery.ProjectSnapshotBuilder;
 import com.acltabontabon.vortex.core.application.CatalogImportService;
+import com.acltabontabon.vortex.core.application.ProjectDiscoveryService;
 import com.acltabontabon.vortex.core.application.ProjectService;
 import com.acltabontabon.vortex.core.application.ProjectService.OnboardingOutcome;
 import com.acltabontabon.vortex.core.catalog.ServiceCatalog;
+import com.acltabontabon.vortex.core.lab.LocalLabSettings;
 import com.acltabontabon.vortex.core.port.ConfigurationStore;
 import com.acltabontabon.vortex.core.port.ServiceCatalogImporter;
 import com.acltabontabon.vortex.core.project.OpenApiSource;
@@ -47,21 +51,42 @@ public class ServicesApiController {
 
     private final ProjectService projects;
     private final CatalogImportService catalogs;
+    private final ProjectDiscoveryService discovery;
+    private final ProjectSnapshotBuilder snapshotBuilder;
+    private final DiscoveryConfigurationAssembler discoveryAssembler;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
-    public ServicesApiController(ProjectService projects, CatalogImportService catalogs) {
+    public ServicesApiController(ProjectService projects, CatalogImportService catalogs,
+            ProjectDiscoveryService discovery, ProjectSnapshotBuilder snapshotBuilder,
+            DiscoveryConfigurationAssembler discoveryAssembler) {
         this.projects = Objects.requireNonNull(projects, "projects");
         this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
+        this.discovery = Objects.requireNonNull(discovery, "discovery");
+        this.snapshotBuilder = Objects.requireNonNull(snapshotBuilder, "snapshotBuilder");
+        this.discoveryAssembler = Objects.requireNonNull(discoveryAssembler, "discoveryAssembler");
     }
 
     public record ServiceSummaryDto(String id, String name, String description,
             String serviceVersion) {}
 
+    /**
+     * @param openApiFile              a repository-relative OpenAPI file, as an alternative to
+     *                                 {@code openApiUrl} — the "Inspect project" path fills this in
+     *                                 rather than a typed address
+     * @param applyEnvironment         an execution target approved from a discovery scan, or {@code
+     *                                 null}
+     * @param applyLocalLabComposeFile a Compose file approved from a discovery scan as the Local Lab
+     *                                 file, or {@code null}
+     */
     public record CreateServiceRequest(String name, String description, String workspacePath,
-            String openApiUrl) {}
+            String openApiUrl, String openApiFile,
+            DiscoveryApiController.ProposedEnvironmentDto applyEnvironment,
+            String applyLocalLabComposeFile) {}
+
+    public record ProjectDiscoveryRequest(String path) {}
 
     /**
      * What came of an optional OpenAPI import attempted in the same act as creation.
@@ -77,7 +102,13 @@ public class ServicesApiController {
         }
     }
 
-    public record CreateServiceResponse(ServiceSummaryDto service, ImportOutcomeDto importOutcome) {}
+    /**
+     * @param setupWarning non-fatal: the service was created, but Vortex could not apply an
+     *                     approved discovery selection (the environment or Local Lab file). Rare —
+     *                     both were already validated once, at scan time.
+     */
+    public record CreateServiceResponse(ServiceSummaryDto service, ImportOutcomeDto importOutcome,
+            String setupWarning) {}
 
     public record OpenApiPreviewRequest(String url) {}
 
@@ -169,22 +200,86 @@ public class ServicesApiController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
 
-        String openApiUrl = request.openApiUrl();
-        if (openApiUrl == null || openApiUrl.isBlank()) {
-            return new CreateServiceResponse(toDto(project), ImportOutcomeDto.notAttempted());
-        }
+        String setupWarning = applyDiscoveredSetup(project, request);
+        ImportOutcomeDto outcome = importOpenApi(project, request);
+        return new CreateServiceResponse(toDto(project), outcome, setupWarning);
+    }
 
-        String reference = openApiUrl.trim();
-        ImportOutcomeDto outcome;
-        try {
-            outcome = importFrom(project.id(), reference, fetch(reference));
-        } catch (RuntimeException e) {
-            outcome = new ImportOutcomeDto(true, false, null, null,
-                    "The service was created, but Vortex could not read that API description: "
-                            + e.getMessage(),
-                    List.of());
+    private ImportOutcomeDto importOpenApi(Project project, CreateServiceRequest request) {
+        String openApiUrl = request.openApiUrl();
+        if (openApiUrl != null && !openApiUrl.isBlank()) {
+            String reference = openApiUrl.trim();
+            try {
+                return importFrom(project.id(), reference, fetch(reference));
+            } catch (RuntimeException e) {
+                return new ImportOutcomeDto(true, false, null, null,
+                        "The service was created, but Vortex could not read that API description: "
+                                + e.getMessage(), List.of());
+            }
         }
-        return new CreateServiceResponse(toDto(project), outcome);
+        String openApiFile = request.openApiFile();
+        if (openApiFile != null && !openApiFile.isBlank()) {
+            try {
+                OpenApiSource source = new OpenApiSource.File(openApiFile);
+                String content = WorkspaceDocumentFetch.fetch(
+                        http, project.workspacePath(), source, MAX_SPECIFICATION_BYTES);
+                return importFrom(project.id(), source.describe(), content);
+            } catch (RuntimeException e) {
+                return new ImportOutcomeDto(true, false, null, null,
+                        "The service was created, but Vortex could not read its API description: "
+                                + e.getMessage(), List.of());
+            }
+        }
+        return ImportOutcomeDto.notAttempted();
+    }
+
+    /**
+     * Applies an execution target and/or Local Lab file approved from an "Inspect project" review —
+     * both were already validated once, at scan time, so a failure here is rare (e.g. the selected
+     * file moved between scan and submit) and is reported as a warning rather than failing the
+     * service creation that already succeeded.
+     */
+    private String applyDiscoveredSetup(Project project, CreateServiceRequest request) {
+        boolean hasEnvironment = request.applyEnvironment() != null;
+        boolean hasLocalLab = request.applyLocalLabComposeFile() != null
+                && !request.applyLocalLabComposeFile().isBlank();
+        if (!hasEnvironment && !hasLocalLab) {
+            return null;
+        }
+        try {
+            ProjectConfiguration configuration = projects.configuration(project.id());
+            if (hasEnvironment) {
+                configuration = discoveryAssembler.withEnvironment(configuration,
+                        DiscoveryApiController.toEnvironmentProposal(request.applyEnvironment()));
+            }
+            if (hasLocalLab) {
+                configuration = discoveryAssembler.withLocalLab(
+                        configuration, new LocalLabSettings(request.applyLocalLabComposeFile()));
+            }
+            projects.saveConfiguration(project.id(), configuration);
+            return null;
+        } catch (RuntimeException e) {
+            return "The service was created, but Vortex could not apply the discovered setup: "
+                    + e.getMessage();
+        }
+    }
+
+    /**
+     * Scans a candidate repository path for a Project Discovery proposal, before any service exists
+     * to attach it to. Read-only: nothing is created, changed or persisted by scanning — see {@link
+     * DiscoveryApiController} for the equivalent on an already-created service, and {@code
+     * docs/adr/adr-063-project-discovery-is-synchronous-and-stateless.adoc} for why this needs no
+     * session of its own.
+     */
+    @PostMapping("/discovery-scan")
+    public DiscoveryApiController.DiscoveryScanResponse discoveryScan(
+            @RequestBody ProjectDiscoveryRequest request) {
+        String path = request.path() == null ? "" : request.path().trim();
+        if (path.isEmpty()) {
+            return DiscoveryApiController.DiscoveryScanResponse.failure(
+                    "Choose a project directory to inspect it.");
+        }
+        return DiscoveryApiController.scan(discovery, snapshotBuilder, path, ProjectConfiguration.empty());
     }
 
     /**
@@ -376,7 +471,7 @@ public class ServicesApiController {
         Project project = adopted.project();
         var openApiSource = adopted.source().configuration().openApiSourceIfPresent();
         if (openApiSource.isEmpty()) {
-            return new CreateServiceResponse(toDto(project), ImportOutcomeDto.notAttempted());
+            return new CreateServiceResponse(toDto(project), ImportOutcomeDto.notAttempted(), null);
         }
 
         ImportOutcomeDto outcome;
@@ -390,7 +485,7 @@ public class ServicesApiController {
                             + e.getMessage(),
                     List.of());
         }
-        return new CreateServiceResponse(toDto(project), outcome);
+        return new CreateServiceResponse(toDto(project), outcome, null);
     }
 
     /** Shared with Understand's import form — see the Configuration migration. */

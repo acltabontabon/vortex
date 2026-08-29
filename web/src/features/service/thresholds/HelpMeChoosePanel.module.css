@@ -1,0 +1,13 @@
+.panel {
+  min-width: 260px;
+  max-width: 340px;
+}
+
+.option {
+  padding: var(--mantine-spacing-xs) 0;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.option:first-of-type {
+  border-top: none;
+}

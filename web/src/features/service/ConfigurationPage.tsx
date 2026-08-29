@@ -95,7 +95,7 @@ export function ConfigurationPage() {
         </Group>
 
         <Group title="Expectations" id="objectives">
-          <ObjectivesSection serviceId={id} thresholds={data.thresholds} />
+          <ObjectivesSection serviceId={id} />
         </Group>
 
         <ConfigurationFileSection file={data.file} />

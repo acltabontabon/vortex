@@ -22,8 +22,16 @@ const chooseModelMutate = vi.fn();
 const chooseLoadGeneratorBudgetMutate = vi.fn();
 const saveDynatraceMcpMutate = vi.fn();
 const testDynatraceMcpMutate = vi.fn();
+const savePrometheusDefaultsMutate = vi.fn();
+const testPrometheusDefaultsMutate = vi.fn();
 
 let testDynatraceMcpResult: { isError: boolean; error: unknown; data: unknown } = {
+  isError: false,
+  error: undefined,
+  data: undefined,
+};
+
+let testPrometheusDefaultsResult: { isError: boolean; error: unknown; data: unknown } = {
   isError: false,
   error: undefined,
   data: undefined,
@@ -42,6 +50,12 @@ vi.mock('../api/settings', async (importOriginal) => {
     }),
     useSaveDynatraceMcpMutation: () => ({ mutate: saveDynatraceMcpMutate, isPending: false }),
     useTestDynatraceMcpMutation: () => ({ mutate: testDynatraceMcpMutate, isPending: false, ...testDynatraceMcpResult }),
+    useSavePrometheusDefaultsMutation: () => ({ mutate: savePrometheusDefaultsMutate, isPending: false }),
+    useTestPrometheusDefaultsMutation: () => ({
+      mutate: testPrometheusDefaultsMutate,
+      isPending: false,
+      ...testPrometheusDefaultsResult,
+    }),
   };
 });
 
@@ -112,6 +126,15 @@ function aSettings(overrides: Partial<Settings> = {}): Settings {
       available: false,
       problem: 'Dynatrace MCP is not enabled.',
       remedy: 'Turn it on and set the endpoint under Settings.',
+    },
+    prometheusDefaults: {
+      endpoint: '',
+      windowDisplay: '30d',
+      headers: {},
+      serviceLabel: '',
+      routeLabel: '',
+      methodLabel: '',
+      configured: false,
     },
     ...overrides,
   };
@@ -329,6 +352,99 @@ describe('the settings page', () => {
 
       const card = withinCard('Dynatrace');
       expect(card.queryByLabelText('Organization', { selector: 'input' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Prometheus defaults', () => {
+    beforeEach(() => {
+      testPrometheusDefaultsResult = { isError: false, error: undefined, data: undefined };
+    });
+
+    it('shows "not configured" when no default endpoint is set', () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Prometheus defaults');
+      expect(card.getByText('not configured')).toBeInTheDocument();
+    });
+
+    it('shows the configured endpoint', () => {
+      queryResult = {
+        data: aSettings({
+          prometheusDefaults: {
+            endpoint: 'http://prometheus.internal:9090',
+            windowDisplay: '30d',
+            headers: {},
+            serviceLabel: '',
+            routeLabel: '',
+            methodLabel: '',
+            configured: true,
+          },
+        }),
+        isError: false,
+      };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Prometheus defaults');
+      expect(card.getByText('http://prometheus.internal:9090')).toBeInTheDocument();
+    });
+
+    it('renders no "Enabled" control — there is nothing to enable or disable', () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Prometheus defaults');
+      expect(card.queryByLabelText('Enabled')).not.toBeInTheDocument();
+    });
+
+    it('saves the endpoint entered manually', async () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Prometheus defaults');
+      await userEvent.type(card.getByLabelText('Endpoint'), 'http://prometheus.internal:9090');
+      await userEvent.click(card.getByRole('button', { name: 'Save' }));
+
+      expect(savePrometheusDefaultsMutate).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: 'http://prometheus.internal:9090' }),
+        expect.anything(),
+      );
+    });
+
+    it('the test connection button is disabled with a blank endpoint', () => {
+      queryResult = { data: aSettings(), isError: false };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Prometheus defaults');
+      expect(card.getByRole('button', { name: 'Test connection' })).toBeDisabled();
+    });
+
+    it('colours a successful test connection', () => {
+      queryResult = { data: aSettings(), isError: false };
+      testPrometheusDefaultsResult = {
+        isError: false,
+        error: undefined,
+        data: { succeeded: true, state: 'CONNECTED', message: 'Connected to http://prometheus.internal:9090.' },
+      };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Prometheus defaults');
+      expect(card.getByText('Connected')).toBeInTheDocument();
+    });
+
+    it('shows the server-supplied reason when testing the connection fails', () => {
+      queryResult = { data: aSettings(), isError: false };
+      testPrometheusDefaultsResult = {
+        isError: true,
+        error: new ApiError('POST', '/api/settings/prometheus-defaults/test', 400,
+          'Enter the Prometheus endpoint before testing the connection.'),
+        data: undefined,
+      };
+      renderWithProviders(<SettingsPage />);
+
+      const card = withinCard('Prometheus defaults');
+      expect(card.getByText('Enter the Prometheus endpoint before testing the connection.'))
+          .toBeInTheDocument();
     });
   });
 });

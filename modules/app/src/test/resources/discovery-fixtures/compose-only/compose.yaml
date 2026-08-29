@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    ports:
+      - "9090:8080"
+  postgres:
+    image: postgres:17
+  redis:
+    image: redis:8

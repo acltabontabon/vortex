@@ -3,6 +3,7 @@ package com.acltabontabon.vortex.app;
 import jakarta.validation.constraints.NotBlank;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -23,6 +24,7 @@ public record VortexProperties(
         Engine engine,
         Ai ai,
         DynatraceMcp dynatraceMcp,
+        PrometheusDefaults prometheusDefaults,
         LoadGenerator loadGenerator,
         Safety safety,
         Observability observability) {
@@ -33,6 +35,8 @@ public record VortexProperties(
         engine = engine == null ? new Engine(null, null, null, null, true, null) : engine;
         ai = ai == null ? new Ai(null, null, null, null, false) : ai;
         dynatraceMcp = dynatraceMcp == null ? new DynatraceMcp(false, null, null, null, null) : dynatraceMcp;
+        prometheusDefaults = prometheusDefaults == null
+                ? new PrometheusDefaults(null, null, null, null, null, null) : prometheusDefaults;
         loadGenerator = loadGenerator == null ? new LoadGenerator(null, null, null) : loadGenerator;
         safety = safety == null ? new Safety(null, null, null) : safety;
         observability = observability == null ? new Observability(null, null, null) : observability;
@@ -174,6 +178,48 @@ public record VortexProperties(
             queryTimeout = queryTimeout == null || queryTimeout.isZero() || queryTimeout.isNegative()
                     ? Duration.ofSeconds(30) : queryTimeout;
             organization = organization == null ? "" : organization.trim();
+        }
+    }
+
+    /**
+     * What prefills a brand-new service's Prometheus observation source under Configuration →
+     * Production Reality — never a connection Vortex itself queries, and never read by {@code
+     * PrometheusObservationSource}. Every service's Prometheus source stays fully self-contained in
+     * its own {@code vortex.yaml}; this only saves repeated typing when several services share one
+     * Prometheus. See {@code docs/adr/adr-062-prometheus-defaults-are-prefill-only.adoc}.
+     *
+     * <p>Not to be confused with {@link Observability#prometheusEndpoint}, which configures the
+     * unrelated live-run {@code ObservabilityProvider} that watches a service under test — a
+     * different port (see ADR-031) answering a different question, on a different deployment.
+     *
+     * <p>The runtime-mutable value a call actually reads is {@code
+     * com.acltabontabon.vortex.app.config.PrometheusDefaultsSettings}, seeded from this at startup and
+     * then updatable from the Settings page without a restart — the same split {@link Ai} and {@code
+     * AiSettings} already use.
+     *
+     * @param endpoint     the Prometheus API root, e.g. {@code http://prometheus.internal:9090}
+     * @param window       how far back a new source looks when it does not override it
+     * @param headers      request headers, whose values must be blank or a pure {@code ${NAME}}
+     *                     reference — never a literal, since these are what a brand-new service's
+     *                     form silently prefills from
+     * @param serviceLabel default override for the Prometheus label naming the service
+     * @param routeLabel   default override for the Prometheus label naming the route
+     * @param methodLabel  default override for the Prometheus label naming the method
+     */
+    public record PrometheusDefaults(String endpoint, Duration window, Map<String, String> headers,
+            String serviceLabel, String routeLabel, String methodLabel) {
+
+        public PrometheusDefaults {
+            endpoint = endpoint == null ? "" : endpoint.trim();
+            window = window == null || window.isZero() || window.isNegative() ? Duration.ofDays(30) : window;
+            headers = headers == null ? Map.of() : Map.copyOf(headers);
+            serviceLabel = serviceLabel == null ? "" : serviceLabel.trim();
+            routeLabel = routeLabel == null ? "" : routeLabel.trim();
+            methodLabel = methodLabel == null ? "" : methodLabel.trim();
+        }
+
+        public boolean configured() {
+            return !endpoint.isBlank();
         }
     }
 

@@ -1,45 +1,73 @@
-import { useState } from 'react';
-import { useForm } from '@mantine/form';
-import { Button, Group, NumberInput, Text } from '@mantine/core';
+import { useEffect, useState } from 'react';
+import { Button, Group, Skeleton, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import type { ThresholdEdit } from '../../../api/configuration';
-import { useSetThresholdsMutation } from '../../../api/configuration';
+import {
+  useProjectThresholdsQuery,
+  useSaveProjectThresholdsMutation,
+  type ThresholdDto,
+  type ThresholdProvenanceDto,
+} from '../../../api/thresholds';
+import { ThresholdsRegion, type ThresholdsRegionValues } from '../thresholds/ThresholdsRegion';
 import classes from './ObjectivesSection.module.css';
 
-/**
- * The three overall objectives Configuration edits. The domain also supports per-operation
- * thresholds, but no form here has ever created or edited one — this is deliberately narrow,
- * matching what `understand-sections.html`'s objectives form always was.
- */
-export function ObjectivesSection({
-  serviceId,
-  thresholds,
-  onSaved,
-}: {
-  serviceId: string;
-  thresholds: ThresholdEdit;
-  /** Called after a successful save, in addition to the section's own switch back to the summary
-   *  view — a caller embedding this in a Drawer uses it to close automatically. */
-  onSaved?: () => void;
-}) {
-  const [editing, setEditing] = useState(thresholds.describe.length === 0);
-  const mutation = useSetThresholdsMutation(serviceId);
-  const form = useForm({
-    initialValues: {
-      p95Millis: thresholds.p95Millis ?? 500,
-      p99Millis: thresholds.p99Millis ?? 1000,
-      errorPercent: thresholds.errorPercent ?? 1,
-    },
-  });
+const EMPTY_VALUES: ThresholdsRegionValues = { p95Millis: '', p99Millis: '', errorPercent: '' };
 
-  function submit(values: typeof form.values) {
+/**
+ * The service-level objectives every workload inherits unless it sets its own — the normal home for
+ * a service's thresholds. Self-contained: fetches its own evidence and current values through the
+ * Threshold Assistant (see `ThresholdsRegion`), the same building blocks used anywhere else a
+ * threshold is configured. The domain also supports per-operation and per-workload objectives, but
+ * nothing here creates or edits one — this stays deliberately narrow to the three overall objectives.
+ */
+export function ObjectivesSection({ serviceId, onSaved }: { serviceId: string; onSaved?: () => void }) {
+  const query = useProjectThresholdsQuery(serviceId);
+  const mutation = useSaveProjectThresholdsMutation(serviceId);
+  const [editing, setEditing] = useState(false);
+  const [values, setValues] = useState<ThresholdsRegionValues>(EMPTY_VALUES);
+  const [provenance, setProvenance] = useState<Record<string, ThresholdProvenanceDto>>({});
+  const [prefilled, setPrefilled] = useState(false);
+
+  // Prefills once, from whatever is currently saved — auto-opens the editor when nothing is
+  // configured yet, otherwise shows the read-only summary, matching the section's previous behaviour.
+  useEffect(() => {
+    if (query.data && !prefilled) {
+      const p95 = query.data.thresholds.find((t) => t.kind === 'LATENCY' && t.percentile === 95);
+      const p99 = query.data.thresholds.find((t) => t.kind === 'LATENCY' && t.percentile === 99);
+      const errorRate = query.data.thresholds.find((t) => t.kind === 'ERROR_RATE');
+      setValues({
+        p95Millis: p95?.maxMillis ?? '',
+        p99Millis: p99?.maxMillis ?? '',
+        errorPercent: errorRate?.maxErrorPercent ?? '',
+      });
+      setProvenance(query.data.provenance);
+      setEditing(query.data.thresholds.length === 0);
+      setPrefilled(true);
+    }
+  }, [query.data, prefilled]);
+
+  if (query.isLoading || !query.data || !prefilled) {
+    return <Skeleton height={80} radius="sm" />;
+  }
+
+  function submit() {
+    const thresholds: ThresholdDto[] = [];
+    if (values.p95Millis !== '') thresholds.push({ kind: 'LATENCY', percentile: 95, maxMillis: values.p95Millis });
+    if (values.p99Millis !== '') thresholds.push({ kind: 'LATENCY', percentile: 99, maxMillis: values.p99Millis });
+    if (values.errorPercent !== '') {
+      thresholds.push({ kind: 'ERROR_RATE', maxErrorPercent: values.errorPercent });
+    }
+
     mutation.mutate(
-      { p95Millis: values.p95Millis, p99Millis: values.p99Millis, errorPercent: values.errorPercent },
+      { thresholds, provenance },
       {
-        onSuccess: (r) => {
-          notifications.show({ message: r.message, color: 'pass' });
-          setEditing(false);
-          onSaved?.();
+        onSuccess: (response) => {
+          if (response.ok) {
+            notifications.show({ message: 'Objectives saved.', color: 'pass' });
+            setEditing(false);
+            onSaved?.();
+          } else {
+            notifications.show({ message: response.error ?? 'Could not save objectives.', color: 'fail' });
+          }
         },
       }
     );
@@ -49,12 +77,9 @@ export function ObjectivesSection({
     return (
       <div>
         <div className={classes.cells}>
-          <Cell label="p95 latency" value={thresholds.p95Millis ? `< ${thresholds.p95Millis} ms` : '—'} />
-          <Cell label="p99 latency" value={thresholds.p99Millis ? `< ${thresholds.p99Millis} ms` : '—'} />
-          <Cell
-            label="Error rate"
-            value={thresholds.errorPercent !== null ? `< ${thresholds.errorPercent}%` : '—'}
-          />
+          <Cell label="p95 latency" value={values.p95Millis !== '' ? `< ${values.p95Millis} ms` : '—'} />
+          <Cell label="p99 latency" value={values.p99Millis !== '' ? `< ${values.p99Millis} ms` : '—'} />
+          <Cell label="Error rate" value={values.errorPercent !== '' ? `< ${values.errorPercent}%` : '—'} />
         </div>
         <Button size="compact-xs" variant="subtle" color="gray" mt="xs" onClick={() => setEditing(true)}>
           Edit
@@ -69,29 +94,24 @@ export function ObjectivesSection({
         Saving always replaces the whole set — leaving a field blank drops that objective rather
         than keeping whatever was there before.
       </Text>
-      <form onSubmit={form.onSubmit(submit)}>
-        <Group grow align="flex-end">
-          <NumberInput label="p95 latency (ms)" min={1} {...form.getInputProps('p95Millis')} />
-          <NumberInput label="p99 latency (ms)" min={1} {...form.getInputProps('p99Millis')} />
-          <NumberInput
-            label="Error rate (%)"
-            min={0}
-            max={100}
-            step={0.01}
-            {...form.getInputProps('errorPercent')}
-          />
-        </Group>
-        <Group mt="sm">
-          <Button type="submit" loading={mutation.isPending}>
-            Save objectives
+      <ThresholdsRegion
+        serviceId={serviceId}
+        workloadName=""
+        values={values}
+        onChange={setValues}
+        provenance={provenance}
+        onProvenanceChange={(thresholdId, p) => setProvenance((prev) => ({ ...prev, [thresholdId]: p }))}
+      />
+      <Group mt="sm">
+        <Button onClick={submit} loading={mutation.isPending}>
+          Save objectives
+        </Button>
+        {query.data.thresholds.length > 0 && (
+          <Button variant="default" onClick={() => setEditing(false)}>
+            Cancel
           </Button>
-          {thresholds.describe.length > 0 && (
-            <Button variant="default" onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-          )}
-        </Group>
-      </form>
+        )}
+      </Group>
     </div>
   );
 }

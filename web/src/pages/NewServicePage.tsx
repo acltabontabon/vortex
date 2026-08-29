@@ -7,6 +7,7 @@ import {
   Anchor,
   Button,
   Container,
+  Drawer,
   Group,
   List,
   Loader,
@@ -15,7 +16,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { IconAlertTriangle, IconCheck } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCheck, IconSearch } from '@tabler/icons-react';
 import {
   useCreateServiceMutation,
   useAdoptServiceMutation,
@@ -27,10 +28,12 @@ import {
   type OpenApiPreviewResponse,
   type WorkspaceCheckResponse,
 } from '../api/services';
+import { useDiscoveryScanMutation } from '../api/discovery';
 import { ApiError } from '../api/client';
 import { extractErrorMessage } from '../lib/queryFallback';
 import { ConfigFoundSummary } from './ConfigFoundSummary';
 import { DirectoryBrowserModal } from './DirectoryBrowserModal';
+import { DiscoveryReviewPanel, type DiscoverySelections } from './DiscoveryReviewPanel';
 import { FieldLabelWithHint } from './FieldLabelWithHint';
 import classes from './NewServicePage.module.css';
 
@@ -75,9 +78,38 @@ export function NewServicePage() {
   const [continueWithoutImporting, setContinueWithoutImporting] = useState(false);
   const [browserOpened, setBrowserOpened] = useState(false);
 
+  // "Inspect project" is a discrete, user-triggered scan — not something that fires on every
+  // keystroke like the workspace/config checks above. Approving a proposal in the drawer never
+  // calls an API of its own; it just stashes the selection here, folded into the one "create
+  // service" submit below, so creation stays a single act (see the file doc comment).
+  const discoveryScan = useDiscoveryScanMutation();
+  const [discoveryDrawerOpen, setDiscoveryDrawerOpen] = useState(false);
+  const [discoverySelections, setDiscoverySelections] = useState<DiscoverySelections | null>(null);
+
+  function inspectProject() {
+    const path = form.values.workspacePath.trim();
+    if (!path) {
+      return;
+    }
+    discoveryScan.mutate(
+      { path },
+      {
+        onSuccess: (response) => {
+          if (response.ok && response.proposedServiceName && !form.values.name.trim()) {
+            form.setFieldValue('name', response.proposedServiceName);
+          }
+          setDiscoveryDrawerOpen(true);
+        },
+      },
+    );
+  }
+
   useEffect(() => {
     const path = debouncedWorkspacePath.trim();
     setContinueWithoutImporting(false);
+    // A proposal scanned from a different directory must never silently ride along to this one.
+    discoveryScan.reset();
+    setDiscoverySelections(null);
     if (path) {
       workspaceCheck.mutate({ path });
       detectConfig.mutate({ path });
@@ -125,12 +157,26 @@ export function NewServicePage() {
       );
       return;
     }
+    const proposal = discoveryScan.data;
+    const openApiUrl = values.openApiUrl.trim() || undefined;
     createMutation.mutate(
       {
         name: values.name.trim(),
         description: values.description.trim() || undefined,
         workspacePath,
-        openApiUrl: values.openApiUrl.trim() || undefined,
+        openApiUrl,
+        // A typed address always wins over a discovered file — the field the person actually
+        // filled in is the more deliberate act.
+        openApiFile:
+          !openApiUrl && discoverySelections?.includeOpenApiSource
+            ? (proposal?.proposedOpenApiSourceFile ?? undefined)
+            : undefined,
+        applyEnvironment:
+          discoverySelections?.includeEnvironment ? (proposal?.proposedEnvironment ?? undefined) : undefined,
+        applyLocalLabComposeFile:
+          discoverySelections?.includeLocalLab
+            ? (proposal?.proposedLocalLabComposeFile ?? undefined)
+            : undefined,
       },
       { onSuccess: handleSuccess },
     );
@@ -186,6 +232,12 @@ export function NewServicePage() {
             </Alert>
           )}
 
+        {createMutation.isSuccess && createMutation.data.setupWarning && (
+          <Alert color="warn" title="The service was created, but part of the discovered setup did not apply">
+            <Text size="sm">{createMutation.data.setupWarning}</Text>
+          </Alert>
+        )}
+
         <form onSubmit={form.onSubmit(submit)}>
           <Stack gap="md">
             <div>
@@ -223,6 +275,37 @@ export function NewServicePage() {
                 workspaceCheckData={workspaceCheck.data}
                 workspaceCheckError={workspaceCheck.isError}
               />
+              {showManualFields && workspaceCheck.data?.isDirectory && (
+                <div className={classes.evidence} style={{ marginTop: 6 }}>
+                  <Text size="xs" c="dimmed">
+                    Vortex can inspect this project and suggest a setup based on what it finds.
+                  </Text>
+                  <Button
+                    variant="light"
+                    size="xs"
+                    leftSection={<IconSearch size={13} />}
+                    loading={discoveryScan.isPending}
+                    onClick={inspectProject}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    Inspect project
+                  </Button>
+                  {discoveryScan.data && !discoveryScan.data.ok && (
+                    <Text size="xs" c="fail">
+                      {discoveryScan.data.error}
+                    </Text>
+                  )}
+                  {discoverySelections && discoveryScan.data?.ok && (
+                    <Text size="xs" c="pass">
+                      Discovered setup selected —{' '}
+                      <Anchor size="xs" onClick={() => setDiscoveryDrawerOpen(true)}>
+                        review it
+                      </Anchor>
+                      .
+                    </Text>
+                  )}
+                </div>
+              )}
             </div>
 
             {isAlreadyOnboarded && detection?.existingService && (
@@ -286,6 +369,26 @@ export function NewServicePage() {
           </Stack>
         </form>
       </Stack>
+
+      <Drawer
+        opened={discoveryDrawerOpen}
+        onClose={() => setDiscoveryDrawerOpen(false)}
+        position="right"
+        size="lg"
+        padding="xl"
+        title="Discovered setup"
+      >
+        {discoveryScan.data?.ok && (
+          <DiscoveryReviewPanel
+            proposal={discoveryScan.data}
+            primaryLabel="Use this setup"
+            onApply={(selections) => {
+              setDiscoverySelections(selections);
+              setDiscoveryDrawerOpen(false);
+            }}
+          />
+        )}
+      </Drawer>
     </Container>
   );
 }

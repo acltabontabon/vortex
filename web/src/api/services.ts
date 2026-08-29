@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from './client';
+import type { ProposedEnvironment } from './discovery';
 
 export interface ServiceListItem {
   id: string;
@@ -22,6 +23,13 @@ export interface CreateServiceRequest {
   description?: string;
   workspacePath?: string;
   openApiUrl?: string;
+  /** A repository-relative OpenAPI file, as an alternative to `openApiUrl` — what "Inspect
+   *  project" fills in rather than a typed address. */
+  openApiFile?: string;
+  /** An execution target approved from a discovery scan. */
+  applyEnvironment?: ProposedEnvironment;
+  /** A Compose file approved from a discovery scan as the Local Lab file. */
+  applyLocalLabComposeFile?: string;
 }
 
 /** What came of an optional OpenAPI import attempted in the same act as creation. */
@@ -34,9 +42,15 @@ export interface ImportOutcome {
   errorDetails: string[];
 }
 
+/**
+ * @param setupWarning non-fatal: the service was created, but Vortex could not apply an approved
+ *                      discovery selection (the environment or Local Lab file). Rare — both were
+ *                      already validated once, at scan time.
+ */
 export interface CreateServiceResponse {
   service: ServiceListItem;
   importOutcome: ImportOutcome;
+  setupWarning: string | null;
 }
 
 export function useCreateServiceMutation() {

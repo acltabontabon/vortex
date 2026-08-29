@@ -50,6 +50,9 @@ import java.util.Optional;
  *                         typed the numbers in. This is where a PromQL expression lives, which is
  *                         what keeps it off the workloads calibrated from it
  * @param note             anything else qualifying the observation
+ * @param serviceLevel     what response time and failure rate look like in production, when known —
+ *                         absent for every observation recorded before threshold evidence existed,
+ *                         and for sources that only report traffic volume
  */
 public record ProductionObservation(
         RequestsPerSecond averageRate,
@@ -61,7 +64,8 @@ public record ProductionObservation(
         String source,
         Observation observation,
         ObservationProvenance provenance,
-        String note) {
+        String note,
+        ProductionServiceLevel serviceLevel) {
 
     public ProductionObservation {
         Objects.requireNonNull(peakRate, "peakRate");
@@ -93,6 +97,22 @@ public record ProductionObservation(
     }
 
     /**
+     * An observation built before threshold evidence existed: rates and a mix, nothing about response
+     * time or failure rate.
+     *
+     * <p>Kept at the previous arity rather than folded into the canonical constructor, so that adding
+     * {@code serviceLevel} did not require editing every site that never had anything to put in it —
+     * every existing adapter and hand-entry path still builds a rate-only observation this way.
+     */
+    public ProductionObservation(RequestsPerSecond averageRate, RequestsPerSecond p95ObservedRate,
+            RequestsPerSecond peakRate, OperationMix observedMix, OperationMixCoverage mixCoverage,
+            Duration sampleResolution, String source, Observation observation,
+            ObservationProvenance provenance, String note) {
+        this(averageRate, p95ObservedRate, peakRate, observedMix, mixCoverage, sampleResolution,
+                source, observation, provenance, note, null);
+    }
+
+    /**
      * An observation somebody typed in: rates, a mix, an attribution, and nothing machine-derived.
      *
      * <p>Retained as a constructor rather than folded into the canonical one because it is how every
@@ -103,7 +123,7 @@ public record ProductionObservation(
             RequestsPerSecond peakRate, OperationMix observedMix, String source,
             Observation observation, String note) {
         this(averageRate, p95ObservedRate, peakRate, observedMix, null, null, source, observation,
-                null, note);
+                null, note, null);
     }
 
     public Optional<RequestsPerSecond> averageRateIfPresent() {
@@ -138,6 +158,10 @@ public record ProductionObservation(
 
     public Optional<ObservationProvenance> provenanceIfPresent() {
         return Optional.ofNullable(provenance);
+    }
+
+    public Optional<ProductionServiceLevel> serviceLevelIfPresent() {
+        return Optional.ofNullable(serviceLevel);
     }
 
     public boolean hasSource() {

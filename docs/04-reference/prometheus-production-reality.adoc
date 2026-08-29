@@ -84,6 +84,20 @@ Kubernetes/Istio-style label scheme) can override any subset of the three — in
 back to its default individually, so overriding only the route label leaves service and method at
 their defaults.
 
+== Settings defaults
+
+When several services in one installation share a single Prometheus, *Settings → Prometheus
+defaults* prefills a brand-new service's observation source — endpoint, default window, headers and
+label overrides — so they don't need typing separately into every service's Configuration page.
+
+This is prefill only, not a shared connection: it is read exactly once, when a brand-new service's
+Prometheus form first opens, and it never overrides a service that already has a source configured.
+Every service's source still lives entirely in that service's own `vortex.yaml`, exactly as if it had
+been typed by hand — Vortex never queries Prometheus through the defaults themselves. A header value
+saved as a default must be blank or a single `${NAME}` reference, never a literal secret. See
+xref:../adr/adr-062-prometheus-defaults-are-prefill-only.adoc[ADR-062] for why this deliberately does
+*not* work like Dynatrace MCP's shared connection.
+
 == Prerequisites
 
 * A Spring Boot service with `spring-boot-starter-actuator` and `micrometer-registry-prometheus` on

@@ -24,15 +24,22 @@ import {
   useChooseModelMutation,
   useRetryAiMutation,
   useSaveDynatraceMcpMutation,
+  useSavePrometheusDefaultsMutation,
   useSettingsQuery,
   useTestDynatraceMcpMutation,
+  useTestPrometheusDefaultsMutation,
 } from '../api/settings';
 import type {
   ChooseLoadGeneratorBudgetRequest,
   DynatraceMcpAvailability,
   DynatraceMcpSettings,
+  PrometheusDefaults,
+  SavePrometheusDefaultsRequest,
 } from '../api/settings';
 import { Fact, Facts } from '../components/Fact';
+import { HeaderRows } from '../features/service/configuration/HeaderRows';
+import { rowsFromMasked, type HeaderRow } from '../features/service/configuration/headerRowUtils';
+import { connectionStateAppearance } from '../lib/connectionState';
 import { errorFallback, extractErrorMessage } from '../lib/queryFallback';
 import classes from './SettingsPage.module.css';
 
@@ -392,6 +399,8 @@ export function SettingsPage() {
 
         <DynatraceMcpCard settings={data.dynatraceMcp} availability={data.dynatraceMcpAvailability} />
 
+        <PrometheusDefaultsCard defaults={data.prometheusDefaults} />
+
         <Card withBorder radius="md">
           <Title order={2} size="h4" mb="sm">
             Docker
@@ -620,6 +629,138 @@ function DynatraceMcpCard({
           </p>
         </div>
       </details>
+    </Card>
+  );
+}
+
+/**
+ * What prefills a brand-new service's Prometheus observation source — never a connection Vortex
+ * itself queries, and never overrides a service that already has a source configured. No "Enabled"
+ * control and no availability badge: there is nothing to enable or disable, only something to have
+ * typed in or not. See ADR-062.
+ */
+function PrometheusDefaultsCard({ defaults }: { defaults: PrometheusDefaults }) {
+  const save = useSavePrometheusDefaultsMutation();
+  const test = useTestPrometheusDefaultsMutation();
+
+  const [endpoint, setEndpoint] = useState(defaults.endpoint);
+  const [window, setWindow] = useState(defaults.windowDisplay);
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>(rowsFromMasked(defaults.headers));
+  const [serviceLabel, setServiceLabel] = useState(defaults.serviceLabel);
+  const [routeLabel, setRouteLabel] = useState(defaults.routeLabel);
+  const [methodLabel, setMethodLabel] = useState(defaults.methodLabel);
+
+  function payload(): SavePrometheusDefaultsRequest {
+    const named = headerRows.filter((r) => r.name.trim());
+    return {
+      endpoint,
+      window,
+      headerName: named.map((r) => r.name),
+      headerValue: named.map((r) => r.value),
+      serviceLabel: serviceLabel.trim() || undefined,
+      routeLabel: routeLabel.trim() || undefined,
+      methodLabel: methodLabel.trim() || undefined,
+    };
+  }
+
+  function onSave() {
+    save.mutate(payload(), {
+      onSuccess: (r) => notifications.show({ message: r.message, color: 'pass' }),
+    });
+  }
+
+  const saveError = extractErrorMessage(save, 'Something went wrong saving Prometheus defaults.');
+  const testError = extractErrorMessage(test, 'Something went wrong testing the connection.');
+  const appearance = test.data ? connectionStateAppearance(test.data.state, test.data.succeeded) : null;
+
+  return (
+    <Card withBorder radius="md">
+      <Title order={2} size="h4">
+        Prometheus defaults
+      </Title>
+      <Text size="sm" c="dimmed" mb="sm">
+        Optional. Prefills a brand-new service&apos;s Prometheus observation source — never overrides
+        one already configured. Every service still keeps its own, self-contained source.
+      </Text>
+
+      <Facts>
+        <Fact label="Endpoint">
+          <span className={classes.mono}>{defaults.endpoint || 'not configured'}</span>
+        </Fact>
+        <Fact label="Default window">{defaults.windowDisplay}</Fact>
+      </Facts>
+
+      <Stack gap="sm" mt="md">
+        <TextInput
+          label="Endpoint"
+          placeholder="http://prometheus.internal:9090"
+          value={endpoint}
+          onChange={(e) => setEndpoint(e.currentTarget.value)}
+        />
+        <TextInput
+          label="Default observation window"
+          placeholder="30d"
+          value={window}
+          onChange={(e) => setWindow(e.currentTarget.value)}
+        />
+        <HeaderRows rows={headerRows} onChange={setHeaderRows} />
+        <details className={classes.advanced}>
+          <summary>Label name overrides</summary>
+          <div className={classes.advancedBody}>
+            <Group grow align="flex-start">
+              <TextInput
+                label="Service label name"
+                placeholder="application"
+                value={serviceLabel}
+                onChange={(e) => setServiceLabel(e.currentTarget.value)}
+              />
+              <TextInput
+                label="Route label name"
+                placeholder="uri"
+                value={routeLabel}
+                onChange={(e) => setRouteLabel(e.currentTarget.value)}
+              />
+              <TextInput
+                label="Method label name"
+                placeholder="method"
+                value={methodLabel}
+                onChange={(e) => setMethodLabel(e.currentTarget.value)}
+              />
+            </Group>
+          </div>
+        </details>
+      </Stack>
+
+      {test.data && appearance && (
+        <Alert color={appearance.color} title={appearance.title} mt="md">
+          {test.data.message}
+        </Alert>
+      )}
+      {saveError && (
+        <Text size="sm" c="fail" mt="md">
+          {saveError}
+        </Text>
+      )}
+      {testError && (
+        <Text size="sm" c="fail" mt="md">
+          {testError}
+        </Text>
+      )}
+
+      <Group mt="md">
+        <Button size="sm" onClick={onSave} loading={save.isPending}>
+          Save
+        </Button>
+        <Button
+          size="sm"
+          variant="default"
+          onClick={() => test.mutate(payload())}
+          loading={test.isPending}
+          disabled={!endpoint.trim()}
+        >
+          Test connection
+        </Button>
+      </Group>
     </Card>
   );
 }
