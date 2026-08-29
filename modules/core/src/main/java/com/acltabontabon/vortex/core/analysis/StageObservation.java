@@ -36,6 +36,9 @@ import java.util.Optional;
  *                           startRate} is set to its own target from t=0 — or a single-stage run.
  *                           Used only to correct {@link #rateShortfall()}'s comparison basis; the
  *                           raw {@link #achievedRate} this stage actually measured is untouched
+ * @param percentileBasis    how {@link #p95} was actually derived — see {@link PercentileBasis}
+ * @param rateBasis          how {@link #achievedRate} and {@link #errorRate} were actually derived —
+ *                           see {@link RateAggregationBasis}
  */
 public record StageObservation(
         LoadLevel targetLoad,
@@ -48,7 +51,9 @@ public record StageObservation(
         StageWindowBasis basis,
         List<ResourceSignal> resourceSignals,
         long requests,
-        LoadLevel rampStartLevel) {
+        LoadLevel rampStartLevel,
+        PercentileBasis percentileBasis,
+        RateAggregationBasis rateBasis) {
 
     public StageObservation {
         Objects.requireNonNull(targetLoad, "targetLoad");
@@ -57,9 +62,29 @@ public record StageObservation(
         signals = signals == null ? List.of() : List.copyOf(signals);
         resourceSignals = resourceSignals == null ? List.of() : List.copyOf(resourceSignals);
         basis = basis == null ? StageWindowBasis.DERIVED_FROM_PLAN : basis;
+        // A caller that doesn't say how a figure was derived is assumed to be on the weaker basis,
+        // never silently trusted as strong — the same reasoning as `basis`'s own default above.
+        percentileBasis = percentileBasis == null
+                ? PercentileBasis.LEGACY_AVERAGED_BUCKET_PERCENTILES : percentileBasis;
+        rateBasis = rateBasis == null
+                ? RateAggregationBasis.LEGACY_DERIVED_BUCKET_VALUES : rateBasis;
         if (requests < 0) {
             throw new IllegalArgumentException("a stage's request count must not be negative");
         }
+    }
+
+    /**
+     * A stage whose percentile/rate provenance was not established.
+     *
+     * <p>Kept at the previous arity for the same reason every constructor below it exists: widening
+     * the record must not mean editing every caller that has nothing to put in the new fields.
+     */
+    public StageObservation(LoadLevel targetLoad, RequestsPerSecond achievedRate, Duration p95,
+            ErrorRate errorRate, int sampleCount, List<String> violatedThresholds,
+            List<MetricObservation> signals, StageWindowBasis basis,
+            List<ResourceSignal> resourceSignals, long requests, LoadLevel rampStartLevel) {
+        this(targetLoad, achievedRate, p95, errorRate, sampleCount, violatedThresholds, signals,
+                basis, resourceSignals, requests, rampStartLevel, null, null);
     }
 
     /**

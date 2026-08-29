@@ -16,6 +16,7 @@ import com.acltabontabon.vortex.core.resource.ResourceKind;
 import com.acltabontabon.vortex.core.resource.ResourceLimit;
 import com.acltabontabon.vortex.core.resource.ResourceScope;
 import com.acltabontabon.vortex.core.resource.ResourceSignal;
+import com.acltabontabon.vortex.core.shared.Concurrency;
 import com.acltabontabon.vortex.core.shared.ErrorRate;
 import com.acltabontabon.vortex.core.shared.RequestsPerSecond;
 import com.acltabontabon.vortex.core.validity.RunQualityAssessment;
@@ -283,6 +284,23 @@ class SustainableCapacityTest {
             assertThat(capacity.isEstablished()).isFalse();
             assertThat(capacity.refusal()).contains("Held for 0 ms").contains("an average-load test");
         }
+    }
+
+    @Test
+    @DisplayName("a level with the same magnitude but a different unit is never treated as the same held level")
+    void differentUnitsAtEqualMagnitudeDoNotMatch() {
+        // The plan held 200 requests/sec; a stage observation claiming 200 VUs is a different
+        // quantity entirely, even though asDouble() agrees on both. Before the LoadLevel.equals()
+        // fix, heldAt() compared raw magnitude only and would have credited this VU-labelled stage
+        // with the full ten-minute hold it never actually measured.
+        var capacity = calculate(heldFor(Duration.ofMinutes(10)),
+                List.of(new StageObservation(Concurrency.of(200), RequestsPerSecond.of(199),
+                        Duration.ofMillis(120), ErrorRate.ZERO, 12, List.of(), List.of(),
+                        StageWindowBasis.OBSERVED, List.of(pool(30)), 5_000)),
+                RunQualityAssessment.valid(), null);
+
+        assertThat(capacity.isEstablished()).isFalse();
+        assertThat(capacity.refusal()).contains("Held for 0 ms");
     }
 
     @Test

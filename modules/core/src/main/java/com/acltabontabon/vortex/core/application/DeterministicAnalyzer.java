@@ -2,6 +2,8 @@ package com.acltabontabon.vortex.core.application;
 
 import com.acltabontabon.vortex.core.analysis.BreakpointDetector;
 import com.acltabontabon.vortex.core.analysis.DeterministicSummary;
+import com.acltabontabon.vortex.core.analysis.PercentileBasis;
+import com.acltabontabon.vortex.core.analysis.RateAggregationBasis;
 import com.acltabontabon.vortex.core.analysis.SloBreakpoint;
 import com.acltabontabon.vortex.core.analysis.StageObservation;
 import com.acltabontabon.vortex.core.analysis.SystemSaturation;
@@ -13,6 +15,7 @@ import com.acltabontabon.vortex.core.analysis.ThroughputCeiling;
 import com.acltabontabon.vortex.core.analysis.ThroughputCeilingDetector;
 import com.acltabontabon.vortex.core.validity.RunQualityAssessment;
 import com.acltabontabon.vortex.core.evidence.WorkloadEvidence;
+import com.acltabontabon.vortex.core.metrics.LatencyHistogram;
 import com.acltabontabon.vortex.core.metrics.MeasuredResults;
 import com.acltabontabon.vortex.core.metrics.StageTelemetry;
 import com.acltabontabon.vortex.core.metrics.SamplePoint;
@@ -32,6 +35,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -301,11 +305,21 @@ public final class DeterministicAnalyzer {
             // target from t=0), so there is nothing to correct rateShortfall() against.
             LoadLevel rampStartLevel = i == 0 ? null : windows.get(i - 1).target();
 
+            // Computed once per stage and reused everywhere this stage's p95/rates are derived
+            // (violatedIn() below calls the same stageP95()/stageErrorRate() methods), so the
+            // reported basis can never diverge from what was actually computed.
+            PercentileBasis percentileBasis = allHaveHistograms(inStage)
+                    ? PercentileBasis.MERGED_HISTOGRAM
+                    : PercentileBasis.LEGACY_AVERAGED_BUCKET_PERCENTILES;
+            RateAggregationBasis rateBasis = allHaveRateEvidence(inStage)
+                    ? RateAggregationBasis.PRESERVED_COUNTS
+                    : RateAggregationBasis.LEGACY_DERIVED_BUCKET_VALUES;
+
             observations.add(new StageObservation(
                     stage.target(),
-                    meanRequestRate(inStage).orElse(null),
-                    meanP95(inStage).orElse(null),
-                    meanErrorRate(inStage),
+                    stageRequestRate(inStage).orElse(null),
+                    stageP95(inStage).orElse(null),
+                    stageErrorRate(inStage),
                     inStage.size(),
                     violatedIn(plan, inStage),
                     telemetry == null ? List.of() : telemetry.signals(),
@@ -314,21 +328,41 @@ public final class DeterministicAnalyzer {
                     telemetry == null ? stage.basis() : telemetry.basis(),
                     telemetry == null ? List.of() : telemetry.resourceSignals(),
                     requestsIn(inStage),
-                    rampStartLevel));
+                    rampStartLevel,
+                    percentileBasis,
+                    rateBasis));
         }
 
         return observations;
     }
 
+    /** Whether every point carries a pooled latency distribution to merge. */
+    private boolean allHaveHistograms(List<SamplePoint> points) {
+        return points.stream().allMatch(p -> p.latencyHistogramIfPresent().isPresent());
+    }
+
+    /**
+     * Whether every point carries the primitive request/failure counts needed to sum rather than
+     * average — one bundle, since both fields are always added or absent together (see
+     * {@link RateAggregationBasis}).
+     */
+    private boolean allHaveRateEvidence(List<SamplePoint> points) {
+        return points.stream().allMatch(p -> p.requestCountIfPresent().isPresent()
+                && p.failureCountIfPresent().isPresent());
+    }
+
     /**
      * How many requests a stage actually carried.
      *
-     * <p>Buckets carry a rate rather than a count, so this is rate times width summed across the
-     * stage. Approximate at the edges by exactly the width of one bucket, which is immaterial against
-     * a sample floor in the hundreds — and far closer to the truth than counting buckets, where
-     * eleven requests and eleven thousand look identical.
+     * <p>Summed directly from each bucket's preserved {@code requestCount} when every point in the
+     * stage has one — exact, not a reconstruction. Falls back to reconstructing from rate and bucket
+     * width, approximate at the edges by exactly the width of one bucket, for a run recorded before
+     * request counts were preserved.
      */
     private long requestsIn(List<SamplePoint> points) {
+        if (allHaveRateEvidence(points)) {
+            return points.stream().mapToLong(SamplePoint::requestCount).reduce(0L, Math::addExact);
+        }
         double total = 0;
         for (SamplePoint point : points) {
             if (point.requestRate() != null) {
@@ -338,7 +372,33 @@ public final class DeterministicAnalyzer {
         return Math.round(total);
     }
 
-    private Optional<RequestsPerSecond> meanRequestRate(List<SamplePoint> points) {
+    /**
+     * A stage's request rate.
+     *
+     * <p>When every point carries preserved counts, this is {@code sum(requestCount) /
+     * sum(bucket duration in seconds)} — under today's fixed nominal bucket width this is
+     * algebraically identical to the legacy arithmetic mean below, since averaging N ratios that share
+     * the same constant denominator equals the sum of numerators over the sum of (equal) denominators.
+     * The gain is evidence provenance (resting on preserved primitive counts, not an already-derived
+     * scalar) and robustness if bucket-width semantics ever stop being uniform, not a numerical
+     * correction — see {@link RateAggregationBasis}. Falls back to the unweighted average of each
+     * point's own rate for a run recorded before counts were preserved.
+     */
+    private Optional<RequestsPerSecond> stageRequestRate(List<SamplePoint> points) {
+        if (allHaveRateEvidence(points)) {
+            long totalRequests = points.stream()
+                    .mapToLong(SamplePoint::requestCount)
+                    .reduce(0L, Math::addExact);
+            long totalMillis = points.stream()
+                    .mapToLong(p -> p.duration().toMillis())
+                    .reduce(0L, Math::addExact);
+            double seconds = totalMillis / 1000.0;
+            if (seconds <= 0) {
+                return Optional.empty();
+            }
+            double rate = totalRequests / seconds;
+            return rate <= 0 ? Optional.empty() : Optional.of(RequestsPerSecond.of(rate));
+        }
         double[] values = points.stream()
                 .map(SamplePoint::requestRateIfPresent)
                 .filter(Optional::isPresent)
@@ -347,11 +407,30 @@ public final class DeterministicAnalyzer {
         if (values.length == 0) {
             return Optional.empty();
         }
-        double mean = java.util.Arrays.stream(values).average().orElse(0);
+        double mean = Arrays.stream(values).average().orElse(0);
         return mean <= 0 ? Optional.empty() : Optional.of(RequestsPerSecond.of(mean));
     }
 
-    private Optional<Duration> meanP95(List<SamplePoint> points) {
+    /**
+     * A stage's p95, pooled from every bucket's own latency distribution rather than averaged.
+     *
+     * <p>Averaging each bucket's own p95 is not the pooled p95 of anything — percentiles are not
+     * composable through arithmetic averaging, and the error is not reliably directional. Merging
+     * histograms is exact for the already-quantized distribution each one encodes; only the
+     * {@link LatencyHistogram} bin quantization itself is approximate (see its own numerical
+     * guarantee), not this rollup.
+     */
+    private Optional<Duration> stageP95(List<SamplePoint> points) {
+        if (allHaveHistograms(points)) {
+            LatencyHistogram pooled = LatencyHistogram.merge(points.stream()
+                    .map(p -> p.latencyHistogramIfPresent().get())
+                    .toList());
+            return pooled.percentile(0.95);
+        }
+        // LEGACY FALLBACK — permanent for runs recorded before this fix, whose raw distribution no
+        // longer exists. Averaging bucket p95s is not the pooled percentile, and is not reliably
+        // above or below it either — it is simply the only thing this data can still produce. Never
+        // "improved" in place; every run analyzed after this fix ships takes the branch above.
         long[] nanos = points.stream()
                 .map(SamplePoint::p95IfPresent)
                 .filter(Optional::isPresent)
@@ -360,10 +439,27 @@ public final class DeterministicAnalyzer {
         if (nanos.length == 0) {
             return Optional.empty();
         }
-        return Optional.of(Duration.ofNanos((long) java.util.Arrays.stream(nanos).average().orElse(0)));
+        return Optional.of(Duration.ofNanos((long) Arrays.stream(nanos).average().orElse(0)));
     }
 
-    private ErrorRate meanErrorRate(List<SamplePoint> points) {
+    /**
+     * A stage's error rate.
+     *
+     * <p>When every point carries preserved counts, this is {@code sum(failures) / sum(requests)} —
+     * a genuine correctness fix over averaging each bucket's own error fraction unweighted, which is
+     * wrong whenever bucket request volume differs (unlike bucket width, which is constant). Falls
+     * back to the unweighted average for a run recorded before counts were preserved.
+     */
+    private ErrorRate stageErrorRate(List<SamplePoint> points) {
+        if (allHaveRateEvidence(points)) {
+            long totalRequests = points.stream()
+                    .mapToLong(SamplePoint::requestCount)
+                    .reduce(0L, Math::addExact);
+            long totalFailures = points.stream()
+                    .mapToLong(SamplePoint::failureCount)
+                    .reduce(0L, Math::addExact);
+            return totalRequests <= 0 ? ErrorRate.ZERO : ErrorRate.of(totalFailures, totalRequests);
+        }
         double mean = points.stream()
                 .mapToDouble(p -> p.errorRate().asFraction())
                 .average()
@@ -390,7 +486,7 @@ public final class DeterministicAnalyzer {
     private List<String> violatedIn(EffectiveTestPlan plan, List<SamplePoint> points) {
         List<String> violated = new ArrayList<>();
 
-        Optional<Duration> p95 = meanP95(points);
+        Optional<Duration> p95 = stageP95(points);
         for (Threshold threshold : plan.thresholds().overall()) {
             if (threshold instanceof LatencyThreshold latency
                     && latency.percentile().equals(com.acltabontabon.vortex.core.shared.Percentile.P95)
@@ -400,7 +496,7 @@ public final class DeterministicAnalyzer {
             }
         }
 
-        ErrorRate errorRate = meanErrorRate(points);
+        ErrorRate errorRate = stageErrorRate(points);
         plan.thresholds().errorRateThreshold().ifPresent(threshold -> {
             if (errorRate.compareTo(threshold.maximum()) > 0) {
                 violated.add(threshold.id());

@@ -169,12 +169,15 @@ public final class SustainableCapacityCalculator {
 
         for (int index = 0; index < stages.size(); index++) {
             Stage stage = stages.get(index);
-            if (stage.target() == null || stage.target().asDouble() != level.asDouble()) {
+            // LoadLevel's own record-generated equals() distinguishes both unit and (correctly-scaled)
+            // magnitude — comparing asDouble() alone would treat, say, 100 requests/sec and 100 VUs as
+            // the same level, conflating the two quantities this type exists to keep apart.
+            if (stage.target() == null || !stage.target().equals(level)) {
                 continue;
             }
             boolean isPlateau = index > 0
                     && stages.get(index - 1).target() != null
-                    && stages.get(index - 1).target().asDouble() == level.asDouble();
+                    && stages.get(index - 1).target().equals(level);
             if (isPlateau) {
                 held = held.plus(stage.duration());
             }

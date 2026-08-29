@@ -198,6 +198,9 @@ or that someone would otherwise reasonably question.
 
 | xref:adr-063-project-discovery-is-synchronous-and-stateless.adoc[063]
 | Project Discovery is synchronous, stateless, and proposes no new module or dependency concept
+
+| xref:adr-064-latency-percentiles-are-pooled-via-a-histogram-not-averaged.adoc[064]
+| Stage latency percentiles are pooled via a histogram, not averaged from bucket percentiles
 |===
 
 == Format

@@ -1,6 +1,7 @@
 package com.acltabontabon.vortex.k6;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.acltabontabon.vortex.core.fixtures.Fixtures;
 import com.acltabontabon.vortex.core.metrics.FailureClass;
@@ -32,6 +33,17 @@ class K6RawMetricsAggregatorTest {
 
     private final K6RawMetricsAggregator aggregator = new K6RawMetricsAggregator();
     private final EffectiveTestPlan plan = Fixtures.plan();
+
+    /** A minimal synthetic k6 {@code Point} line, for tests that need exact control over a value. */
+    private static String point(String metric, String isoTime, Object value) {
+        return "{\"metric\":\"" + metric + "\",\"type\":\"Point\",\"data\":{\"time\":\"" + isoTime
+                + "\",\"value\":" + value + ",\"tags\":{\"scenario\":\"getaccount\"}}}";
+    }
+
+    /** A timestamp {@code offsetMicros} microseconds into the first bucket's window. */
+    private static String timeAt(int offsetMicros) {
+        return String.format("2026-08-21T04:45:43.%06d+08:00", offsetMicros % 900_000);
+    }
 
     private static List<String> fixture(String name) {
         try (var in = K6RawMetricsAggregatorTest.class.getResourceAsStream("/fixtures/" + name)) {
@@ -269,6 +281,173 @@ class K6RawMetricsAggregatorTest {
             assertThat(reliability.wasReported()).isFalse();
             assertThat(reliability.isEmpty()).isTrue();
             assertThat(reliability.unreachedShare()).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("pooled latency histograms replace the capped raw-duration list")
+    class PooledLatencyHistograms {
+
+        @Test
+        @DisplayName("valid durations flow into the bucket's own pooled histogram and preserved counts")
+        void validDurationsPopulateTheHistogramAndCounts() {
+            List<String> lines = List.of(
+                    point("http_reqs", timeAt(0), 1),
+                    point("http_req_duration", timeAt(0), 41.5),
+                    point("http_reqs", timeAt(100_000), 1),
+                    point("http_req_duration", timeAt(100_000), 42.0),
+                    // close the first bucket
+                    point("http_reqs", "2026-08-21T04:45:49.000000+08:00", 1),
+                    point("http_req_duration", "2026-08-21T04:45:49.000000+08:00", 10.0));
+
+            List<SamplePoint> published = new ArrayList<>();
+            aggregator.aggregate(lines, Duration.ofMinutes(1), Map.of(),
+                    K6RawMetricsAggregator.TargetLoadAt.fromStages(plan.stages()), published::add);
+
+            SamplePoint first = published.get(0);
+            assertThat(first.latencyHistogramIfPresent()).isPresent();
+            assertThat(first.latencyHistogramIfPresent().get().totalCount()).isEqualTo(2);
+            assertThat(first.requestCountIfPresent()).hasValue(2L);
+            assertThat(first.failureCountIfPresent()).hasValue(0L);
+        }
+
+        @Test
+        @DisplayName("every observation in a bucket contributes to its histogram, not a capped subset — unlike the old reservoir-sampled list")
+        void everyObservationContributesRegardlessOfVolume() {
+            int count = 4_500; // beyond the old 4,000-sample-per-bucket reservoir cap
+            List<String> lines = new ArrayList<>(count + 2);
+            for (int i = 0; i < count; i++) {
+                lines.add(point("http_req_duration", timeAt(i), 10.0));
+            }
+            lines.add(point("http_reqs", "2026-08-21T04:45:49.000000+08:00", 1));
+            lines.add(point("http_req_duration", "2026-08-21T04:45:49.000000+08:00", 10.0));
+
+            List<SamplePoint> published = new ArrayList<>();
+            aggregator.aggregate(lines, Duration.ofMinutes(1), Map.of(),
+                    K6RawMetricsAggregator.TargetLoadAt.fromStages(plan.stages()), published::add);
+
+            assertThat(published.get(0).latencyHistogramIfPresent().get().totalCount())
+                    .isEqualTo(count);
+        }
+
+        @Test
+        @DisplayName("a bucket's own p95 comes from its pooled histogram, exactly as merging that same histogram would compute it")
+        void bucketP95ComesFromTheHistogram() {
+            List<String> lines = new ArrayList<>();
+            for (int i = 0; i < 95; i++) {
+                lines.add(point("http_req_duration", timeAt(i * 10), 10.0));
+            }
+            for (int i = 95; i < 100; i++) {
+                lines.add(point("http_req_duration", timeAt(i * 10), 1_000.0));
+            }
+            lines.add(point("http_reqs", "2026-08-21T04:45:49.000000+08:00", 1));
+            lines.add(point("http_req_duration", "2026-08-21T04:45:49.000000+08:00", 1.0));
+
+            List<SamplePoint> published = new ArrayList<>();
+            aggregator.aggregate(lines, Duration.ofMinutes(1), Map.of(),
+                    K6RawMetricsAggregator.TargetLoadAt.fromStages(plan.stages()), published::add);
+
+            SamplePoint first = published.get(0);
+            var expectedP95 = first.latencyHistogramIfPresent().get().percentile(0.95);
+            assertThat(first.p95IfPresent()).isEqualTo(expectedP95);
+        }
+
+        @Test
+        @DisplayName("every bucket's duration, including a short final one, remains the nominal BUCKET_WIDTH — a known, unchanged limitation")
+        void bucketDurationRemainsNominalEvenForAShortFinalBucket() {
+            List<String> lines = List.of(
+                    point("http_reqs", timeAt(0), 1),
+                    point("http_req_duration", timeAt(0), 10.0),
+                    // a second bucket whose raw stream ends less than a second after it opens
+                    point("http_reqs", "2026-08-21T04:45:49.000000+08:00", 1),
+                    point("http_req_duration", "2026-08-21T04:45:49.000000+08:00", 10.0));
+
+            List<SamplePoint> published = new ArrayList<>();
+            aggregator.aggregate(lines, Duration.ofMinutes(1), Map.of(),
+                    K6RawMetricsAggregator.TargetLoadAt.fromStages(plan.stages()), published::add);
+
+            assertThat(published).hasSizeGreaterThanOrEqualTo(2);
+            assertThat(published).allSatisfy(sample ->
+                    assertThat(sample.duration()).isEqualTo(K6RawMetricsAggregator.BUCKET_WIDTH));
+        }
+    }
+
+    @Nested
+    @DisplayName("source normalization: k6's double milliseconds into checked long nanoseconds")
+    class SourceNormalization {
+
+        @Test
+        void zeroIsValid() {
+            assertThat(K6RawMetricsAggregator.validateAndConvertToNanos(0.0)).isEqualTo(0L);
+        }
+
+        @Test
+        @DisplayName("a value below the source's own rounding resolution collapses to exact zero — an accepted source-precision limit, not a defect")
+        void subNanosecondFractionRoundsToZero() {
+            assertThat(K6RawMetricsAggregator.validateAndConvertToNanos(0.0000001)).isEqualTo(0L);
+        }
+
+        @Test
+        @DisplayName("a value resolving to exactly one nanosecond")
+        void resolvesToExactlyOneNanosecond() {
+            assertThat(K6RawMetricsAggregator.validateAndConvertToNanos(0.000_001)).isEqualTo(1L);
+        }
+
+        @Test
+        @DisplayName("a value at a round-half-up rounding boundary")
+        void roundingBoundary() {
+            // 1.5 microseconds: round-half-up must land on 2, not 1
+            assertThat(K6RawMetricsAggregator.validateAndConvertToNanos(0.001_5)).isEqualTo(1_500L);
+        }
+
+        @Test
+        void negativeValuesAreRejected() {
+            assertThatThrownBy(() -> K6RawMetricsAggregator.validateAndConvertToNanos(-1.0))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void nanIsRejected() {
+            assertThatThrownBy(() -> K6RawMetricsAggregator.validateAndConvertToNanos(Double.NaN))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void positiveInfinityIsRejected() {
+            assertThatThrownBy(
+                    () -> K6RawMetricsAggregator.validateAndConvertToNanos(Double.POSITIVE_INFINITY))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void negativeInfinityIsRejected() {
+            assertThatThrownBy(
+                    () -> K6RawMetricsAggregator.validateAndConvertToNanos(Double.NEGATIVE_INFINITY))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("a value comfortably below the 2^63-nanosecond-equivalent boundary (~292 years) succeeds")
+        void comfortablyBelowTheBoundarySucceeds() {
+            // 2^63 ns is ~9.223372036854776e12 ms; one trillion ms below that is a wide, unambiguous
+            // safety margin (far larger than the ~1024ns granularity doubles have at this magnitude).
+            assertThat(K6RawMetricsAggregator.validateAndConvertToNanos(8_223_372_036_854.0))
+                    .isPositive();
+        }
+
+        @Test
+        @DisplayName("a value comfortably above the 2^63-nanosecond-equivalent boundary fails, never silently saturating to Long.MAX_VALUE")
+        void comfortablyAboveTheBoundaryFails() {
+            assertThatThrownBy(
+                    () -> K6RawMetricsAggregator.validateAndConvertToNanos(10_223_372_036_854.0))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("a grossly out-of-range but finite value fails, never silently saturating")
+        void grosslyOutOfRangeValueFails() {
+            assertThatThrownBy(() -> K6RawMetricsAggregator.validateAndConvertToNanos(1e15))
+                    .isInstanceOf(IllegalArgumentException.class);
         }
     }
 }

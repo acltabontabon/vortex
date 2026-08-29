@@ -3,6 +3,7 @@ package com.acltabontabon.vortex.k6;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.acltabontabon.vortex.core.metrics.FailureClass;
+import com.acltabontabon.vortex.core.metrics.LatencyHistogram;
 import com.acltabontabon.vortex.core.metrics.LatencyPercentiles;
 import com.acltabontabon.vortex.core.metrics.LoadGeneration;
 import com.acltabontabon.vortex.core.metrics.MetricSeries;
@@ -51,10 +52,12 @@ import java.util.function.Consumer;
  * <p>A tag that is not in the map — an imported script, or one of k6's own internal workloads — is
  * bucketed as {@code (unattributed)} rather than guessed at.
  *
- * <p>Latency percentiles within a bucket come from the raw durations in that bucket. Those are
- * exact for the bucket, and are used for the live display and for stage-level analysis. The
- * authoritative end-of-test percentiles come from k6's own summary, which computes them across the
- * whole run.
+ * <p>Latency percentiles within a bucket come from a pooled {@link LatencyHistogram} built from every
+ * duration in that bucket, not a capped or reservoir-sampled subset — every observation contributes,
+ * at bounded memory. A bucket's own p95 is therefore a bounded approximation (exact below 50
+ * nanoseconds and at zero, within 2% above that — see {@link LatencyHistogram}), used for the live
+ * display and, merged across a stage's buckets, for stage-level analysis. The authoritative end-of-test
+ * percentiles still come from k6's own summary, which computes them across the whole run.
  */
 public final class K6RawMetricsAggregator {
 
@@ -62,13 +65,60 @@ public final class K6RawMetricsAggregator {
     public static final Duration BUCKET_WIDTH = Duration.ofSeconds(5);
 
     /**
-     * Cap on durations retained per bucket for percentile estimation.
+     * Upper bound of what a k6-reported duration can be converted to as a signed 64-bit nanosecond
+     * count: {@code 2^63}, exactly representable as a {@code double}.
      *
-     * <p>At high rates a bucket can contain tens of thousands of samples; keeping them all would
-     * make the aggregator itself a source of load. Beyond this cap the bucket keeps a uniform
-     * sample, which is more than enough for a live p95 readout.
+     * <p>{@code (double) Long.MAX_VALUE} is not exact — it rounds up to this same {@code 2^63} — so
+     * checking against it would let values in {@code (Long.MAX_VALUE, 2^63]} through, and
+     * {@link Math#round(double)} would silently saturate those to {@code Long.MAX_VALUE}. The greatest
+     * representable {@code double} strictly below {@code 2^63}, in the {@code [2^62, 2^63)} binade, is
+     * {@code 2^63 - 1024} (that binade's spacing is {@code 2^(62-52) = 1024}), which remains safely
+     * within {@code long} range after rounding — so rejecting anything at or above this exact boundary
+     * is what actually prevents silent saturation.
      */
-    private static final int MAX_DURATIONS_PER_BUCKET = 4000;
+    private static final double LONG_NANOS_UPPER_EXCLUSIVE = 0x1p63;
+
+    /**
+     * Validates and normalizes a k6-reported duration into the histogram's integer nanosecond domain.
+     *
+     * <p>Validated before any arithmetic: {@code Math.round(Double.NaN) == 0} and
+     * {@code Math.round(Double.POSITIVE_INFINITY) == Long.MAX_VALUE} — both look like ordinary values,
+     * and would silently corrupt the histogram rather than fail loudly. The range check happens in
+     * {@code double} space, before the cast to {@code long}, so an out-of-range value fails clearly
+     * rather than saturating.
+     *
+     * <p>This introduces at most 0.5ns of additional rounding error on top of {@code nanosExact}
+     * itself (the definition of round-half-up) — a bound on this one normalization step, not a claim
+     * about k6's own measurement precision or the floating-point multiplication that produced
+     * {@code nanosExact}. It is kept entirely separate from, and never combined with, the histogram's
+     * own {@code v <= reported <= v * 1.02} quantization bound.
+     *
+     * <p>Package-private, not private, so its exact boundary behaviour can be tested directly with
+     * precise {@code double} values rather than only indirectly, through JSON round-tripping.
+     */
+    static long validateAndConvertToNanos(double millis) {
+        if (!Double.isFinite(millis) || millis < 0) {
+            throw new IllegalArgumentException(
+                    "a k6 request duration must be a finite, non-negative number of milliseconds but "
+                            + "was " + millis);
+        }
+        double nanosExact = millis * 1_000_000d;
+        if (nanosExact >= LONG_NANOS_UPPER_EXCLUSIVE) {
+            throw new IllegalArgumentException("a k6 request duration of " + millis
+                    + "ms cannot be represented as a signed 64-bit nanosecond count");
+        }
+        return Math.round(nanosExact);
+    }
+
+    /**
+     * Cap on durations retained per operation for its own end-of-run percentile estimation.
+     *
+     * <p>Unlike a bucket's own latency, which now pools every observation into a
+     * {@link LatencyHistogram} (see the class doc), a per-operation distribution is still a capped,
+     * reservoir-free list, computed once at the end of the run rather than merged across buckets — a
+     * different, smaller, bounded-sampling-error problem, deliberately left as-is.
+     */
+    private static final int MAX_DURATIONS_PER_OPERATION = 40_000;
 
     /**
      * Cap on distinct engine codes retained in a distribution.
@@ -92,10 +142,9 @@ public final class K6RawMetricsAggregator {
     private static final class Bucket {
 
         private final Instant start;
-        private final List<Double> durations = new ArrayList<>();
+        private final LatencyHistogram.Builder latency = LatencyHistogram.builder();
         private long httpRequests;
         private long httpFailures;
-        private long sampled;
         private LoadLevel targetLoad;
         private Integer peakVus;
 
@@ -117,28 +166,24 @@ public final class K6RawMetricsAggregator {
         }
 
         void addDuration(double millis) {
-            sampled++;
-            if (durations.size() < MAX_DURATIONS_PER_BUCKET) {
-                durations.add(millis);
-            } else {
-                // Reservoir-style replacement keeps the retained sample representative rather than
-                // biased toward the start of the bucket.
-                int index = (int) (sampled % MAX_DURATIONS_PER_BUCKET);
-                durations.set(index, millis);
-            }
+            latency.record(validateAndConvertToNanos(millis));
         }
 
         SamplePoint toSamplePoint() {
             double seconds = BUCKET_WIDTH.toMillis() / 1000.0;
+            LatencyHistogram histogram = latency.build();
             return new SamplePoint(
                     start,
                     BUCKET_WIDTH,
                     RequestsPerSecond.of(httpRequests / seconds),
                     ErrorRate.of(httpFailures, httpRequests),
-                    percentile(durations, 0.95),
+                    histogram.percentile(0.95).orElse(null),
                     targetLoad,
                     peakVus,
-                    droppedIterations);
+                    droppedIterations,
+                    histogram,
+                    httpRequests,
+                    httpFailures);
         }
 
         /**
@@ -318,9 +363,9 @@ public final class K6RawMetricsAggregator {
             switch (metric) {
                 case "http_reqs" -> {
                     long count = (long) value;
-                    current.httpRequests += count;
+                    current.httpRequests = Math.addExact(current.httpRequests, count);
                     OperationAccumulator operation = accumulator(operations, operationKey);
-                    operation.requests += count;
+                    operation.requests = Math.addExact(operation.requests, count);
 
                     // One sample per request, carrying the tags that say what happened to it.
                     // Classifying here rather than from http_req_failed keeps the distribution's
@@ -335,8 +380,9 @@ public final class K6RawMetricsAggregator {
                 }
                 case "http_req_failed" -> {
                     if (value > 0) {
-                        current.httpFailures++;
-                        accumulator(operations, operationKey).failures++;
+                        current.httpFailures = Math.incrementExact(current.httpFailures);
+                        OperationAccumulator operation = accumulator(operations, operationKey);
+                        operation.failures = Math.incrementExact(operation.failures);
                     }
                 }
                 case "dropped_iterations" -> {
@@ -352,7 +398,7 @@ public final class K6RawMetricsAggregator {
                 case "http_req_duration" -> {
                     current.addDuration(value);
                     OperationAccumulator operation = accumulator(operations, operationKey);
-                    if (operation.durations.size() < MAX_DURATIONS_PER_BUCKET * 10) {
+                    if (operation.durations.size() < MAX_DURATIONS_PER_OPERATION) {
                         operation.durations.add(value);
                     }
                 }
@@ -367,8 +413,8 @@ public final class K6RawMetricsAggregator {
                     // Every other k6 metric is either derivable from the above or not something
                     // Vortex reports per bucket. The request-phase trends (blocked, connecting,
                     // tls_handshaking, sending, waiting, receiving) are read from the end-of-run
-                    // summary instead, where k6 has already computed percentiles across every
-                    // sample rather than the capped reservoir a bucket can afford.
+                    // summary instead, where k6 has already computed percentiles across the whole run
+                    // rather than one stage's worth of buckets.
                 }
             }
         }

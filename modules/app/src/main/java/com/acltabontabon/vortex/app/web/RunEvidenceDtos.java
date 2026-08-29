@@ -86,7 +86,7 @@ public final class RunEvidenceDtos {
 
     public record TimelineStageRowDto(String levelDisplay, String achievedDisplay, String p95Display,
             String errorRateDisplay, String resultKind, List<String> violatedThresholds,
-            List<String> signals, String basisLabel) {
+            List<String> signals, String basisLabel, String percentileBasisLabel, String rateBasisLabel) {
     }
 
     /**

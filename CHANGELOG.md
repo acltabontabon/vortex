@@ -34,6 +34,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A service now needs a recorded production traffic figure — a real observation or just a rough
   manual estimate — before it's considered ready to test. This still never blocks you from actually
   running a test.
+- The Configuration page's "Service definition" card is reorganized for services with large API
+  descriptions: operations are grouped into collapsible sections you can search by path, method or
+  tag, with an expand/collapse-all toggle, and the list scrolls within a fixed-height area instead of
+  stretching the page. Datasets scroll the same way, each collapsed to one line until you open it.
+  Re-import moved to a small icon button next to the section header.
+
+### Fixed
+
+- The "Review data" shortcut on a mutating operation used to mark it approved for testing with a
+  single click and no data shown — you had no way to know what you'd just approved. Approving now
+  only happens from inside the request-data panel, after you've actually seen the values Vortex would
+  send.
+- Newly captured executions now calculate stage latency percentiles from mergeable pooled latency
+  distributions instead of averaging bucket-level percentiles, and preserve request/failure counts so
+  stage error rates and request totals can be derived directly from primitive evidence. Stage request
+  rate also uses preserved request counts while retaining the existing nominal bucket-duration
+  semantics. Historical executions remain fully readable and use explicitly labelled legacy evidence
+  where the underlying distributions or counts were not preserved. Individual bucket latency readouts
+  are now a bounded approximation (exact below 50ns and at zero, within 2% above that) rather than
+  exact on a capped sample, in exchange for being mathematically poolable across buckets.
 
 ## [0.1.0-alpha.21] - 2026-08-28
 

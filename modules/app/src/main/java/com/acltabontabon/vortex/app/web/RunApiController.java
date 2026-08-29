@@ -863,7 +863,9 @@ public class RunApiController {
                         stage.violatedThresholds().isEmpty() ? "met" : "violated",
                         stage.violatedThresholds(),
                         stage.signals().stream().map(s -> s.name() + " " + s.value()).toList(),
-                        stage.basis().label()))
+                        stage.basis().label(),
+                        stage.percentileBasis().label(),
+                        stage.rateBasis().label()))
                 .toList();
 
         boolean showsCaveat = !timeline.stages().isEmpty()

@@ -31,6 +31,18 @@ import java.util.Optional;
  *                     finding can name the <em>level</em> at which the generator fell behind, which
  *                     is the difference between withholding one capacity claim and withholding all
  *                     of them. Absent means the engine said nothing, never that nothing was dropped
+ * @param latencyHistogram the bucket's pooled latency distribution, absent for a bucket recorded
+ *                     before this field existed. Stage-level percentiles merge these across a
+ *                     stage's buckets; a bucket with none forces the whole stage onto the legacy,
+ *                     permanently-approximate averaging path, because pooling and averaging cannot
+ *                     be mixed within one stage
+ * @param requestCount the bucket's raw request count, absent for a bucket recorded before this
+ *                     field existed. Preserved so a stage's total and rate can be summed from
+ *                     primitive counts rather than reconstructed from {@code requestRate}
+ * @param failureCount the bucket's raw failure count, absent under the same condition as
+ *                     {@code requestCount}. Preserved so a stage's error rate can be
+ *                     {@code sum(failures) / sum(requests)} rather than an unweighted average of
+ *                     per-bucket fractions, which is wrong whenever bucket traffic volume differs
  */
 public record SamplePoint(
         Instant at,
@@ -40,7 +52,10 @@ public record SamplePoint(
         Duration p95,
         LoadLevel targetLoad,
         Integer observedVus,
-        Long iterationsDropped) {
+        Long iterationsDropped,
+        LatencyHistogram latencyHistogram,
+        Long requestCount,
+        Long failureCount) {
 
     public SamplePoint {
         Objects.requireNonNull(at, "at");
@@ -52,6 +67,31 @@ public record SamplePoint(
         if (iterationsDropped != null && iterationsDropped < 0) {
             throw new IllegalArgumentException("dropped iterations must not be negative");
         }
+        if (requestCount != null && requestCount < 0) {
+            throw new IllegalArgumentException("request count must not be negative");
+        }
+        if (failureCount != null && failureCount < 0) {
+            throw new IllegalArgumentException("failure count must not be negative");
+        }
+        if (requestCount != null && failureCount != null && failureCount > requestCount) {
+            throw new IllegalArgumentException(
+                    "failure count must not exceed request count in the same bucket");
+        }
+    }
+
+    /**
+     * A bucket recorded before pooled latency distributions and primitive counts were preserved.
+     *
+     * <p>Retained at the previous arity for the same reason every constructor below it exists —
+     * widening the record must not mean editing every caller that has nothing to put in the new
+     * fields, and a row already stored in {@code ~/.vortex/vortex.db} deserializes to exactly this
+     * shape, with the three new fields defaulting to {@code null} rather than a fabricated value.
+     */
+    public SamplePoint(Instant at, Duration duration, RequestsPerSecond requestRate,
+            ErrorRate errorRate, Duration p95, LoadLevel targetLoad, Integer observedVus,
+            Long iterationsDropped) {
+        this(at, duration, requestRate, errorRate, p95, targetLoad, observedVus, iterationsDropped,
+                null, null, null);
     }
 
     /**
@@ -95,5 +135,17 @@ public record SamplePoint(
 
     public Optional<LoadLevel> targetLoadIfPresent() {
         return Optional.ofNullable(targetLoad);
+    }
+
+    public Optional<LatencyHistogram> latencyHistogramIfPresent() {
+        return Optional.ofNullable(latencyHistogram);
+    }
+
+    public Optional<Long> requestCountIfPresent() {
+        return Optional.ofNullable(requestCount);
+    }
+
+    public Optional<Long> failureCountIfPresent() {
+        return Optional.ofNullable(failureCount);
     }
 }

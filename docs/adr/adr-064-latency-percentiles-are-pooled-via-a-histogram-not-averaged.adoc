@@ -1,0 +1,171 @@
+= ADR-064: Stage latency percentiles are pooled via a histogram, not averaged from bucket percentiles
+
+== Status
+
+Accepted, implemented.
+
+== Context
+
+`DeterministicAnalyzer` reports a stage's p95 latency — the figure a latency threshold, breakpoint
+detection, and system-saturation detection all read — by taking the arithmetic mean of each 5-second
+bucket's own already-computed p95. Percentiles are not composable under arithmetic averaging:
+`mean(p95(bucket_i))` is not the p95 of the pooled data, and the error is not reliably directional —
+depending on how traffic and latency fall across buckets it can land above or below the true pooled
+value. The defect is that the reported number has no defined relationship to anything real, not that
+it leans a particular way.
+
+A parallel, smaller defect sits next to it: stage error rate averages each bucket's own error
+*fraction* unweighted, which is mathematically wrong whenever bucket request volume differs — a
+near-empty bucket counts the same as one carrying most of the stage's traffic. And a third, related
+issue is evidence-preservation rather than a numerical bug: `K6RawMetricsAggregator.Bucket` already
+tracks primitive `httpRequests`/`httpFailures` counts, but discards them once `requestRate` is
+computed, forcing the analyzer to reconstruct a stage's request total by multiplying rate by bucket
+width instead of summing something exact.
+
+The raw per-request durations behind a bucket's p95 are discarded once
+`K6RawMetricsAggregator.Bucket.toSamplePoint()` reduces them to a scalar, so there is nothing left to
+pool correctly by the time `DeterministicAnalyzer` runs — fixing the percentile defect meant deciding
+what a bucket should retain instead, and `vortex-core` may not depend on any statistics library
+(`core-must-stay-framework-free`, ADR-013).
+
+== Decision
+
+*Preserve mergeable primitive evidence, not derived scalars, until the boundary where they must be
+aggregated.* This is the single principle behind every change below — applied where it corrects a
+genuine mathematical defect (percentile, error rate) and, separately, where it only improves evidence
+provenance (request rate/totals). These are not the same claim, and are not presented as one:
+
+....
+raw request durations   ->  per-bucket histogram         ->  merged stage histogram   ->  stage percentile
+request/failure counts  ->  per-bucket primitive counts  ->  summed stage counts      ->  stage rate/error-rate
+....
+
+**A new `LatencyHistogram` value type** (`com.acltabontabon.vortex.core.metrics`) replaces the capped,
+reservoir-sampled raw-duration list a bucket used to keep. It is a sparse, mergeable, integer-only
+distribution:
+
+* Each observation is normalized from k6's `double` milliseconds into a checked, non-negative signed
+  `long` nanosecond count *before* touching the histogram (`K6RawMetricsAggregator.validateAndConvertToNanos`).
+  `Double.isFinite`/non-negative is checked first — `Math.round(Double.NaN) == 0` and
+  `Math.round(Double.POSITIVE_INFINITY) == Long.MAX_VALUE` both look like ordinary values and would
+  silently corrupt the histogram rather than fail loudly. The upper-range check compares against the
+  exact, exclusive boundary `0x1p63` (`2^63`, itself exactly representable as a `double`) rather than
+  `(double) Long.MAX_VALUE`, which rounds *up* to that same `2^63` and would let a value past
+  `Long.MAX_VALUE` through to silently saturate. This one extra rounding step contributes at most 0.5ns
+  of error relative to the already-computed `nanosExact` — a bound on this step alone, not a claim
+  about k6's own measurement precision.
+* Exact zero is tracked as its own count (`zeroCount`), separate from the logarithmic bins — a
+  zero-duration observation is real (an in-process or cached response) and needs no approximation.
+* Positive durations are binned against a table of integer upper bounds
+  (`LatencyHistogram.UPPER_BOUNDS_V1`), generated *once* at class-load time with exact
+  integer/`BigInteger` ratio arithmetic (`floor(lower * 102 / 100)`), not per-sample floating-point
+  logarithms. An earlier draft used `StrictMath.log`/`pow` per sample; this was rejected because a
+  persisted, versioned encoding should not depend on floating-point identities
+  (`pow(1.02, i+1) == pow(1.02, i) * 1.02`) holding exactly across the entire `long` domain, and because
+  a discrete-domain reporting bug in that draft (`Duration.ofNanos((long) Math.ceil(edge))`) actually
+  *doubled* the error for small integers (a true `1ns` value reported as `2ns`) instead of bounding it.
+  The final integer table makes bins below 50ns exactly one nanosecond wide — reported with zero error,
+  not merely a small one — and reports every other bin's *inclusive upper bound* as an exact `long`, no
+  cast or rounding involved. `binIndexFor` resolves a value to its bin by binary search
+  (`Arrays.binarySearch` over ~2,175 precomputed bounds) rather than a transcendental calculation, since
+  this is Vortex's metrics-ingestion path.
+* For a positive integer duration `v` landing in bin `i` (`lower_i <= v <= upper_i` by the table's own
+  construction), reporting `upper_i` guarantees `v <= upper_i <= v * 1.02` — proved directly from the
+  integer construction (`upper_i <= lower_i * 1.02` by how the table is built; `lower_i <= v` by
+  containment), not copied from a continuous formula.
+* `merge()` is exact for the encoded distribution, not merely approximate: which bin a duration falls
+  into depends only on the duration itself, never on which bucket it arrived in, so summing two
+  histograms' bin counts is bit-identical to classifying the pooled raw observations directly. The only
+  approximation anywhere in this design happens once, at bin assignment; merging never adds to it.
+* Every count (`Builder.record`, `totalCount`, `merge`) uses `Math.addExact`/`Math.incrementExact` — a
+  core evidence type should not silently wrap on overflow, however unrealistic reaching it is in
+  practice.
+* `percentile(double quantile)` computes its target rank with `BigDecimal`, not a `double`
+  multiplication, which cannot represent every integer once the total count exceeds `2^53` — unreachable
+  in practice, but the histogram's own counts are checked up to `Long.MAX_VALUE`, so ranking should not
+  have a precision gap the counts themselves don't.
+* A persisted `schemeVersion` travels with every histogram (currently only `SCHEME_VERSION_1` is
+  recognized). This is a distinct concern from evidence *basis* (below): `schemeVersion` says how one
+  histogram's own bin indexes are encoded, and only applies once a histogram object exists at all. An
+  unrecognized version fails at construction — i.e. at deserialization time, not later at merge or
+  percentile time — and `merge()` rejects mismatched schemes rather than reinterpreting one scheme's
+  bins under another's constants. A future encoding change gets a new scheme value and remains
+  independently decodable; it must never silently relabel an old histogram's bins. `merge(List<..>)` is
+  seeded from the first real histogram in the list, not an injected `empty()`, so a genuinely
+  mutually-compatible non-empty list is never rejected because of a hard-coded scheme assumption on the
+  empty case.
+
+`SamplePoint` gains three new, nullable, trailing fields — `latencyHistogram`, `requestCount`,
+`failureCount` — added the same way it already widened for `observedVus`/`iterationsDropped`: one new
+backward-compatible constructor at the previous arity, defaulting all three to `null`. `requestRate`,
+`errorRate`, and `duration` are untouched; this adds primitive evidence alongside them, it does not
+remove or rederive them.
+
+`DeterministicAnalyzer.stageP95`/`stageErrorRate`/`stageRequestRate`/`requestsIn` each check whether
+*every* point in a stage's window carries the new evidence. If so: percentile merges histograms;
+error rate is `sum(failures) / sum(requests)`; request total sums preserved counts; request rate is
+`sum(requestCount) / sum(bucket duration)`, using the bucket's existing nominal `duration` field as the
+denominator (see the final-bucket note below — this is unchanged, deliberately). If any point lacks the
+new evidence, the *whole stage* falls back to the old, permanent, unweighted-averaging path for that
+metric family — never a partial pool of new-evidence points mixed with legacy ones. Two small enums
+travel with each `StageObservation` recording which path was actually taken:
+`PercentileBasis {MERGED_HISTOGRAM, LEGACY_AVERAGED_BUCKET_PERCENTILES}` and
+`RateAggregationBasis {PRESERVED_COUNTS, LEGACY_DERIVED_BUCKET_VALUES}` — one shared rate basis for both
+request rate and error rate, since the three new `SamplePoint` fields are always present or absent
+together. These are surfaced per stage in the run's timeline (`TimelineStageRowDto`), the same place
+`StageWindowBasis`'s own label already is.
+
+*Request rate is evidence-preservation, not a correctness fix — stated precisely, not overclaimed.*
+Because every bucket's `duration` is the same constant `BUCKET_WIDTH` (including the final bucket — see
+below), `mean(requestCount_i / width) == sum(requestCount_i) / sum(width_i)` exactly whenever every
+`width_i` is equal. The old and new request-rate calculations are therefore expected to coincide under
+today's fixed-width semantics; the gain is that the total and rate now rest on preserved primitive
+counts rather than a reconstruction, and would remain correct if bucket-width semantics ever stopped
+being uniform. Error rate has no such equivalence — bucket *request volume* varies even though bucket
+*width* does not — so it is, and is documented as, a genuine correctness fix.
+
+*The final bucket's nominal width is a known, pre-existing limitation, deliberately not fixed here.*
+Every bucket except the last is closed by `K6RawMetricsAggregator.aggregate()`'s roll-forward `while`
+loop specifically because a sample proved the window had fully elapsed, so its nominal `BUCKET_WIDTH` is
+provably its true span. The very last bucket is closed unconditionally at end-of-stream, whose true
+span can be shorter. Inspection of the execution lifecycle found no authoritative, measured
+"observation ended here" signal available to the aggregator at the point it would need one: k6's own
+`testRunDurationMs` and `TestExecution.finishedAt` are both computed strictly *after*
+`aggregate()` has already returned, with no feedback path into it. The only in-process proxy
+(the last metric line's own timestamp) was considered and rejected: it can *understate* the
+observation window when metric emission goes quiet before the process truly finishes (e.g. a ramp-down
+to zero load), which *overstates* the computed rate — a new inflation risk, and a worse failure mode
+than today's behavior, which only ever risks *understating* a short final bucket's rate. Retaining the
+existing nominal-width assumption is the conservative choice; threading a real execution-end signal
+into the aggregator is a genuine cross-layer architecture change, named as a follow-up, not undertaken
+here.
+
+== Consequences
+
+*Gained:* a mathematically valid pooled percentile (bounded, not exact — `v <= reported <= v * 1.02`
+above 50ns, exact below it and at zero); a mathematically correct stage error rate; request totals no
+longer reconstructed from a rate; explicit, per-stage provenance for both; every latency observation in
+a bucket now contributes to its own p95 (no reservoir sampling, no `MAX_DURATIONS_PER_BUCKET` cap) at a
+bounded, volume-independent memory cost.
+
+*Cost:* an individual bucket's own displayed p95 is no longer exact even for a low-volume bucket that
+was previously under the old 4,000-sample cap — it is now quantized to the histogram's own bound in
+every case, a deliberate trade for cross-bucket poolability. `results_json` (the opaque JSON blob
+column executions are stored in — no Flyway migration needed) grows per execution proportional to the
+width of each bucket's *observed* latency spread, not by a fixed amount; this should be spot-checked
+against a real long-running execution rather than assumed correct from the arithmetic alone. Scheme
+v1's generated table is effectively permanent for data already stored under it — a future change needs
+a new scheme value, not a silent reinterpretation. The cross-scheme `merge()` guard is currently
+untested by a true cross-scheme case, since only one scheme exists; a live test is deferred until a
+second one genuinely does.
+
+*Not reversible for historical data:* executions recorded before this change have no histogram and no
+preserved counts, and permanently use the old, now-explicitly-labelled legacy paths — the raw
+distribution and primitive counts behind their scalar values no longer exist to recompute from. This is
+consistent with Vortex's existing position that the database is not the source of truth for a run.
+
+*Explicitly out of scope:* per-operation p50/p95/p99 (`OperationAccumulator`'s own, separate, much
+smaller reservoir-sampling error — a bounded-error problem, not the averaging-of-percentiles defect this
+ADR fixes); extending stage-level breakpoint evaluation to P50/P99 objectives (today only P95 is
+evaluated per-stage); warm-up/ramp-up sample exclusion from the verdict path (ADR-038's deliberate
+position); any workload-model semantics.
