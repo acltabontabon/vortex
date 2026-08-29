@@ -1,4 +1,5 @@
 import { Menu, UnstyledButton } from '@mantine/core';
+import { IconChevronDown } from '@tabler/icons-react';
 import { useLocation } from 'react-router-dom';
 import { useServicesQuery } from './api';
 import { useRunQuery } from '../api/run';
@@ -62,9 +63,7 @@ export function ServiceSwitcher() {
       <Menu shadow="md" width={220} position="bottom-start">
         <Menu.Target>
           <UnstyledButton className={classes.brandChevron} aria-label="Switch service">
-            <span aria-hidden="true" style={{ fontSize: '0.7em', opacity: 0.6 }}>
-              ▾
-            </span>
+            <IconChevronDown size={14} stroke={2.25} aria-hidden="true" />
           </UnstyledButton>
         </Menu.Target>
         <Menu.Dropdown>
