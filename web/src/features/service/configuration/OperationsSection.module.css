@@ -20,3 +20,9 @@
     transition: none;
   }
 }
+
+/* Persistent, not hover-only — a screenshot alone should say this row opens something. */
+.chevron {
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}

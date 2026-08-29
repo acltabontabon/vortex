@@ -6,6 +6,7 @@ import type { DatasetSummary, RequestDataView, ValueSlot } from '../../../api/re
 import { RequestDataDrawer } from './RequestDataDrawer';
 
 const saveMutate = vi.fn();
+const reviewMutate = vi.fn();
 let view: RequestDataView;
 
 vi.mock('../../../api/requestData', async (importOriginal) => {
@@ -14,6 +15,14 @@ vi.mock('../../../api/requestData', async (importOriginal) => {
     ...actual,
     useRequestDataQuery: () => ({ data: view, isPending: false, isError: false, error: null }),
     useSaveRequestDataMutation: () => ({ mutate: saveMutate, isPending: false }),
+  };
+});
+
+vi.mock('../../../api/configuration', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/configuration')>();
+  return {
+    ...actual,
+    useReviewOperationMutation: () => ({ mutate: reviewMutate, isPending: false }),
   };
 });
 
@@ -92,6 +101,9 @@ function absent(label: string): boolean {
 function render(data: RequestDataView) {
   view = data;
   saveMutate.mockReset();
+  saveMutate.mockImplementation((_vars, opts) => opts?.onSuccess?.({ message: 'Saved.' }));
+  reviewMutate.mockReset();
+  reviewMutate.mockImplementation((_operationId, opts) => opts?.onSuccess?.({ message: 'Reviewed.' }));
   return renderWithProviders(
     <RequestDataDrawer serviceId="checkout" operationId="createApplication" onClose={() => {}} />
   );
@@ -209,7 +221,7 @@ describe('RequestDataDrawer', () => {
       ],
     }));
 
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Save & approve' }));
 
     expect(saveMutate).toHaveBeenCalled();
     const sent = saveMutate.mock.calls[0][0];
@@ -224,6 +236,50 @@ describe('RequestDataDrawer', () => {
     render(aView({ values: [] }));
 
     expect(screen.getByText(/nothing to configure/)).toBeInTheDocument();
+  });
+
+  /**
+   * The property that matters here: a mutating operation is never marked reviewed except from
+   * inside this drawer, after its data has actually been shown. There used to be a one-click
+   * "Review data" button on the operations list that called the review endpoint directly without
+   * ever opening this drawer — these assert that path is gone and approval only happens here.
+   */
+  it('approves a mutating operation once its data has been saved', async () => {
+    const user = userEvent.setup();
+    render(aView());
+
+    await user.click(screen.getByRole('button', { name: 'Save & approve' }));
+
+    expect(saveMutate).toHaveBeenCalled();
+    expect(reviewMutate).toHaveBeenCalledWith('createApplication', expect.anything());
+  });
+
+  it('approves an operation with nothing to configure without saving anything', async () => {
+    const user = userEvent.setup();
+    render(aView({ values: [] }));
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
+
+    expect(saveMutate).not.toHaveBeenCalled();
+    expect(reviewMutate).toHaveBeenCalledWith('createApplication', expect.anything());
+  });
+
+  it('offers plain Save, with no approval, for an operation already reviewed', async () => {
+    const user = userEvent.setup();
+    render(aView({ reviewed: true }));
+
+    expect(screen.queryByText(/Vortex won't send it in a workload/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(saveMutate).toHaveBeenCalled();
+    expect(reviewMutate).not.toHaveBeenCalled();
+  });
+
+  it('offers plain Save, with no approval, for a read-only operation', async () => {
+    render(aView({ mutating: false }));
+
+    expect(screen.queryByText(/Vortex won't send it in a workload/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 
   it('says where to add a dataset rather than offering an empty picker', async () => {

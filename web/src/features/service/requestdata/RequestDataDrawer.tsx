@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Badge, Button, Drawer, Group, Skeleton, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { useReviewOperationMutation } from '../../../api/configuration';
 import {
   TARGET_LABEL,
   toUpdate,
@@ -94,15 +95,50 @@ function RequestDataForm({
   onClose: () => void;
 }) {
   const save = useSaveRequestDataMutation(serviceId, data.operationId);
+  const review = useReviewOperationMutation(serviceId);
   const [slots, setSlots] = useState<ValueSlot[]>(data.values);
 
+  // A mutating operation Vortex hasn't been told to trust yet — approving it here, having just
+  // looked at the values, is the whole point of the gate. There used to be a one-click "Review
+  // data" button on the operations list that skipped straight to this without opening anything;
+  // it let somebody mark data reviewed without ever seeing what they were approving.
+  const needsApproval = data.mutating && !data.reviewed;
+
+  function approve(message: string) {
+    review.mutate(data.operationId, {
+      onSuccess: (r) => {
+        notifications.show({ message: r.message ?? message, color: 'pass' });
+        onClose();
+      },
+      onError: (error) => {
+        notifications.show({
+          message:
+            error instanceof ApiError && error.detail
+              ? error.detail
+              : 'Vortex could not approve this operation.',
+          color: 'fail',
+        });
+      },
+    });
+  }
+
   function submit() {
+    if (slots.length === 0) {
+      // Nothing to save — this is a pure approval, and the button below never reaches here unless
+      // there's either something to save or approving is exactly what it means to do.
+      approve('Approved.');
+      return;
+    }
     save.mutate(
       { body: data.body, values: slots.map(toUpdate) },
       {
         onSuccess: (response) => {
-          notifications.show({ message: response.message, color: 'pass' });
-          onClose();
+          if (needsApproval) {
+            approve(response.message);
+          } else {
+            notifications.show({ message: response.message, color: 'pass' });
+            onClose();
+          }
         },
         onError: (error) => {
           notifications.show({
@@ -119,6 +155,14 @@ function RequestDataForm({
 
   return (
     <Stack gap="xl">
+      {needsApproval && (
+        <Text size="sm" c="dimmed">
+          This operation can change data, so Vortex won't send it in a workload until a person
+          confirms these are the right values. {slots.length === 0 ? 'Approving' : 'Saving'} below
+          does that.
+        </Text>
+      )}
+
       {slots.length === 0 ? (
         <Text size="sm" c="dimmed">
           This operation takes no parameters and sends no body, so there is nothing to configure.
@@ -155,8 +199,12 @@ function RequestDataForm({
         <Button variant="default" onClick={onClose}>
           Cancel
         </Button>
-        <Button onClick={submit} loading={save.isPending} disabled={slots.length === 0}>
-          Save
+        <Button
+          onClick={submit}
+          loading={save.isPending || review.isPending}
+          disabled={slots.length === 0 && !needsApproval}
+        >
+          {needsApproval ? (slots.length === 0 ? 'Approve' : 'Save & approve') : 'Save'}
         </Button>
       </Group>
     </Stack>

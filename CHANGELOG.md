@@ -46,14 +46,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   single click and no data shown — you had no way to know what you'd just approved. Approving now
   only happens from inside the request-data panel, after you've actually seen the values Vortex would
   send.
-- Newly captured executions now calculate stage latency percentiles from mergeable pooled latency
-  distributions instead of averaging bucket-level percentiles, and preserve request/failure counts so
-  stage error rates and request totals can be derived directly from primitive evidence. Stage request
-  rate also uses preserved request counts while retaining the existing nominal bucket-duration
-  semantics. Historical executions remain fully readable and use explicitly labelled legacy evidence
-  where the underlying distributions or counts were not preserved. Individual bucket latency readouts
-  are now a bounded approximation (exact below 50ns and at zero, within 2% above that) rather than
-  exact on a capped sample, in exchange for being mathematically poolable across buckets.
+- Stage p95, error rate, and request rate for newly captured executions are now derived from pooled
+  evidence instead of averaging each bucket's own estimate — mathematically correct rather than
+  approximately so. Executions captured before this change remain fully readable, explicitly
+  labelled as using the old calculation. Individual per-bucket latency readouts are now a close
+  approximation instead of exact, the tradeoff that makes them poolable across buckets.
 
 ## [0.1.0-alpha.21] - 2026-08-28
 

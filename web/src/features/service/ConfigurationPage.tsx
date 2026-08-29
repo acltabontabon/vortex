@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import { Container, Skeleton, Stack, Text, Title } from '@mantine/core';
+import { Container, Divider, Skeleton, Stack, Text, Title } from '@mantine/core';
 import { useConfigurationQuery } from '../../api/configuration';
 import { errorFallback } from '../../lib/queryFallback';
 import { ConfigurationCompleteness } from './configuration/ConfigurationCompleteness';
@@ -60,9 +60,11 @@ export function ConfigurationPage() {
           <div id="operations">
             <OperationsSection serviceId={id} catalog={data.catalog} />
           </div>
+          <Divider />
           <div id="datasets">
             <DatasetsSection serviceId={id} />
           </div>
+          <Divider />
           <ReleaseSection serviceId={id} serviceVersion={data.serviceVersion} />
         </Group>
 

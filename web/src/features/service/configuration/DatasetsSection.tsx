@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { Alert, Badge, Button, Group, Skeleton, Stack, Text } from '@mantine/core';
+import { Alert, Badge, Button, Group, ScrollArea, Skeleton, Stack, Text } from '@mantine/core';
+import { IconChevronRight } from '@tabler/icons-react';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { ApiError } from '../../../api/client';
@@ -10,6 +11,7 @@ import {
   useUploadDatasetMutation,
   type DatasetSummary,
 } from '../../../api/requestData';
+import { SubsectionHeader } from './SubsectionHeader';
 import classes from './DatasetsSection.module.css';
 
 const ACCEPTED = '.csv,.json';
@@ -67,6 +69,20 @@ export function DatasetsSection({ serviceId }: { serviceId: string }) {
 
   return (
     <div>
+      <SubsectionHeader
+        label="Datasets"
+        meta={query.data ? `${query.data.length} dataset${query.data.length === 1 ? '' : 's'}` : undefined}
+        action={
+          <Button
+            size="xs"
+            variant="default"
+            loading={upload.isPending}
+            onClick={() => fileInput.current?.click()}
+          >
+            Add a dataset
+          </Button>
+        }
+      />
       <Text size="sm" c="dimmed" mb="sm">
         Real values a request needs — customer ids, account numbers, product codes — read row by
         row, one dataset per request.
@@ -81,11 +97,13 @@ export function DatasetsSection({ serviceId }: { serviceId: string }) {
       {query.isPending && <Skeleton height={60} />}
 
       {query.data && query.data.length > 0 && (
-        <Stack gap={0} mb="sm">
-          {query.data.map((dataset) => (
-            <DatasetRow key={`${dataset.scope}:${dataset.name}`} serviceId={serviceId} dataset={dataset} />
-          ))}
-        </Stack>
+        <ScrollArea.Autosize mah={360} type="auto" offsetScrollbars mb="sm">
+          <Stack gap={0}>
+            {query.data.map((dataset) => (
+              <DatasetRow key={`${dataset.scope}:${dataset.name}`} serviceId={serviceId} dataset={dataset} />
+            ))}
+          </Stack>
+        </ScrollArea.Autosize>
       )}
 
       {query.data && query.data.length === 0 && (
@@ -105,14 +123,6 @@ export function DatasetsSection({ serviceId }: { serviceId: string }) {
           event.currentTarget.value = '';
         }}
       />
-      <Button
-        size="xs"
-        variant="default"
-        loading={upload.isPending}
-        onClick={() => fileInput.current?.click()}
-      >
-        Add a dataset
-      </Button>
     </div>
   );
 }
@@ -156,29 +166,34 @@ function DatasetRow({ serviceId, dataset }: { serviceId: string; dataset: Datase
     });
   }
 
-  return (
-    <div className={classes.row}>
-      <Group justify="space-between" wrap="nowrap" align="flex-start">
-        <div style={{ minWidth: 0 }}>
-          <Group gap={6} wrap="nowrap">
-            <Text size="sm" fw={600} ff="monospace">
-              {dataset.name}
-            </Text>
-            <Badge size="xs" variant="light" color={dataset.scope === 'portable' ? 'pass' : 'neutral'}>
-              {dataset.scope === 'portable' ? 'committed' : 'this machine'}
-            </Badge>
-          </Group>
-          {dataset.problem ? (
-            <Text size="xs" c="fail">
-              {dataset.problem}
-            </Text>
-          ) : (
-            <Text size="xs" c="dimmed">
-              {dataset.records.toLocaleString()} records · {dataset.fields.join(', ')}
-            </Text>
-          )}
-        </div>
-        <Group gap={4} wrap="nowrap">
+  const hasPreview = dataset.preview.length > 0;
+
+  const summary = (
+    <Group justify="space-between" wrap="nowrap" align="flex-start">
+      <div style={{ minWidth: 0 }}>
+        <Group gap={6} wrap="nowrap">
+          <Text size="sm" fw={600} ff="monospace">
+            {dataset.name}
+          </Text>
+          <Badge size="xs" variant="light" color={dataset.scope === 'portable' ? 'pass' : 'neutral'}>
+            {dataset.scope === 'portable' ? 'committed' : 'this machine'}
+          </Badge>
+        </Group>
+        {dataset.problem ? (
+          <Text size="xs" c="fail">
+            {dataset.problem}
+          </Text>
+        ) : (
+          <Text size="xs" c="dimmed">
+            {dataset.records.toLocaleString()} records · {dataset.fields.join(', ')}
+          </Text>
+        )}
+      </div>
+      <Group gap={8} wrap="nowrap">
+        {/* Stops the click from also toggling the surrounding <details> — see the module doc
+            comment on `.summaryRow` for why this can't use the closest('button') guard that
+            OperationsSection's row uses. */}
+        <Group gap={4} wrap="nowrap" onClick={(event) => event.preventDefault()}>
           {dataset.scope === 'local' && dataset.promotionTarget && (
             <Button size="compact-xs" variant="subtle" onClick={confirmPromote}>
               Commit with service
@@ -201,32 +216,40 @@ function DatasetRow({ serviceId, dataset }: { serviceId: string; dataset: Datase
             Remove
           </Button>
         </Group>
+        {hasPreview && <IconChevronRight size={14} className={classes.chevron} />}
       </Group>
+    </Group>
+  );
 
+  if (!hasPreview) {
+    return <div className={classes.row}>{summary}</div>;
+  }
+
+  return (
+    <details className={classes.row}>
+      <summary className={classes.summaryRow}>{summary}</summary>
       {/* A few records, never the dataset. Somebody needs to recognise the file, not browse it. */}
-      {dataset.preview.length > 0 && (
-        <div className={classes.preview}>
-          <table className={classes.previewTable}>
-            <thead>
-              <tr>
+      <div className={classes.preview}>
+        <table className={classes.previewTable}>
+          <thead>
+            <tr>
+              {dataset.fields.map((field) => (
+                <th key={field}>{field}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {dataset.preview.map((record, index) => (
+              <tr key={index}>
                 {dataset.fields.map((field) => (
-                  <th key={field}>{field}</th>
+                  <td key={field}>{formatCell(record[field])}</td>
                 ))}
               </tr>
-            </thead>
-            <tbody>
-              {dataset.preview.map((record, index) => (
-                <tr key={index}>
-                  {dataset.fields.map((field) => (
-                    <td key={field}>{formatCell(record[field])}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   );
 }
 

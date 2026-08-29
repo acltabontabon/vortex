@@ -41,3 +41,46 @@
   color: var(--mantine-color-dimmed);
   font-weight: 600;
 }
+
+/*
+ * A dataset row with a preview renders as a native <details>/<summary> instead of
+ * SectionDisclosure's bordered-card look — a full border/radius/padding per row would
+ * reintroduce the card-in-card pattern ConfigurationPage.module.css already fixed. This stays a
+ * plain hairline row, just made pressable, with a chevron that flips via the [open] attribute
+ * rather than any React state.
+ */
+.summaryRow {
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.summaryRow::-webkit-details-marker {
+  display: none;
+}
+
+.summaryRow:hover,
+.summaryRow:focus-visible {
+  background-color: light-dark(var(--mantine-color-neutral-0), var(--mantine-color-dark-6));
+}
+
+.summaryRow:focus-visible {
+  outline: 2px solid var(--mantine-color-brand-6);
+  outline-offset: 2px;
+}
+
+.chevron {
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+
+.row[open] .chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
