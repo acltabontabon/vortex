@@ -12,6 +12,8 @@ project.
 
 == Start here
 
+* xref:01-product/getting-started.adoc[Getting started] — build it, run it, and a five-minute tour
+  of the workflow
 * xref:01-product/overview.adoc[Product overview] — what Vortex is for, the problem it exists to
   solve, the rules it holds itself to, what it deliberately does not do, and its vocabulary
 * xref:01-product/roadmap.adoc[Roadmap] — where it is going, and what today's gaps actually are

@@ -1,0 +1,78 @@
+= Getting started
+:toc:
+
+Building and running Vortex on your own machine, then a walkthrough of the workflow once it's up.
+
+== Prerequisites
+
+You need **Java 25** and **k6**. Everything else — Docker, a local Ollama model — is optional, and
+Vortex tells you what you lose without it.
+
+== Build and run
+
+```bash
+git clone <this-repository> && cd vortex
+./mvnw clean verify
+```
+
+Start the bundled sample service, which has a deliberate, documented bottleneck so a stress test
+shows something real:
+
+```bash
+./mvnw -pl examples/demo-service spring-boot:run
+```
+
+Then start Vortex and open it in a browser:
+
+```bash
+./mvnw -pl modules/app spring-boot:run
+```
+
+Vortex listens on `http://127.0.0.1:7717` — the loopback address only. It generates traffic on your
+behalf and has no authentication, so exposing it to a network is a deliberate decision, not a
+default. See xref:../02-architecture/security.adoc[Security].
+
+Not sure whether your machine is ready? The top bar shows what Vortex can currently do — Java, the
+load generator, the workspace, Docker and a local model, each with its own state and its own remedy.
+Anything optional that is missing gets that treatment: what you lose, and what to do about it.
+
+== The five-minute tour
+
+. **Add your service.**
+. **Import its OpenAPI document.** Vortex parses it deterministically — paths, methods,
+  parameters, schemas. No guessing, no model involved.
+. **Say what each request needs.** A header that never changes, an idempotency key that must never
+  repeat, an account id that has to exist, a token that must not be written down. You pick the
+  source — fixed, generated, a column of a CSV you added, or an environment variable — and Vortex
+  works out how to supply it. Where the API description already knows the shape of a value, it
+  offers that as a suggestion and says why.
+. **Define a workload.** One operation is enough to start: "can `POST /orders` sustain 50
+  submissions a second within its latency objective?" is a complete performance question. Add more
+  operations when you want to reproduce the traffic the service actually receives — a mixture
+  arriving concurrently from many callers, not one caller working through a script.
++
+One total rate, split across those operations by weight. Vortex divides the total; it never runs
+each operation at the full rate, and the editor shows you the split as you type. Choose an arrival
+rate when the caller does not slow down because you did, or a fixed concurrency when it genuinely is
+a bounded pool. See xref:../03-performance-model/workloads.adoc[arrival rate versus concurrency].
+. **Set objectives.** p95 latency, p99 latency, error rate.
+. **Ask a performance question.** Not "which workload do you want to run" — *what do you want to
+  understand about this service?* Vortex works out which workload answers it. If exactly one does,
+  it uses that one and tells you why. If several do, it asks, because they measure different
+  things. If none does, it offers to build one.
+. **Check the preflight.** Plain English, the exact target, the environment class, how the traffic
+  divides across your operations, and what has to be true to pass. Nothing has been sent anywhere
+  yet.
+. **Run it.** Live progress, then evidence that opens by answering the question you asked — and,
+  where the workload held more than one level, a picture of the range it tested with the boundary
+  marked only if the run actually established one. See
+  xref:../03-performance-model/interpreting-results.adoc[interpreting a Vortex result].
+. **Optionally, ask for an interpretation.** A local model explains what the measurements might
+  mean. It cannot change any of them. See xref:../02-architecture/ai-analysis.adoc[AI analysis].
+
+== Where to next
+
+* xref:overview.adoc[Product overview] — the vision, the problem, and the vocabulary
+* xref:../03-performance-model/experiments.adoc[Experiments] — what makes a run trustworthy
+* xref:../04-reference/configuration.adoc[Configuration reference] — every key in `vortex.yaml`
+* link:../../CONTRIBUTING.md[Contributing] — building, testing, and extending Vortex
