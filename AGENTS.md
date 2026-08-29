@@ -9,9 +9,9 @@ assistant.
 A local-first performance engineering workbench: it turns an OpenAPI description and a stated
 traffic goal into a k6 workload, runs it, and produces deterministic pass/fail evidence (thresholds,
 breakpoints, headroom) with an optional local-AI (Ollama) interpretation layered on top — never the
-other way around. Read [README.md](README.md) for the product model (Service → Workload →
-Evaluation → Run → Evidence) before touching domain code; it explains *why* the domain is shaped the
-way it is, not just what it does.
+other way around. Read [docs/02-architecture/interface.adoc](docs/02-architecture/interface.adoc)
+for the product model (Service, Operation, Workload, Evaluation, Quality gate, Run, Evidence) before
+touching domain code; it explains *why* the domain is shaped the way it is, not just what it does.
 
 k6 is the execution engine, not the product. Vortex owns orchestration, safety, evidence,
 interpretation boundaries, execution history, and the developer workflow around it. Deterministic
@@ -81,7 +81,8 @@ vortex-web          React + TypeScript + Mantine SPA, built by Vite, compiled in
 
 Everything external to the domain sits behind a port in `com.acltabontabon.vortex.core.port`
 (`PerformanceEngine`, `PerformanceAssistant`, `ObservabilityProvider`, `ProductionObservationSource`,
-`TelemetryCollector`, `ServiceCatalogImporter`, `ConfigurationStore`, `ArtifactStore`, `LocalLab`,
+`TelemetryCollector`, `ServiceCatalogImporter`, `ConfigurationStore`, `ArtifactStore`, `DatasetStore`,
+`TargetExecutor`, `LoadGeneratorBudgetProvider`, `HostInformation`, `ProjectDetector`, `LocalLab`,
 `Clock`, repositories). The web UI is the only supported interface, and it calls application
 services directly — there is no separate "headless mode" implementation to keep in sync.
 
