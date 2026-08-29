@@ -1,7 +1,6 @@
 import { Button, Group, Skeleton, Stack, Text } from '@mantine/core';
 import { useThresholdRecommendationQuery, type ThresholdRecommendationOptionDto } from '../../../api/thresholds';
 import { EvidenceQualityBadge } from './EvidenceQualityBadge';
-import { Fact, Facts } from '../../../components/Fact';
 import classes from './HelpMeChoosePanel.module.css';
 
 /**
@@ -46,10 +45,13 @@ export function HelpMeChoosePanel({
         Help me choose
       </Text>
       {hasEvidence ? (
-        <Facts>
+        <Stack gap={0}>
           {production && (
-            <Fact label="Production" note={production.window || production.sourceLabel}>
-              <Group gap={6}>
+            <div className={classes.fact}>
+              <Text size="xs" c="dimmed" fw={600}>
+                Production
+              </Text>
+              <Group gap={6} mt={2}>
                 <Text size="sm" fw={600} style={{ whiteSpace: 'nowrap' }}>
                   {production.displayValue}
                 </Text>
@@ -60,11 +62,19 @@ export function HelpMeChoosePanel({
                   </Text>
                 )}
               </Group>
-            </Fact>
+              {(production.window || production.sourceLabel) && (
+                <Text size="xs" c="dimmed" mt={2} className={classes.note}>
+                  {production.window || production.sourceLabel}
+                </Text>
+              )}
+            </div>
           )}
           {bestBaseline && (
-            <Fact label="Vortex baseline" note={bestBaseline.sourceLabel}>
-              <Group gap={6}>
+            <div className={classes.fact}>
+              <Text size="xs" c="dimmed" fw={600}>
+                Vortex baseline
+              </Text>
+              <Group gap={6} mt={2}>
                 <Text size="sm" fw={600} style={{ whiteSpace: 'nowrap' }}>
                   {bestBaseline.displayValue}
                 </Text>
@@ -75,9 +85,14 @@ export function HelpMeChoosePanel({
                   </Text>
                 )}
               </Group>
-            </Fact>
+              {bestBaseline.sourceLabel && (
+                <Text size="xs" c="dimmed" mt={2} className={classes.note}>
+                  {bestBaseline.sourceLabel}
+                </Text>
+              )}
+            </div>
           )}
-        </Facts>
+        </Stack>
       ) : (
         <Text size="sm" c="dimmed">
           No baseline yet. You can set a manual objective now, run a baseline test, or connect

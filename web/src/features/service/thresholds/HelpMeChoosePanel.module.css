@@ -3,6 +3,19 @@
   max-width: 340px;
 }
 
+.fact {
+  padding: var(--mantine-spacing-xs) 0;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.fact:first-of-type {
+  border-top: none;
+}
+
+.note {
+  overflow-wrap: anywhere;
+}
+
 .option {
   padding: var(--mantine-spacing-xs) 0;
   border-top: 1px solid var(--mantine-color-default-border);
