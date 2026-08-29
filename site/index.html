@@ -12,17 +12,17 @@
     }
   </script>
   <title>Vortex — Performance Engineering Workbench</title>
-  <meta name="description" content="Cool, you ran a load test. What did you actually prove? A load test tells you what happened — Vortex tells you if it means anything. Don't just generate load. Prove capacity.">
+  <meta name="description" content="Cool, you ran a load test. What did you actually prove? A load test tells you what happened — Vortex tells you if it means anything. Don't just generate load. Prove capacity. Open-source and local-first.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://acltabontabon.com/vortex/">
   <meta property="og:title" content="Vortex — Performance Engineering Workbench">
-  <meta property="og:description" content="Cool, you ran a load test. What did you actually prove? A load test tells you what happened — Vortex tells you if it means anything. Don't just generate load. Prove capacity.">
+  <meta property="og:description" content="Cool, you ran a load test. What did you actually prove? A load test tells you what happened — Vortex tells you if it means anything. Don't just generate load. Prove capacity. Open-source and local-first.">
   <meta property="og:image" content="https://acltabontabon.com/vortex/images/vortex-banner.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="600">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Vortex — Performance Engineering Workbench">
-  <meta name="twitter:description" content="Cool, you ran a load test. What did you actually prove? A load test tells you what happened — Vortex tells you if it means anything. Don't just generate load. Prove capacity.">
+  <meta name="twitter:description" content="Cool, you ran a load test. What did you actually prove? A load test tells you what happened — Vortex tells you if it means anything. Don't just generate load. Prove capacity. Open-source and local-first.">
   <meta name="twitter:image" content="https://acltabontabon.com/vortex/images/vortex-banner.png">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
@@ -30,6 +30,13 @@
 <body>
   <nav class="topnav" aria-label="Primary">
     <a class="topnav-link" href="docs.html">docs</a>
+    <span class="topnav-divider" aria-hidden="true">|</span>
+    <a class="topnav-link topnav-link-icon" href="https://github.com/acltabontabon/vortex" target="_blank" rel="noopener" aria-label="GitHub">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+      </svg>
+      <span class="topnav-tooltip" role="tooltip">GitHub</span>
+    </a>
   </nav>
   <svg width="0" height="0" aria-hidden="true" style="position: absolute">
     <filter id="sketch-edge" x="-20%" y="-20%" width="140%" height="140%">
@@ -51,10 +58,6 @@
       <p class="hero-payoff">Don&rsquo;t just generate load. Prove capacity.</p>
       <div class="cta-row">
         <a class="btn btn-primary" href="#download">Download vortex.jar</a>
-        <div class="status-chip">
-          <span class="status-dot" aria-hidden="true"></span>
-          Early alpha — actively evolving
-        </div>
       </div>
       <button type="button" class="scroll-cue" data-role="scroll-cue" aria-label="Scroll to keep reading">
         <span>Scroll</span>
@@ -241,7 +244,7 @@
               <div class="window-chrome"><span></span><span></span><span></span></div>
               <picture>
                 <source media="(prefers-color-scheme: dark)" srcset="images/showcase-define.webp">
-                <img class="theme-shot" src="images/showcase-define-light.webp" width="1400" height="729"
+                <img class="theme-shot" src="images/showcase-define-light.webp" width="1300" height="1018"
                   alt="Vortex's test composer for a flash-sale-surge test: the Spike intent selected, a recommended jump-and-return load shape, and a weighted operations mix"
                   loading="lazy" decoding="async">
               </picture>
@@ -263,7 +266,7 @@
               <div class="window-chrome"><span></span><span></span><span></span></div>
               <picture>
                 <source media="(prefers-color-scheme: dark)" srcset="images/showcase-breakpoint.webp">
-                <img class="theme-shot" src="images/showcase-breakpoint-light.webp" width="990" height="764"
+                <img class="theme-shot" src="images/showcase-breakpoint-light.webp" width="840" height="821"
                   alt="A breakpoint test's result: a Fail verdict, the boundary between 132 and 176 requests/sec plotted against production peak, percentile latencies, a red-highlighted objectives table, and container CPU at its limit"
                   loading="lazy" decoding="async">
               </picture>
@@ -285,7 +288,7 @@
               <div class="window-chrome"><span></span><span></span><span></span></div>
               <picture>
                 <source media="(prefers-color-scheme: dark)" srcset="images/showcase-evidence.webp">
-                <img class="theme-shot" src="images/showcase-evidence-light.webp" width="1400" height="875"
+                <img class="theme-shot" src="images/showcase-evidence-light.webp" width="1400" height="3712"
                   alt="Vortex's evidence view showing synced throughput, latency, CPU and memory timelines alongside the capacity conclusion"
                   loading="lazy" decoding="async">
               </picture>
@@ -565,6 +568,8 @@
         capabilities and roadmap.</p>
       <p class="fineprint">AI optional. Evidence deterministic. Local AI can help interpret results, but
         never determines the verdict.</p>
+      <p class="fineprint">Open source under Apache-2.0. Don&rsquo;t trust the verdict? Good —
+        <a href="https://github.com/acltabontabon/vortex" target="_blank" rel="noopener">read the code</a>.</p>
     </section>
 
     <footer>

@@ -38,11 +38,20 @@
   top: 22px;
   right: 24px;
   z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topnav-divider {
+  color: var(--border);
+  font-size: 0.78rem;
 }
 
 .topnav-link {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
+  gap: 5px;
   font-family: var(--mono);
   font-size: 0.78rem;
   letter-spacing: 0.01em;
@@ -64,6 +73,11 @@
   margin-left: 2px;
   color: var(--accent);
   opacity: 0;
+}
+
+.topnav-link-icon::before,
+.topnav-link-icon::after {
+  content: none;
 }
 
 .topnav-link:hover {
@@ -95,6 +109,41 @@
   .topnav {
     top: 14px;
     right: 16px;
+  }
+}
+
+.topnav-link-icon {
+  position: relative;
+}
+
+.topnav-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: max-content;
+  font-family: var(--font);
+  font-size: 0.78rem;
+  color: var(--fg);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.topnav-link-icon:hover .topnav-tooltip,
+.topnav-link-icon:focus-visible .topnav-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topnav-tooltip {
+    transition: none;
   }
 }
 
@@ -346,28 +395,6 @@ p {
   display: none;
 }
 
-.status-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--fg-muted);
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 6px 14px 6px 11px;
-}
-
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5);
-  animation: status-pulse 2s ease-out infinite;
-}
-
 @keyframes status-pulse {
   0% {
     box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5);
@@ -377,12 +404,6 @@ p {
   }
   100% {
     box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .status-dot {
-    animation: none;
   }
 }
 
