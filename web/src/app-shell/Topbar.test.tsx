@@ -27,4 +27,14 @@ describe('Topbar', () => {
     renderWithProviders(<Topbar onOpenPalette={vi.fn()} />);
     expect(screen.getByRole('link', { name: /settings/i })).toHaveAttribute('href', '/settings');
   });
+
+  it('opens the About dialog when its trigger is clicked', async () => {
+    renderWithProviders(<Topbar onOpenPalette={vi.fn()} />);
+
+    expect(screen.queryByRole('heading', { name: 'Vortex' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /about vortex/i }));
+
+    expect(await screen.findByRole('heading', { name: 'Vortex' })).toBeInTheDocument();
+  });
 });

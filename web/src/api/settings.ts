@@ -126,10 +126,11 @@ export interface Settings {
   prometheusDefaults: PrometheusDefaults;
 }
 
-export function useSettingsQuery() {
+export function useSettingsQuery(enabled = true) {
   return useQuery({
     queryKey: ['settings'],
     queryFn: () => apiClient.get<Settings>('/api/settings'),
+    enabled,
   });
 }
 

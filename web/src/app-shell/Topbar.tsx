@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom';
 import { ActionIcon, Tooltip, Kbd } from '@mantine/core';
-import { IconSettings } from '@tabler/icons-react';
+import { useDisclosure } from '@mantine/hooks';
+import { IconSettings, IconInfoCircle } from '@tabler/icons-react';
 import { ServiceSwitcher } from './ServiceSwitcher';
 import { ThemeToggle } from './ThemeToggle';
+import { AboutModal } from './AboutModal';
 import classes from './Topbar.module.css';
 
 interface TopbarProps {
@@ -10,6 +12,8 @@ interface TopbarProps {
 }
 
 export function Topbar({ onOpenPalette }: TopbarProps) {
+  const [aboutOpened, aboutHandlers] = useDisclosure(false);
+
   return (
     <header className={classes.bar}>
       <Link to="/" className={classes.brand}>
@@ -46,13 +50,29 @@ export function Topbar({ onOpenPalette }: TopbarProps) {
         </button>
       </Tooltip>
 
+      <span className={classes.divider} aria-hidden="true" />
+
       <Tooltip label="Settings" openDelay={400} withArrow>
         <ActionIcon component="a" href="/settings" variant="subtle" color="gray" size={32} aria-label="Settings">
           <IconSettings size={18} stroke={1.6} />
         </ActionIcon>
       </Tooltip>
 
+      <Tooltip label="About Vortex" openDelay={400} withArrow>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size={32}
+          aria-label="About Vortex"
+          onClick={aboutHandlers.open}
+        >
+          <IconInfoCircle size={18} stroke={1.6} />
+        </ActionIcon>
+      </Tooltip>
+
       <ThemeToggle />
+
+      <AboutModal opened={aboutOpened} onClose={aboutHandlers.close} />
     </header>
   );
 }

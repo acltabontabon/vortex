@@ -1,0 +1,35 @@
+.mark {
+  color: var(--mantine-color-brand-6);
+}
+
+/* Vortex's Modal usage elsewhere reserves a full header row for a title; this dialog has none, so
+   the default header height is just empty space above the close button — shrink it to fit the
+   button alone rather than moving the branding cluster down to match it. */
+.header {
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+.links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--mantine-color-dimmed);
+  font-size: 0.82rem;
+}
+
+.links a {
+  color: var(--mantine-color-brand-7);
+  text-decoration: none;
+  border-radius: 4px;
+}
+
+.links a:hover {
+  text-decoration: underline;
+}
+
+.links a:focus-visible {
+  outline: 2px solid var(--mantine-color-brand-6);
+  outline-offset: 2px;
+}

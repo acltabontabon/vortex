@@ -65,21 +65,28 @@
   gap: 6px;
   height: 32px;
   padding: 0 10px;
-  border: 1px solid var(--mantine-color-default-border);
+  border: none;
   border-radius: var(--mantine-radius-sm);
   background: transparent;
   color: var(--mantine-color-dimmed);
   font-size: 0.82rem;
   cursor: pointer;
-  transition: border-color 120ms ease-out, background-color 120ms ease-out;
+  transition: background-color 120ms ease-out;
 }
 
 .paletteTrigger:hover {
-  border-color: light-dark(#00a05a, #34d68c);
   background: light-dark(#e6f6ee, #10241a);
 }
 
 .paletteTrigger:focus-visible {
   outline: 2px solid var(--mantine-color-brand-6);
   outline-offset: 2px;
+}
+
+/* Separates the search action from the icon-only utilities that follow it, now that neither side
+   draws its own box — an empty gap alone reads as accidental, not intentional grouping. */
+.divider {
+  width: 1px;
+  height: 22px;
+  background: var(--mantine-color-default-border);
 }
