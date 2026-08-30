@@ -14,8 +14,41 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Job-level (not workflow-level) filtering: the workflow itself still triggers on every
+      # push/PR so build-test and frontend keep posting a status even when skipped, which is
+      # what lets GitHub treat them as satisfied required checks instead of leaving the PR
+      # blocked on a check that never runs.
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'modules/**'
+              - 'pom.xml'
+              - 'mvnw'
+              - 'mvnw.cmd'
+              - '.mvn/**'
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'web/**'
+
   build-test:
     name: build-test
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -62,6 +95,8 @@ jobs:
 
   frontend:
     name: frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
