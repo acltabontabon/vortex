@@ -35,10 +35,10 @@ jobs:
         with:
           node-version: '22.14.0'
           cache: npm
-          cache-dependency-path: site/package-lock.json
+          cache-dependency-path: www/package-lock.json
 
       - name: Build the site
-        working-directory: site
+        working-directory: www
         run: |
           npm ci
           npm run build
@@ -46,7 +46,7 @@ jobs:
       # Fetching the latest release jar here and publishing it alongside the static site
       # gives visitors a direct download from the landing page itself, without sending
       # them to the GitHub Releases page first. Written into dist/ (the build output)
-      # rather than the site/ source, and after the build so `npm run build`'s
+      # rather than the www/ source, and after the build so `npm run build`'s
       # emptyOutDir doesn't wipe it back out.
       - name: Bundle latest release jar into the site
         env:
@@ -58,15 +58,15 @@ jobs:
             echo "No releases found yet; deploying the site without a bundled jar." >&2
             exit 0
           fi
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'vortex.jar' --dir site/dist/ --clobber
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'vortex.jar' --dir www/dist/ --clobber
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,isPrerelease \
-            --jq '{tag: .tagName, name: .name, prerelease: .isPrerelease}' > site/dist/release.json
+            --jq '{tag: .tagName, name: .name, prerelease: .isPrerelease}' > www/dist/release.json
 
       - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site/dist/
+          path: www/dist/
 
       - id: deployment
         uses: actions/deploy-pages@v4

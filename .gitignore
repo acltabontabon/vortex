@@ -14,9 +14,9 @@ web/node_modules/
 web/node/
 web/dist/
 
-# site (marketing site) — built by Vite for GitHub Pages
-site/node_modules/
-site/dist/
+# www (public website) — built by Vite for GitHub Pages
+www/node_modules/
+www/dist/
 
 # Vite's dep-cache — reappears wherever `vite`/`npm run dev` is invoked from, including by
 # accident outside web/ (e.g. a stray vortex-web/.vite/ at the repo root).

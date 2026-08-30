@@ -9,7 +9,7 @@
 
 [Getting started](docs/01-product/getting-started.adoc) · [Documentation](docs/index.adoc) · [Roadmap](docs/01-product/roadmap.adoc)
 
-![Vortex workspace](site/images/docs/docs-workspace-light.webp)
+![Vortex workspace](www/images/docs/docs-workspace-light.webp)
 
 ---
 
@@ -65,7 +65,7 @@ What it *will* do is **replace guessing with evidence before you spend money pro
 
 ## What you get from a run
 
-![Vortex run result](site/images/docs/docs-run-result-light.webp)
+![Vortex run result](www/images/docs/docs-run-result-light.webp)
 
 A completed run answers these in one place:
 
