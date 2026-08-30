@@ -3,8 +3,17 @@ name: Docker/k6 integration
 on:
   push:
     branches: [main]
+    paths: &docker-k6-paths
+      - 'modules/app/**'
+      - 'modules/k6/**'
+      - 'pom.xml'
+      - 'mvnw'
+      - 'mvnw.cmd'
+      - '.mvn/**'
+      - '.github/workflows/docker-k6-integration.yml'
   pull_request:
     branches: [main]
+    paths: *docker-k6-paths
 
 concurrency:
   group: docker-k6-${{ github.workflow }}-${{ github.ref }}
