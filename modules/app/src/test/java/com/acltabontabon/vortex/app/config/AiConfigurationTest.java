@@ -53,4 +53,42 @@ class AiConfigurationTest {
             server.stop(0);
         }
     }
+
+    /**
+     * {@code OllamaApi} bakes its base URL in when the bean is built, but the endpoint under
+     * Settings → Local AI can change afterwards with no restart (see {@link AiSettings#useBaseUrl}).
+     * Proves the bean actually follows that change rather than continuing to call wherever it was
+     * originally pointed.
+     */
+    @Test
+    void changingTheEndpointAfterStartupRedirectsTheNextCall() throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/chat", exchange -> {
+            byte[] body = ("{\"model\":\"any-model\",\"created_at\":\"2024-01-01T00:00:00Z\","
+                    + "\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"done\":true}")
+                    .getBytes();
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            // Starts pointed at a port nothing listens on, so a call would fail fast if the bean
+            // never noticed the endpoint changed below.
+            AiSettings settings = new AiSettings("ollama", "http://127.0.0.1:1", "any-model",
+                    Duration.ofSeconds(5), false);
+            OllamaApi api = new AiConfiguration().ollamaApi(RestClient.builder(), settings);
+
+            settings.useBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+
+            OllamaApi.ChatResponse response =
+                    api.chat(OllamaApi.ChatRequest.builder("any-model").build());
+
+            assertThat(response.message().content()).isEqualTo("hi");
+        } finally {
+            server.stop(0);
+        }
+    }
 }

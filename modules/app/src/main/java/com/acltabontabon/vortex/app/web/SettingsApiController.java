@@ -238,6 +238,29 @@ public class SettingsApiController {
         return new ChooseModelResponse(model.isBlank() ? "No model selected." : "Now using " + model + ".");
     }
 
+    public record ChooseAiEndpointRequest(String baseUrl) {}
+
+    public record ChooseAiEndpointResponse(String message) {}
+
+    /**
+     * Switches the Local AI endpoint, effective immediately, and writes it to
+     * {@code ~/.vortex/config.yaml} so it survives a restart — the same pattern as
+     * {@link #chooseModel}.
+     */
+    @PostMapping("/ai/endpoint")
+    public ChooseAiEndpointResponse chooseAiEndpoint(@RequestBody ChooseAiEndpointRequest request) {
+        String baseUrl = request.baseUrl() == null ? "" : request.baseUrl().trim();
+        if (baseUrl.isBlank() || !(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The Local AI endpoint must be an absolute http or https URL, "
+                            + "e.g. http://localhost:11434.");
+        }
+        aiSettings.useBaseUrl(baseUrl);
+        aiModelPreferences.saveBaseUrl(baseUrl);
+        ollama.refresh();
+        return new ChooseAiEndpointResponse("Now using " + baseUrl + ".");
+    }
+
     private EngineSettingsDto toDto(VortexProperties.Engine engine) {
         return new EngineSettingsDto(engine.usesDocker(), engine.runner(), engine.executable(),
                 engine.dockerImage(), engine.compressRawMetrics());

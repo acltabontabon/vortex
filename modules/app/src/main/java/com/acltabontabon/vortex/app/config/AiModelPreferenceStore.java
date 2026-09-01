@@ -12,13 +12,15 @@ import java.nio.file.Paths;
 import org.springframework.stereotype.Component;
 
 /**
- * Persists the one AI setting a user can change from Settings → Local AI: which model to use.
+ * Persists the AI settings a user can change from Settings → Local AI: which model to use, and
+ * which endpoint to reach it at.
  *
  * <p>Written to {@code ~/.vortex/config.yaml} — a fixed, home-relative path rather than one derived
  * from the (rarely relocated) workspace directory, because {@code spring.config.import} reads this
  * file during startup, before any workspace property has been resolved. {@code application.yaml}
- * imports it, so this is still the single place {@code vortex.ai.model} is configured; the settings
- * page just writes to it instead of a person editing it by hand.
+ * imports it, so this is still the single place {@code vortex.ai.model} and {@code
+ * vortex.ai.base-url} are configured; the settings page just writes to it instead of a person
+ * editing it by hand.
  */
 @Component
 public class AiModelPreferenceStore {
@@ -38,6 +40,13 @@ public class AiModelPreferenceStore {
     public void saveModel(String model) {
         ObjectNode root = load();
         root.withObject("/vortex/ai").put("model", model);
+        write(root);
+    }
+
+    /** Rewrites {@code vortex.ai.base-url} in the file, leaving every other key untouched. */
+    public void saveBaseUrl(String baseUrl) {
+        ObjectNode root = load();
+        root.withObject("/vortex/ai").put("base-url", baseUrl);
         write(root);
     }
 

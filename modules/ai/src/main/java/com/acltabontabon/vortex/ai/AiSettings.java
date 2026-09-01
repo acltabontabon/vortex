@@ -7,10 +7,10 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * How the local assistant is configured.
  *
- * <p>{@code model} is the one field a user can change while Vortex is running, from Settings →
- * Local AI — so it is held in an {@link AtomicReference} rather than fixed at startup like the
- * rest. Everything that reads it (availability probing, the chat call itself) already re-reads it
- * per request, so a change takes effect on the next call with no restart.
+ * <p>{@code baseUrl} and {@code model} are the fields a user can change while Vortex is running,
+ * from Settings → Local AI — so both are held in an {@link AtomicReference} rather than fixed at
+ * startup like the rest. Everything that reads them (availability probing, the chat call itself)
+ * already re-reads them per request, so a change takes effect on the next call with no restart.
  */
 public final class AiSettings {
 
@@ -21,8 +21,10 @@ public final class AiSettings {
      */
     private static final Duration DEFAULT_EXPLAIN_TIMEOUT = Duration.ofSeconds(30);
 
+    private static final String DEFAULT_BASE_URL = "http://localhost:11434";
+
     private final String provider;
-    private final String baseUrl;
+    private final AtomicReference<String> baseUrl;
     private final AtomicReference<String> model;
     private final Duration timeout;
     private final Duration analyzeTimeout;
@@ -50,7 +52,7 @@ public final class AiSettings {
             Duration analyzeTimeout, Duration compareTimeout, Duration explainTimeout,
             boolean logPrompts) {
         this.provider = Objects.requireNonNullElse(provider, "ollama");
-        this.baseUrl = Objects.requireNonNullElse(baseUrl, "http://localhost:11434");
+        this.baseUrl = new AtomicReference<>(normalizeBaseUrl(baseUrl));
         this.model = new AtomicReference<>(Objects.requireNonNullElse(model, "").trim());
         this.timeout = Objects.requireNonNullElse(timeout, Duration.ofMinutes(3));
         this.analyzeTimeout = Objects.requireNonNullElse(analyzeTimeout, this.timeout);
@@ -64,7 +66,7 @@ public final class AiSettings {
     }
 
     public String baseUrl() {
-        return baseUrl;
+        return baseUrl.get();
     }
 
     public String model() {
@@ -98,5 +100,14 @@ public final class AiSettings {
     /** Switches the model in place, effective for the very next request. */
     public void useModel(String newModel) {
         model.set(Objects.requireNonNullElse(newModel, "").trim());
+    }
+
+    /** Switches the Ollama endpoint in place, effective for the very next request. */
+    public void useBaseUrl(String newBaseUrl) {
+        baseUrl.set(normalizeBaseUrl(newBaseUrl));
+    }
+
+    private static String normalizeBaseUrl(String candidate) {
+        return candidate == null || candidate.isBlank() ? DEFAULT_BASE_URL : candidate.trim();
     }
 }

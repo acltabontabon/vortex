@@ -11,13 +11,18 @@ import com.acltabontabon.vortex.core.comparison.ExecutionComparison;
 import com.acltabontabon.vortex.core.comparison.RegressionVerdict;
 import com.acltabontabon.vortex.core.execution.TestExecution;
 import com.acltabontabon.vortex.core.port.PerformanceAssistant;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.support.HttpRequestWrapper;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -55,8 +60,37 @@ public class AiConfiguration {
         factory.setReadTimeout(settings.timeout());
         return OllamaApi.builder()
                 .baseUrl(settings.baseUrl())
-                .restClientBuilder(builder.requestFactory(factory))
+                .restClientBuilder(builder.requestFactory(factory)
+                        .requestInterceptor(rebaseToCurrentEndpoint(settings)))
                 .build();
+    }
+
+    /**
+     * {@code OllamaApi} bakes its base URL in at construction, but the endpoint under Settings →
+     * Local AI is one a user can change while Vortex is running (see {@link
+     * AiSettings#useBaseUrl}). This rewrites every outgoing request's scheme, host and port to
+     * whatever {@link AiSettings#baseUrl()} currently says, leaving the path and query — which is
+     * all {@code OllamaApi} itself controls — untouched, so a changed endpoint takes effect on the
+     * next call with no restart and no bean re-creation.
+     */
+    private ClientHttpRequestInterceptor rebaseToCurrentEndpoint(AiSettings settings) {
+        return (request, body, execution) -> {
+            URI current = URI.create(settings.baseUrl());
+            URI original = request.getURI();
+            URI rebased;
+            try {
+                rebased = new URI(current.getScheme(), null, current.getHost(), current.getPort(),
+                        original.getRawPath(), original.getRawQuery(), original.getRawFragment());
+            } catch (URISyntaxException e) {
+                throw new IOException("Invalid Local AI endpoint '" + settings.baseUrl() + "'", e);
+            }
+            return execution.execute(new HttpRequestWrapper(request) {
+                @Override
+                public URI getURI() {
+                    return rebased;
+                }
+            }, body);
+        };
     }
 
     @Bean

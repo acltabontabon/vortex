@@ -20,6 +20,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconCheck, IconX } from '@tabler/icons-react';
 import {
+  useChooseAiEndpointMutation,
   useChooseLoadGeneratorBudgetMutation,
   useChooseModelMutation,
   useRetryAiMutation,
@@ -77,7 +78,9 @@ export function SettingsPage() {
   const { data, isError } = useSettingsQuery();
   const retryAi = useRetryAiMutation();
   const chooseModel = useChooseModelMutation();
+  const chooseAiEndpoint = useChooseAiEndpointMutation();
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [endpointDraft, setEndpointDraft] = useState<string | null>(null);
   const chooseLoadGeneratorBudget = useChooseLoadGeneratorBudgetMutation();
   const [loadGeneratorMode, setLoadGeneratorMode] = useState<'automatic' | 'custom' | null>(null);
   const [customCpuCores, setCustomCpuCores] = useState<number | ''>('');
@@ -102,6 +105,7 @@ export function SettingsPage() {
   }
 
   const model = selectedModel ?? data.aiSettings.model;
+  const endpoint = endpointDraft ?? data.aiSettings.baseUrl;
 
   const loadGenerator = data.loadGenerator;
   const loadGeneratorModeValue = loadGeneratorMode ?? loadGenerator.configured.mode;
@@ -142,6 +146,15 @@ export function SettingsPage() {
     chooseModel.mutate(model, {
       onSuccess: (response) => {
         notifications.show({ message: response.message, color: 'pass' });
+      },
+    });
+  }
+
+  function saveEndpoint() {
+    chooseAiEndpoint.mutate(endpoint, {
+      onSuccess: (response) => {
+        notifications.show({ message: response.message, color: 'pass' });
+        setEndpointDraft(null);
       },
     });
   }
@@ -336,9 +349,6 @@ export function SettingsPage() {
               </Badge>
             </Fact>
             <Fact label="Provider">{data.aiSettings.provider}</Fact>
-            <Fact label="Endpoint">
-              <span className={classes.mono}>{data.aiSettings.baseUrl}</span>
-            </Fact>
           </Facts>
 
           {!data.aiAvailability.available && (
@@ -348,6 +358,26 @@ export function SettingsPage() {
               </Text>
             </Alert>
           )}
+
+          <Group align="flex-end" mt="md" gap="sm">
+            <TextInput
+              label="Endpoint"
+              description="Where Ollama is listening. Change it to point Vortex at a different host or port — no restart needed."
+              placeholder="http://localhost:11434"
+              value={endpoint}
+              onChange={(e) => setEndpointDraft(e.currentTarget.value)}
+              w={280}
+            />
+            <Button
+              size="sm"
+              variant="default"
+              onClick={saveEndpoint}
+              loading={chooseAiEndpoint.isPending}
+              disabled={!endpoint.trim()}
+            >
+              Save endpoint
+            </Button>
+          </Group>
 
           {data.installedModels.length > 0 ? (
             <Group align="flex-end" mt="md" gap="sm">

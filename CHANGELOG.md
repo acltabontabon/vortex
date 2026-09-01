@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- The Ollama endpoint (Settings → Local AI) is no longer fixed at startup — change it to point
+  Vortex at a different host or port, and it takes effect immediately, with no restart. It's saved
+  to `~/.vortex/config.yaml` the same way the model choice already is.
+
 ## [0.1.0-alpha.22] - 2026-08-30
 
 ### Added

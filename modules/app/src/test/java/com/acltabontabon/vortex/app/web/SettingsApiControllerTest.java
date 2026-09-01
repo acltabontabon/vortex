@@ -250,6 +250,41 @@ class SettingsApiControllerTest {
     }
 
     @Test
+    void choosingAnEndpointSavesItAndTakesEffectImmediately() throws Exception {
+        mockMvc.perform(post("/api/settings/ai/endpoint")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"baseUrl":"http://localhost:22222"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Now using http://localhost:22222."));
+
+        assertThat(aiSettings.baseUrl()).isEqualTo("http://localhost:22222");
+        verify(aiModelPreferences).saveBaseUrl("http://localhost:22222");
+        verify(ollama).refresh();
+    }
+
+    @Test
+    void rejectsAnEndpointThatIsNotAnAbsoluteHttpUrl() throws Exception {
+        mockMvc.perform(post("/api/settings/ai/endpoint")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"baseUrl":"localhost:11434"}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rejectsABlankEndpoint() throws Exception {
+        mockMvc.perform(post("/api/settings/ai/endpoint")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"baseUrl":""}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void clearingTheModelIsReportedDistinctly() throws Exception {
         mockMvc.perform(post("/api/settings/ai/model")
                         .contentType(MediaType.APPLICATION_JSON)

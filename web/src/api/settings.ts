@@ -161,6 +161,19 @@ export function useChooseModelMutation() {
   });
 }
 
+export interface ChooseAiEndpointResponse {
+  message: string;
+}
+
+export function useChooseAiEndpointMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (baseUrl: string) =>
+      apiClient.post<ChooseAiEndpointResponse>('/api/settings/ai/endpoint', { baseUrl }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+  });
+}
+
 export interface ChooseLoadGeneratorBudgetRequest {
   mode: 'automatic' | 'custom';
   cpuMillicores?: number;

@@ -19,6 +19,7 @@ let queryResult: { data: Settings | undefined; isError: boolean } = {
 };
 const retryMutate = vi.fn();
 const chooseModelMutate = vi.fn();
+const chooseAiEndpointMutate = vi.fn();
 const chooseLoadGeneratorBudgetMutate = vi.fn();
 const saveDynatraceMcpMutate = vi.fn();
 const testDynatraceMcpMutate = vi.fn();
@@ -44,6 +45,7 @@ vi.mock('../api/settings', async (importOriginal) => {
     useSettingsQuery: () => queryResult,
     useRetryAiMutation: () => ({ mutate: retryMutate, isPending: false }),
     useChooseModelMutation: () => ({ mutate: chooseModelMutate, isPending: false }),
+    useChooseAiEndpointMutation: () => ({ mutate: chooseAiEndpointMutate, isPending: false }),
     useChooseLoadGeneratorBudgetMutation: () => ({
       mutate: chooseLoadGeneratorBudgetMutate,
       isPending: false,
@@ -181,6 +183,18 @@ describe('the settings page', () => {
 
     await userEvent.click(withinCard('Local AI').getByRole('button', { name: 'Save' }));
     expect(chooseModelMutate).toHaveBeenCalledWith('qwen3:4b', expect.anything());
+  });
+
+  it('saves an edited endpoint', async () => {
+    queryResult = { data: aSettings(), isError: false };
+    renderWithProviders(<SettingsPage />);
+
+    const card = withinCard('Local AI');
+    await userEvent.clear(card.getByLabelText('Endpoint'));
+    await userEvent.type(card.getByLabelText('Endpoint'), 'http://localhost:22222');
+    await userEvent.click(card.getByRole('button', { name: 'Save endpoint' }));
+
+    expect(chooseAiEndpointMutate).toHaveBeenCalledWith('http://localhost:22222', expect.anything());
   });
 
   it('surfaces a failed load rather than a silent empty page', () => {
