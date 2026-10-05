@@ -50,8 +50,8 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
     <spring-ai.version>2.0.1</spring-ai.version>
-    <swagger-parser.version>2.1.47</swagger-parser.version>
-    <archunit.version>1.5.0</archunit.version>
+    <swagger-parser.version>2.1.48</swagger-parser.version>
+    <archunit.version>1.5.1</archunit.version>
     <commons-csv.version>1.14.1</commons-csv.version>
     <mcp-java-sdk.version>2.0.1</mcp-java-sdk.version>
   </properties>
